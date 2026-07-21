@@ -98,10 +98,12 @@ App to create or verify annotated `vX.Y.Z` and its non-draft GitHub Release.
 
 **Promote latest** is a separate manual workflow. Its only input is a completed
 stable version such as `1.0.0`. It resolves that version's annotated tag,
-derives the historical package set from the tagged snapshot, and moves those
-packages to `latest` sequentially. All promotion runs share one queue; a rerun
-skips tags already at the requested version. Selecting an older completed
-version is the rollback mechanism.
+derives the historical package set from the tagged snapshot without npm write
+authority, and then waits for approval on the `npm-promotion` environment. The
+approved job receives the package-scoped token and moves those packages to
+`latest` sequentially. All promotion runs share one queue; a rerun skips tags
+already at the requested version. Selecting an older completed version is the
+rollback mechanism.
 
 ## Patchback coordination
 
@@ -140,5 +142,6 @@ the release branches. It adds no semantic patchback verification.
 Live setup configures both packages to trust
 `publish-stable-release.yml`, provide the App variables and secret through the
 existing `release-github` environment, and store the package-scoped granular
-promotion credential as `NPM_PROMOTION_TOKEN`. The live-setup ticket owns those
-external changes and the required current npm capability recheck.
+promotion credential as `NPM_PROMOTION_TOKEN` only in a `main`-restricted,
+maintainer-approved `npm-promotion` environment. The live-setup ticket owns
+those external changes and the required current npm capability recheck.
