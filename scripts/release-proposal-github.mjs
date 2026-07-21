@@ -198,6 +198,14 @@ export async function closePullRequest(token, number) {
   });
 }
 
+export async function updatePullRequestBody(token, number, body) {
+  return githubRequest(`/repos/${PILOT_REPOSITORY}/pulls/${number}`, {
+    body: { body },
+    method: 'PATCH',
+    token,
+  });
+}
+
 export function createRefUpdate({ afterOid, beforeOid, force = false, name }) {
   if (
     name !== 'refs/heads/main' &&
