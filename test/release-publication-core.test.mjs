@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  assertOidcPublishEnvironment,
   deriveReleaseAuthority,
   exactPublication,
   lineChannel,
   promotionDisposition,
   publicationDisposition,
+  SETUP_NODE_AUTH_PLACEHOLDER,
 } from '../scripts/release-publication-core.mjs';
 import { proposalCommitMessage } from '../scripts/release-proposal-core.mjs';
 
@@ -61,6 +63,24 @@ const registryDocument = (overrides = {}) => ({
     },
   },
   ...overrides,
+});
+
+test('OIDC publication allows only setup-node’s inert auth placeholder', () => {
+  assert.doesNotThrow(() =>
+    assertOidcPublishEnvironment({
+      nodeAuthToken: SETUP_NODE_AUTH_PLACEHOLDER,
+      npmToken: undefined,
+    })
+  );
+  assert.doesNotThrow(() =>
+    assertOidcPublishEnvironment({ nodeAuthToken: undefined, npmToken: undefined })
+  );
+  assert.throws(() =>
+    assertOidcPublishEnvironment({ nodeAuthToken: 'real-token', npmToken: undefined })
+  );
+  assert.throws(() =>
+    assertOidcPublishEnvironment({ nodeAuthToken: undefined, npmToken: 'real-token' })
+  );
 });
 
 test('a canonical merge commit is the sole stable publication authority', () => {
