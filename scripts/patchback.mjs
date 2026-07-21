@@ -27,6 +27,7 @@ import {
   getReleaseByTag,
   githubRequest,
   resolveRefObject,
+  withPullRequestMergeCommit,
 } from './release-proposal-github.mjs';
 
 const execute = promisify(execFile);
@@ -259,9 +260,10 @@ const associatedPulls = async (token, oid) => {
     );
     pulls.push(...batch);
     if (batch.length < 100) {
-      return pulls;
+      break;
     }
   }
+  return Promise.all(pulls.map((pull) => withPullRequestMergeCommit(token, pull)));
 };
 
 const validateManifest = (manifest) => {

@@ -12,7 +12,10 @@ import {
   proposalCommitMessage,
   refreshReleasePrBody,
 } from '../scripts/release-proposal-core.mjs';
-import { createRefUpdate } from '../scripts/release-proposal-github.mjs';
+import {
+  createRefUpdate,
+  extractPullRequestMergeCommitOid,
+} from '../scripts/release-proposal-github.mjs';
 
 const lineState = (overrides = {}) => ({
   completedOid: null,
@@ -264,6 +267,23 @@ test('the newest completed line remains active for its next patch', () => {
     reason: 'newest line stays active',
     version: '1.0.4',
   });
+});
+
+test('merged pull request authority comes from the GraphQL merge commit', () => {
+  const oid = 'a'.repeat(40);
+  assert.equal(
+    extractPullRequestMergeCommitOid(
+      { data: { repository: { pullRequest: { mergeCommit: { oid } } } } },
+      5
+    ),
+    oid
+  );
+  assert.throws(() =>
+    extractPullRequestMergeCommitOid(
+      { data: { repository: { pullRequest: { mergeCommit: null } } } },
+      5
+    )
+  );
 });
 
 test('GitHub mutations accept only main and canonical release ref names', () => {

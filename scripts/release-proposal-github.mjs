@@ -116,7 +116,53 @@ export async function listReleasePulls(token, line) {
 }
 
 export async function getPullRequest(token, number) {
-  return githubRequest(`/repos/${PILOT_REPOSITORY}/pulls/${number}`, { token });
+  const pull = await githubRequest(`/repos/${PILOT_REPOSITORY}/pulls/${number}`, { token });
+  return withPullRequestMergeCommit(token, pull);
+}
+
+export function extractPullRequestMergeCommitOid(result, number) {
+  const oid = result?.data?.repository?.pullRequest?.mergeCommit?.oid;
+  if (!/^[0-9a-f]{40}$/.test(oid ?? '')) {
+    throw new Error(`Pull request ${number} does not expose one merged commit OID.`);
+  }
+  return oid;
+}
+
+export async function getPullRequestMergeCommitOid(token, number) {
+  if (!Number.isSafeInteger(number) || number <= 0) {
+    throw new Error('Pull request number must be one positive integer.');
+  }
+  const query = `query PullRequestMergeCommit($number: Int!) {
+    repository(owner: "fablebookjs", name: "lab-02") {
+      pullRequest(number: $number) { mergeCommit { oid } }
+    }
+  }`;
+  const response = await fetch(graphqlUrl, {
+    body: JSON.stringify({ query, variables: { number } }),
+    headers: headers(token),
+    method: 'POST',
+  });
+  if (!response.ok) {
+    throw await responseError(response);
+  }
+  const result = await response.json();
+  if (result.errors?.length) {
+    throw new Error(`GitHub could not resolve the merged PR commit: ${JSON.stringify(result.errors)}`);
+  }
+  return extractPullRequestMergeCommitOid(result, number);
+}
+
+export async function withPullRequestMergeCommit(token, pull) {
+  if (pull?.merged_at === null) {
+    return pull;
+  }
+  if (!Number.isSafeInteger(pull?.number) || pull.number <= 0) {
+    throw new Error('Merged pull request response has no positive number.');
+  }
+  return {
+    ...pull,
+    merge_commit_sha: await getPullRequestMergeCommitOid(token, pull.number),
+  };
 }
 
 export async function getGitCommit(token, oid) {
