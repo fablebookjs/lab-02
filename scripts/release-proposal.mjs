@@ -15,6 +15,7 @@ import {
   parseStableVersion,
   planProposalMaintenance,
   proposalCommitMessage,
+  refreshReleasePrBody,
   ZERO_OID,
 } from './release-proposal-core.mjs';
 import {
@@ -31,6 +32,7 @@ import {
   listReleasePulls,
   PILOT_REPOSITORY,
   resolveRefObject,
+  updatePullRequestBody,
   updateRefs,
 } from './release-proposal-github.mjs';
 import { repositoryRoot } from './list-public-packages.mjs';
@@ -779,6 +781,17 @@ async function applyMaintenance(options) {
         name: `refs/heads/staged/${action.line}`,
       }),
     ]);
+
+    if (action.kind === 'refresh') {
+      await updatePullRequestBody(
+        token,
+        action.openPr,
+        refreshReleasePrBody(openPulls[0].body, {
+          sourceOid: action.releaseOid,
+          version: action.version,
+        })
+      );
+    }
 
     if (action.kind === 'create' || action.kind === 'recreate') {
       await createDraftReleasePr(token, action);

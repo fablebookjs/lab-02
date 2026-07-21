@@ -10,6 +10,7 @@ import {
   parseProposalMessage,
   planProposalMaintenance,
   proposalCommitMessage,
+  refreshReleasePrBody,
 } from '../scripts/release-proposal-core.mjs';
 import { createRefUpdate } from '../scripts/release-proposal-github.mjs';
 
@@ -90,6 +91,31 @@ test('an open proposal refreshes in place when its release source advances', () 
     reason: 'release line advanced',
     version: '1.0.0',
   });
+});
+
+test('refreshing a proposal body updates only its exact source line', () => {
+  const oldSource = '1'.repeat(40);
+  const newSource = '2'.repeat(40);
+  const body = [
+    'Release proposal for **1.0.0**.',
+    '',
+    `Source: \`${oldSource}\``,
+    '',
+    'Merging this PR authorizes publication of its exact merge commit.',
+    '',
+    'This clean proposal supersedes #2.',
+  ].join('\n');
+
+  assert.equal(
+    refreshReleasePrBody(body, { sourceOid: newSource, version: '1.0.0' }),
+    body.replace(oldSource, newSource)
+  );
+  assert.throws(() =>
+    refreshReleasePrBody('manually replaced body', {
+      sourceOid: newSource,
+      version: '1.0.0',
+    })
+  );
 });
 
 test('a closed unmerged proposal gets a clean draft replacement', () => {
