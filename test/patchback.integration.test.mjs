@@ -20,6 +20,7 @@ test('a snapshot range treats a direct merge as one first-parent patchback item'
     await git(['init', '-b', 'main'], root);
     await git(['config', 'user.name', 'Lab 02 test'], root);
     await git(['config', 'user.email', 'lab-02-test@example.com'], root);
+    await git(['config', 'maintenance.auto', 'false'], root);
     await writeFile(join(root, 'history.txt'), 'release cut\n', 'utf8');
     await git(['add', 'history.txt'], root);
     await git(['commit', '-m', 'release cut'], root);
@@ -66,6 +67,6 @@ test('a snapshot range treats a direct merge as one first-parent patchback item'
     );
     assert.equal(items[1].command, `git cherry-pick -m 1 ${mergeOid}`);
   } finally {
-    await rm(root, { force: true, recursive: true });
+    await rm(root, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
   }
 });
