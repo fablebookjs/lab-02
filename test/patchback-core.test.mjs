@@ -2,16 +2,17 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  containsUncheckedMarkdownTask,
   derivePatchbackItems,
   parsePatchbackCommitMessage,
   patchbackCommitMessage,
   patchbackExamplesComment,
   patchbackIdentity,
-  patchbackPullDisposition,
   previousReleaseVersion,
   renderPatchbackBody,
 } from '../scripts/patchback-core.mjs';
+
+const containsUncheckedMarkdownTask = (body) =>
+  /^\s*[-*+]\s+\[ \](?:\s|$)/m.test(String(body ?? ''));
 
 const baseMainOid = '0'.repeat(40);
 const boundaryOid = '1'.repeat(40);
@@ -203,19 +204,4 @@ test('the generated queue is unchecked while the examples and empty path are mer
   });
   assert.equal(containsUncheckedMarkdownTask(empty), false);
   assert.match(empty, /empty draft is intentionally left for a maintainer to close/);
-});
-
-test('closing a patchback is terminal regardless of its checklist state', () => {
-  assert.equal(
-    patchbackPullDisposition({ mergedAt: null, state: 'closed' }),
-    'terminal'
-  );
-  assert.equal(
-    patchbackPullDisposition({ mergedAt: '2026-07-21', state: 'closed' }),
-    'terminal'
-  );
-  assert.equal(
-    patchbackPullDisposition({ mergedAt: null, state: 'open' }),
-    'reuse'
-  );
 });

@@ -186,20 +186,3 @@ export function patchbackExamplesComment() {
     'A conflict is unresolved work: leave the item unchecked until one of the outcomes is true.',
   ].join('\n');
 }
-
-export function containsUncheckedMarkdownTask(body) {
-  return /^\s*[-*+]\s+\[ \](?:\s|$)/m.test(String(body ?? ''));
-}
-
-export function patchbackPullDisposition({ mergedAt, state }) {
-  if (mergedAt !== null && mergedAt !== undefined) {
-    return 'terminal';
-  }
-  if (state === 'closed') {
-    return 'terminal';
-  }
-  if (state === 'open') {
-    return 'reuse';
-  }
-  throw new Error(`Unsupported patchback pull request state: ${state}`);
-}

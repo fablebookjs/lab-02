@@ -11,7 +11,6 @@ import {
   patchbackCommitMessage,
   patchbackExamplesComment,
   patchbackIdentity,
-  patchbackPullDisposition,
   previousReleaseVersion,
   renderPatchbackBody,
 } from './patchback-core.mjs';
@@ -560,29 +559,12 @@ async function applyPatchback(options) {
   let pull = pulls[0] ?? null;
   if (pull !== null) {
     validateExistingPull(pull, manifest);
-    const disposition = patchbackPullDisposition({
-      mergedAt: pull.merged_at,
-      state: pull.state,
-    });
-    if (disposition === 'terminal') {
-      console.log(`Patchback #${pull.number} is already resolved and closed.`);
-      return;
-    }
+    console.log(`Patchback #${pull.number} already exists; no action is required.`);
+    return;
   }
 
   const branchRefName = `heads/${manifest.branch}`;
   let branch = await getRef(token, branchRefName);
-  if (branch === null && pull !== null) {
-    const coordination = await findCoordinationCommit(token, pull.head.sha, manifest);
-    await verifyMainAncestry(token, coordination.baseMainOid);
-    await githubRequest(`/repos/${PILOT_REPOSITORY}/git/refs`, {
-      body: { ref: `refs/${branchRefName}`, sha: pull.head.sha },
-      method: 'POST',
-      token,
-    });
-    branch = { oid: pull.head.sha, type: 'commit' };
-  }
-
   if (branch === null) {
     const main = await getRef(token, 'heads/main');
     if (main?.oid !== manifest.baseMainOid || main.type !== 'commit') {
@@ -614,21 +596,19 @@ async function applyPatchback(options) {
   const coordination = await findCoordinationCommit(token, branch.oid, manifest);
   await verifyMainAncestry(token, coordination.baseMainOid);
 
-  if (pull === null) {
-    pull = await githubRequest(`/repos/${PILOT_REPOSITORY}/pulls`, {
-      body: {
-        base: 'main',
-        body: manifest.body,
-        draft: true,
-        head: manifest.branch,
-        maintainer_can_modify: false,
-        title: manifest.title,
-      },
-      method: 'POST',
-      token,
-    });
-    validateExistingPull(pull, manifest);
-  }
+  pull = await githubRequest(`/repos/${PILOT_REPOSITORY}/pulls`, {
+    body: {
+      base: 'main',
+      body: manifest.body,
+      draft: true,
+      head: manifest.branch,
+      maintainer_can_modify: false,
+      title: manifest.title,
+    },
+    method: 'POST',
+    token,
+  });
+  validateExistingPull(pull, manifest);
 
   await ensureExamplesComment(token, pull.number, manifest.comment);
   console.log(`Patchback #${pull.number} is open for ${manifest.authority.version}.`);
