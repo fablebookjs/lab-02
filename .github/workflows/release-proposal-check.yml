@@ -1,0 +1,36 @@
+name: Release proposal check
+
+on:
+  pull_request:
+    branches:
+      - 'releases/v*'
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+permissions:
+  contents: read
+
+jobs:
+  current-source:
+    if: >-
+      github.repository == 'fablebookjs/lab-02' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.head_ref, 'staged/v')
+    name: release proposal uses current source
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the proposed commit without persisted credentials
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Use Node.js 22
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+      - name: Bind the proposal to the current release head
+        run: node scripts/release-proposal.mjs check-pr

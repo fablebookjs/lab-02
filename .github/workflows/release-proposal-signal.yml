@@ -1,0 +1,37 @@
+name: Release proposal signal
+
+on:
+  push:
+    branches:
+      - 'releases/v*'
+  pull_request_target:
+    branches:
+      - 'releases/v*'
+    types:
+      - closed
+
+permissions: {}
+
+jobs:
+  signal:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake the trusted main controller
+        run: ':'
+      - name: Record the closed pull request without checking out code
+        if: github.event_name == 'pull_request_target'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SIGNAL: ${{ runner.temp }}/release-pr.json
+        run: |
+          if [[ ! "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            exit 1
+          fi
+          printf '{"pullRequest":%s}\n' "$PR_NUMBER" > "$SIGNAL"
+      - name: Transfer the inert pull request identity
+        if: github.event_name == 'pull_request_target'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-pr-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-pr.json
+          retention-days: 1

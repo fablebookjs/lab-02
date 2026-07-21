@@ -1,0 +1,33 @@
+{
+  "name": "@fablebook/lab-02-core",
+  "version": "1.0.0-alpha.0",
+  "description": "Small core package for the Fablebook multi-line release pilot",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "compile": "tsc -b"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fablebookjs/lab-02.git",
+    "directory": "packages/core"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
+}

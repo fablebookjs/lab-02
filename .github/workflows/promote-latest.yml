@@ -1,0 +1,62 @@
+name: Promote latest
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Completed stable version to make latest, for example 10.2.3
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-latest-promotion
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    if: github.repository == 'fablebookjs/lab-02' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out only the trusted main controller
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          path: controller
+          persist-credentials: false
+          ref: main
+      - name: Use npm with dist-tag support
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org
+      - name: Resolve the completed release before exposing the promotion token
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: >-
+          node controller/scripts/release-publication.mjs resolve-promotion
+          --version "$RELEASE_VERSION"
+          --github-output "$GITHUB_OUTPUT"
+      - name: Check out the historical package set as inert data
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          path: snapshot
+          persist-credentials: false
+          ref: ${{ steps.release.outputs.snapshot }}
+      - name: Pin the npm dist-tag client
+        run: npm install --global npm@12.0.1
+      - name: Move the complete historical package set to latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_PROMOTION_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: >-
+          node controller/scripts/release-publication.mjs promote
+          --version "$RELEASE_VERSION"
+          --snapshot "$GITHUB_WORKSPACE/snapshot"

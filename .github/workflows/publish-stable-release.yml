@@ -1,0 +1,184 @@
+name: Publish stable release
+
+on:
+  workflow_run:
+    workflows:
+      - Release proposal signal
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+jobs:
+  prepare:
+    if: >-
+      github.repository == 'fablebookjs/lab-02' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request_target'
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.resolve.outputs.publish }}
+      snapshot: ${{ steps.resolve.outputs.snapshot }}
+    steps:
+      - name: Check out only the trusted main controller
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          path: controller
+          persist-credentials: false
+          ref: main
+      - name: Use the trusted-publishing Node.js line
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Download the inert release pull request identity
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          github-token: ${{ github.token }}
+          name: release-pr-${{ github.event.workflow_run.id }}
+          path: ${{ runner.temp }}/release-signal
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: Resolve the exact authorized snapshot from GitHub
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          node controller/scripts/release-publication.mjs resolve
+          --signal "${{ runner.temp }}/release-signal/release-pr.json"
+          --output "${{ runner.temp }}/release-publication"
+          --github-output "$GITHUB_OUTPUT"
+      - name: Pin the publication packer
+        if: steps.resolve.outputs.publish == 'true'
+        run: npm install --global npm@12.0.1
+      - name: Check out the authorized snapshot without persisted credentials
+        if: steps.resolve.outputs.publish == 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          path: snapshot
+          persist-credentials: false
+          ref: ${{ steps.resolve.outputs.snapshot }}
+      - name: Install, compile, and test the authorized snapshot
+        if: steps.resolve.outputs.publish == 'true'
+        working-directory: snapshot
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run check
+      - name: Pack the complete package set without publication authority
+        if: steps.resolve.outputs.publish == 'true'
+        run: >-
+          node controller/scripts/release-publication.mjs prepare
+          --authority "${{ runner.temp }}/release-publication/authority.json"
+          --snapshot "$GITHUB_WORKSPACE/snapshot"
+          --output "${{ runner.temp }}/release-publication"
+      - name: Transfer the inert publication manifest and tarballs
+        if: steps.resolve.outputs.publish == 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: stable-publication-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/release-publication/publication.json
+            ${{ runner.temp }}/release-publication/tarballs
+          retention-days: 1
+
+  publish:
+    needs: prepare
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      pull-requests: read
+    steps:
+      - name: Check out only the trusted main controller
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          path: controller
+          persist-credentials: false
+          ref: main
+      - name: Check out the authorized snapshot as inert data
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          path: snapshot
+          persist-credentials: false
+          ref: ${{ needs.prepare.outputs.snapshot }}
+      - name: Use npm with trusted publishing support
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org
+      - name: Pin the npm trusted-publishing client
+        run: npm install --global npm@12.0.1
+      - name: Download the prepared package set
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: stable-publication-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-publication
+      - name: Query first and publish only missing exact packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          node controller/scripts/release-publication.mjs publish
+          --manifest "${{ runner.temp }}/release-publication/publication.json"
+          --tarballs "${{ runner.temp }}/release-publication/tarballs"
+          --snapshot "$GITHUB_WORKSPACE/snapshot"
+
+  finalize:
+    needs:
+      - prepare
+      - publish
+    runs-on: ubuntu-latest
+    environment: release-github
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check out only the trusted main controller
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          path: controller
+          persist-credentials: false
+          ref: main
+      - name: Check out the authorized snapshot as inert data
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          path: snapshot
+          persist-credentials: false
+          ref: ${{ needs.prepare.outputs.snapshot }}
+      - name: Use Node.js 24
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Download the completed publication manifest
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: stable-publication-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-publication
+      - name: Mint the repository-scoped release App token
+        id: release-app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: read
+      - name: Verify publication and complete the immutable release
+        env:
+          GH_TOKEN: ${{ steps.release-app.outputs.token }}
+        run: >-
+          node controller/scripts/release-publication.mjs finalize
+          --manifest "${{ runner.temp }}/release-publication/publication.json"
+          --snapshot "$GITHUB_WORKSPACE/snapshot"

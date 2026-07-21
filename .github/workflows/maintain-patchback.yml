@@ -1,0 +1,124 @@
+name: Maintain patchback
+
+on:
+  workflow_run:
+    workflows:
+      - Release proposal signal
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: patchback-writes
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: >-
+      github.repository == 'fablebookjs/lab-02' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request_target'
+    runs-on: ubuntu-latest
+    outputs:
+      patchback: ${{ steps.resolve.outputs.patchback }}
+      snapshot: ${{ steps.resolve.outputs.snapshot }}
+    steps:
+      - name: Check out only the trusted main controller
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          path: controller
+          persist-credentials: false
+          ref: main
+      - name: Use Node.js 22
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Download the inert release pull request identity
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          github-token: ${{ github.token }}
+          name: release-pr-${{ github.event.workflow_run.id }}
+          path: ${{ runner.temp }}/release-signal
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: Resolve the exact authorized snapshot from GitHub
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          node controller/scripts/patchback.mjs resolve
+          --signal "${{ runner.temp }}/release-signal/release-pr.json"
+          --output "${{ runner.temp }}/patchback"
+          --github-output "$GITHUB_OUTPUT"
+      - name: Check out the authorized snapshot as inert history
+        if: steps.resolve.outputs.patchback == 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          path: snapshot
+          persist-credentials: false
+          ref: ${{ steps.resolve.outputs.snapshot }}
+      - name: Derive the ordered release-line scope without write authority
+        if: steps.resolve.outputs.patchback == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          node controller/scripts/patchback.mjs prepare
+          --authority "${{ runner.temp }}/patchback/authority.json"
+          --controller "$GITHUB_WORKSPACE/controller"
+          --snapshot "$GITHUB_WORKSPACE/snapshot"
+          --output "${{ runner.temp }}/patchback"
+      - name: Transfer the inert patchback manifest
+        if: steps.resolve.outputs.patchback == 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: patchback-${{ github.run_id }}
+          path: ${{ runner.temp }}/patchback/patchback.json
+          retention-days: 1
+
+  apply:
+    needs: prepare
+    if: needs.prepare.outputs.patchback == 'true'
+    runs-on: ubuntu-latest
+    environment: release-github
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check out only the trusted main controller
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: main
+      - name: Use Node.js 22
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Download the prepared patchback manifest
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: patchback-${{ github.run_id }}
+          path: ${{ runner.temp }}/patchback
+      - name: Mint the repository-scoped release App token
+        id: release-app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Create or reuse the one coordination pull request
+        env:
+          GH_TOKEN: ${{ steps.release-app.outputs.token }}
+        run: >-
+          node scripts/patchback.mjs apply
+          --manifest "${{ runner.temp }}/patchback/patchback.json"

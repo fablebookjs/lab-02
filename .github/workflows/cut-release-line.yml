@@ -1,0 +1,91 @@
+name: Cut release line
+
+on:
+  workflow_dispatch:
+    inputs:
+      next-development:
+        description: Version line carried by main after this cut
+        required: true
+        type: choice
+        options:
+          - minor
+          - major
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-proposal-writes
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.repository == 'fablebookjs/lab-02' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out current main without persisted credentials
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: main
+      - name: Use Node.js 22
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+      - name: Install the locked workspace
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Compile and test the trusted controller
+        run: npm run compile && npm test
+      - name: Materialize and validate both children of main
+        env:
+          NEXT_DEVELOPMENT: ${{ inputs.next-development }}
+          OUTPUT: ${{ runner.temp }}/release-cut
+        run: >-
+          node scripts/release-proposal.mjs prepare-cut
+          --next-development "$NEXT_DEVELOPMENT"
+          --output "$OUTPUT"
+      - name: Transfer inert Git objects and their transition manifest
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-cut-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/release-cut/objects.bundle
+            ${{ runner.temp }}/release-cut/transition.json
+          retention-days: 1
+
+  apply:
+    needs: prepare
+    runs-on: ubuntu-latest
+    environment: release-github
+    steps:
+      - name: Check out only the trusted main controller
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: main
+      - name: Use Node.js 22
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+      - name: Download the prepared transition
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: release-cut-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-cut
+      - name: Mint the repository-scoped release App token
+        id: release-app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Atomically cut the line and open its draft proposal
+        env:
+          GH_TOKEN: ${{ steps.release-app.outputs.token }}
+        run: >-
+          node scripts/release-proposal.mjs apply-cut
+          --transition "${{ runner.temp }}/release-cut/transition.json"
+          --bundle "${{ runner.temp }}/release-cut/objects.bundle"

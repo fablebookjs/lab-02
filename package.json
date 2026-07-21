@@ -1,0 +1,24 @@
+{
+  "name": "@fablebook/lab-02",
+  "version": "1.0.0-alpha.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "check": "npm run clean && npm run compile && npm test && npm run smoke:packed",
+    "clean": "tsc -b --clean",
+    "compile": "tsc -b",
+    "list-packages": "node scripts/list-public-packages.mjs",
+    "set-version": "node scripts/set-version.mjs",
+    "smoke:packed": "node scripts/consumer-smoke.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,30 @@
+name: Pull request description check
+
+on:
+  pull_request_target:
+    types:
+      - edited
+      - opened
+      - ready_for_review
+      - reopened
+      - synchronize
+
+permissions: {}
+
+jobs:
+  description:
+    name: PR description has no unchecked tasks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject unchecked Markdown tasks
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          node --input-type=module <<'NODE'
+          const body = process.env.PR_BODY ?? '';
+          if (/^\s*[-*+]\s+\[ \](?:\s|$)/m.test(body)) {
+            console.error('Resolve every unchecked Markdown task in the pull request description.');
+            process.exit(1);
+          }
+          console.log('The pull request description has no unchecked Markdown tasks.');
+          NODE
