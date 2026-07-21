@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { formatSummary, total } from '@fablebook/lab-02-addon';
-import { add } from '@fablebook/lab-02-core';
+import { add, normalizeLabel } from '@fablebook/lab-02-core';
 
 import { listPublicPackages, repositoryRoot } from '../scripts/list-public-packages.mjs';
 
@@ -35,4 +35,8 @@ test('the compiled addon exercises the compiled core package', () => {
   assert.equal(add(2, 3), 5);
   assert.equal(total([1, 2, 3]), 6);
   assert.equal(formatSummary(' Demo ', [2, 3]), 'demo:5');
+});
+
+test('the core label API accepts an optional locale', () => {
+  assert.equal(normalizeLabel(' I ', 'tr'), 'ı');
 });
