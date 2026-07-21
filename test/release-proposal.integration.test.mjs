@@ -35,6 +35,7 @@ test('prepare-cut creates two validated children and no repository refs', async 
     await git(['init', '-b', 'main'], repository);
     await git(['config', 'user.name', 'Lab 02 test'], repository);
     await git(['config', 'user.email', 'lab-02-test@example.com'], repository);
+    await git(['config', 'maintenance.auto', 'false'], repository);
     await run(
       process.execPath,
       ['scripts/set-version.mjs', '1.0.0-alpha.0'],
@@ -140,6 +141,11 @@ test('prepare-cut creates two validated children and no repository refs', async 
       transition.developmentOid
     );
   } finally {
-    await rm(temporaryRoot, { force: true, recursive: true });
+    await rm(temporaryRoot, {
+      force: true,
+      maxRetries: 5,
+      recursive: true,
+      retryDelay: 100,
+    });
   }
 });
