@@ -2,6 +2,16 @@ import { parseProposalMessage, parseReleaseLine, parseStableVersion } from './re
 
 export const NPM_REGISTRY = 'https://registry.npmjs.org/';
 export const PILOT_REPOSITORY = 'fablebookjs/lab-02';
+export const SETUP_NODE_AUTH_PLACEHOLDER = 'XXXXX-XXXXX-XXXXX-XXXXX';
+
+export function assertOidcPublishEnvironment({ nodeAuthToken, npmToken }) {
+  if (
+    npmToken ||
+    (nodeAuthToken && nodeAuthToken !== SETUP_NODE_AUTH_PLACEHOLDER)
+  ) {
+    throw new Error('Stable publication must use npm OIDC, not an ambient npm token.');
+  }
+}
 
 const fullOid = (value, label) => {
   if (!/^[0-9a-f]{40}$/.test(value ?? '')) {

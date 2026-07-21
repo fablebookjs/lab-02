@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 
 import { listPublicPackages } from './list-public-packages.mjs';
 import {
+  assertOidcPublishEnvironment,
   deriveReleaseAuthority,
   exactPublication,
   lineChannel,
@@ -376,9 +377,10 @@ const observeExactPublication = async (manifest, pkg) =>
 
 async function publishPackages(options) {
   ensureTrustedMain();
-  if (process.env.NODE_AUTH_TOKEN || process.env.NPM_TOKEN) {
-    throw new Error('Stable publication must use npm OIDC, not an ambient npm token.');
-  }
+  assertOidcPublishEnvironment({
+    nodeAuthToken: process.env.NODE_AUTH_TOKEN,
+    npmToken: process.env.NPM_TOKEN,
+  });
   const { manifest } = await loadPublication(options);
   const tarballs = resolve(requireOption(options, 'tarballs'));
   await verifyTarballs(manifest, tarballs);
