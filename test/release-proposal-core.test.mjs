@@ -269,6 +269,63 @@ test('the newest completed line remains active for its next patch', () => {
   });
 });
 
+test('the exact completed staged proposal is replaced by the next patch proposal', () => {
+  const completedOid = '9'.repeat(40);
+  const completedProposalOid = '8'.repeat(40);
+  const [action] = planProposalMaintenance([
+    lineState({
+      completedOid,
+      completedVersion: '1.0.3',
+      latestClosedPr: {
+        headOid: completedProposalOid,
+        mergeCommitOid: completedOid,
+        merged: true,
+        number: 18,
+        version: '1.0.3',
+      },
+      releaseOid: '7'.repeat(40),
+      staged: {
+        oid: completedProposalOid,
+        sourceOid: '6'.repeat(40),
+        version: '1.0.3',
+      },
+    }),
+  ]);
+  assert.deepEqual(action, {
+    kind: 'create',
+    line: 'v1.0',
+    reason: 'completed proposal advances to next patch',
+    version: '1.0.4',
+  });
+});
+
+test('an unrelated staged version mismatch still fails closed after completion', () => {
+  const completedOid = '9'.repeat(40);
+  assert.throws(
+    () =>
+      planProposalMaintenance([
+        lineState({
+          completedOid,
+          completedVersion: '1.0.3',
+          latestClosedPr: {
+            headOid: '8'.repeat(40),
+            mergeCommitOid: completedOid,
+            merged: true,
+            number: 18,
+            version: '1.0.3',
+          },
+          releaseOid: completedOid,
+          staged: {
+            oid: '7'.repeat(40),
+            sourceOid: '6'.repeat(40),
+            version: '1.0.3',
+          },
+        }),
+      ]),
+    /v1\.0 reserves 1\.0\.3, expected 1\.0\.4/
+  );
+});
+
 test('merged pull request authority comes from the GraphQL merge commit', () => {
   const oid = 'a'.repeat(40);
   assert.equal(

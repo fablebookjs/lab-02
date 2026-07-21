@@ -250,6 +250,24 @@ export function planProposalMaintenance(lines) {
       };
     }
 
+    const completedProposalIsStillStaged =
+      state.staged !== null &&
+      state.completedOid !== null &&
+      state.completedVersion !== null &&
+      state.latestClosedPr?.merged === true &&
+      state.latestClosedPr.headOid === state.staged.oid &&
+      state.latestClosedPr.mergeCommitOid === state.completedOid &&
+      state.latestClosedPr.version === state.completedVersion &&
+      state.staged.version === state.completedVersion;
+    if (completedProposalIsStillStaged) {
+      return {
+        kind: 'create',
+        line: state.line,
+        reason: 'completed proposal advances to next patch',
+        version: expectedVersion,
+      };
+    }
+
     if (state.staged !== null) {
       if (state.staged.version !== expectedVersion) {
         throw new Error(
