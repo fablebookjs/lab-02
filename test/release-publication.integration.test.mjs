@@ -37,7 +37,7 @@ test('the authorized stable snapshot packs the complete lockstep package set', a
     await git(['commit', '-m', 'seed'], repository);
     await run(process.execPath, ['scripts/set-version.mjs', '1.0.0'], repository);
     await git(['add', 'package.json', 'package-lock.json', 'packages'], repository);
-    await git(['commit', '-m', 'release: materialize 1.0.0'], repository);
+    await git(['commit', '--allow-empty', '-m', 'release: materialize 1.0.0'], repository);
     const snapshotOid = (await git(['rev-parse', 'HEAD'], repository)).stdout.trim();
 
     await writeFile(
