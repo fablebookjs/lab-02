@@ -1,6 +1,6 @@
 {
   "name": "@fablebook/lab-02-addon",
-  "version": "2.0.0-alpha.0",
+  "version": "2.1.0-alpha.0",
   "description": "Small addon package for the Fablebook multi-line release pilot",
   "type": "module",
   "sideEffects": false,
@@ -19,7 +19,7 @@
     "compile": "tsc -b"
   },
   "dependencies": {
-    "@fablebook/lab-02-core": "2.0.0-alpha.0"
+    "@fablebook/lab-02-core": "2.1.0-alpha.0"
   },
   "engines": {
     "node": ">=22"
