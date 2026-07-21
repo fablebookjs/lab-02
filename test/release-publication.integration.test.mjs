@@ -33,6 +33,7 @@ test('the authorized stable snapshot packs the complete lockstep package set', a
     await git(['init', '-b', 'main'], repository);
     await git(['config', 'user.name', 'Lab 02 test'], repository);
     await git(['config', 'user.email', 'lab-02-test@example.com'], repository);
+    await git(['config', 'maintenance.auto', 'false'], repository);
     await git(['add', '.'], repository);
     await git(['commit', '-m', 'seed'], repository);
     await run(process.execPath, ['scripts/set-version.mjs', '1.0.0'], repository);
@@ -89,6 +90,11 @@ test('the authorized stable snapshot packs the complete lockstep package set', a
     );
     assert.ok(manifest.packages.every(({ integrity }) => integrity.startsWith('sha512-')));
   } finally {
-    await rm(temporaryRoot, { force: true, recursive: true });
+    await rm(temporaryRoot, {
+      force: true,
+      maxRetries: 5,
+      recursive: true,
+      retryDelay: 100,
+    });
   }
 });
