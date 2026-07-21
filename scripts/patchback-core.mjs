@@ -191,12 +191,12 @@ export function containsUncheckedMarkdownTask(body) {
   return /^\s*[-*+]\s+\[ \](?:\s|$)/m.test(String(body ?? ''));
 }
 
-export function patchbackPullDisposition({ body, mergedAt, state }) {
+export function patchbackPullDisposition({ mergedAt, state }) {
   if (mergedAt !== null && mergedAt !== undefined) {
     return 'terminal';
   }
   if (state === 'closed') {
-    return containsUncheckedMarkdownTask(body) ? 'reopen' : 'terminal';
+    return 'terminal';
   }
   if (state === 'open') {
     return 'reuse';

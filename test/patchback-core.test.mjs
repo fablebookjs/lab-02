@@ -205,21 +205,17 @@ test('the generated queue is unchecked while the examples and empty path are mer
   assert.match(empty, /empty draft is intentionally left for a maintainer to close/);
 });
 
-test('only a closed unresolved patchback is reopened', () => {
+test('closing a patchback is terminal regardless of its checklist state', () => {
   assert.equal(
-    patchbackPullDisposition({ body: '- [ ] unresolved', mergedAt: null, state: 'closed' }),
-    'reopen'
-  );
-  assert.equal(
-    patchbackPullDisposition({ body: '- [x] accounted', mergedAt: null, state: 'closed' }),
+    patchbackPullDisposition({ mergedAt: null, state: 'closed' }),
     'terminal'
   );
   assert.equal(
-    patchbackPullDisposition({ body: '- [ ] stale body', mergedAt: '2026-07-21', state: 'closed' }),
+    patchbackPullDisposition({ mergedAt: '2026-07-21', state: 'closed' }),
     'terminal'
   );
   assert.equal(
-    patchbackPullDisposition({ body: '- [ ] unresolved', mergedAt: null, state: 'open' }),
+    patchbackPullDisposition({ mergedAt: null, state: 'open' }),
     'reuse'
   );
 });

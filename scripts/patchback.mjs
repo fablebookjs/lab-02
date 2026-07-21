@@ -561,7 +561,6 @@ async function applyPatchback(options) {
   if (pull !== null) {
     validateExistingPull(pull, manifest);
     const disposition = patchbackPullDisposition({
-      body: pull.body,
       mergedAt: pull.merged_at,
       state: pull.state,
     });
@@ -626,13 +625,6 @@ async function applyPatchback(options) {
         title: manifest.title,
       },
       method: 'POST',
-      token,
-    });
-    validateExistingPull(pull, manifest);
-  } else if (pull.state === 'closed') {
-    pull = await githubRequest(`/repos/${PILOT_REPOSITORY}/pulls/${pull.number}`, {
-      body: { state: 'open' },
-      method: 'PATCH',
       token,
     });
     validateExistingPull(pull, manifest);
