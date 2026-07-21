@@ -6,7 +6,7 @@ package count or build system. It was initially provisioned from an exact seed
 in the private `fablebookjs/plan` repository; subsequent pilot operations live
 in this repository's own history.
 
-The workspace contains two public packages at one lockstep version:
+The workspace contains 2 public packages at one lockstep version:
 
 - `@fablebook/lab-02-core`
 - `@fablebook/lab-02-addon`, which depends on that exact version of core
