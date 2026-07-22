@@ -107,6 +107,17 @@ test('a recreated proposal starts with fresh checks and can adopt template prose
   assert.match(render({ template: revisedTemplate }), /## Release operator guide/);
 });
 
+test('the dependency-free template fails on unknown or omitted placeholders', () => {
+  assert.throws(
+    () => render({ template: `${template}\n{{unknown_value}}\n` }),
+    /unknown placeholder/
+  );
+  assert.throws(
+    () => render({ template: template.replaceAll('{{npm_channel}}', 'stable channel') }),
+    /omits placeholders: npm_channel/
+  );
+});
+
 test('duplicate identities and noncanonical links fail closed', () => {
   assert.throws(() => render({ changes: [...initialChanges, initialChanges[0]] }), /repeat identity/);
   assert.throws(

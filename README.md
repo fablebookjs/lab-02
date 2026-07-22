@@ -75,11 +75,12 @@ source S ── proposal P (stable X.Y.0) ──▶ staged/vX.Y
 Every newly created or recreated release PR starts as a draft. Refreshing an
 open proposal updates its existing staged branch, so the PR and its discussion
 remain in place. Its body is rendered from
-[`.github/release-pr-template.md`](.github/release-pr-template.md), which keeps
-the maintainer procedure reviewable without embedding prose in controller
-code. The generated included-change checklist links each release-line merge or
-direct commit. A refresh preserves checked items by their hidden PR or commit
-identity and adds new changes unchecked; a clean replacement starts fresh.
+[`.github/release-pr-template.md`](.github/release-pr-template.md), which uses
+dependency-free named placeholders and keeps the maintainer procedure
+reviewable without embedding prose in controller code. The generated
+included-change checklist links each release-line merge or direct commit. A
+refresh preserves checked items by their hidden PR or commit identity and adds
+new changes unchecked; a clean replacement starts fresh.
 
 Each proposal also has one companion **Release QA** issue. QA findings are
 created as its sub-issues, while the release PR remains the publication
