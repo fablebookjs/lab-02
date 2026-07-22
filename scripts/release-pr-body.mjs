@@ -1,5 +1,3 @@
-import Mustache from 'mustache';
-
 import { parseReleaseLine, parseStableVersion } from './release-proposal-core.mjs';
 
 const REPOSITORY = 'fablebookjs/lab-02';
@@ -12,6 +10,7 @@ const taskPattern =
 const qaIssuePattern = /<!-- fablebook:qa-issue=([1-9]\d*) -->/g;
 const proposalIdentityPattern =
   /<!-- fablebook:proposal=([0-9a-f]{40}) source=([0-9a-f]{40}) version=([^ ]+) -->/g;
+const placeholderPattern = /{{([a-z][a-z0-9_]*)}}/g;
 
 const fullOid = (value, label) => {
   if (!fullOidPattern.test(value ?? '')) {
@@ -156,6 +155,32 @@ const smokeCommands = (packageNames, channel) => {
   ].join('\n');
 };
 
+const renderChanges = (changes) =>
+  changes.length === 0
+    ? '_No release-line changes have been added since this release boundary._'
+    : changes
+        .map(
+          ({ checkmark, key, title, url }) =>
+            `- [${checkmark}] [${title}](${url}) <!-- fablebook:change=${key} -->`
+        )
+        .join('\n');
+
+const renderTemplate = (template, view) => {
+  const used = new Set();
+  const rendered = template.replace(placeholderPattern, (_, name) => {
+    if (!Object.hasOwn(view, name)) {
+      throw new Error(`Release PR template uses unknown placeholder {{${name}}}.`);
+    }
+    used.add(name);
+    return String(view[name]);
+  });
+  const unused = Object.keys(view).filter((name) => !used.has(name));
+  if (unused.length > 0) {
+    throw new Error(`Release PR template omits placeholders: ${unused.join(', ')}.`);
+  }
+  return rendered;
+};
+
 export function renderReleasePrBody({
   changes,
   line,
@@ -202,7 +227,7 @@ export function renderReleasePrBody({
   const npmVersionsUrl = `https://www.npmjs.com/package/${uniquePackages[0]}?activeTab=versions`;
   const view = {
     changelog_url: `${repositoryUrl}/blob/main/CHANGELOG.md`,
-    changes: renderedChanges,
+    changes: renderChanges(renderedChanges),
     discussions_checkmark: states.get('check:discussions-resolved') ? 'x' : ' ',
     github_release_url: `${repositoryUrl}/releases/tag/v${version}`,
     line,
@@ -226,8 +251,15 @@ export function renderReleasePrBody({
     release_docs_checkmark: states.get('check:release-docs-reviewed') ? 'x' : ' ',
     release_short_oid: releaseOid.slice(0, 7),
     smoke_test_commands: smokeCommands(uniquePackages, channel),
-    superseded_pr: supersededPr,
+    superseded_notice:
+      supersededPr === undefined
+        ? ''
+        : [
+            '---',
+            '',
+            `This clean proposal supersedes [#${supersededPr}](${repositoryUrl}/pull/${supersededPr}).`,
+          ].join('\n'),
     version,
   };
-  return `${Mustache.render(template, view).trim()}\n`;
+  return `${renderTemplate(template, view).trim()}\n`;
 }
