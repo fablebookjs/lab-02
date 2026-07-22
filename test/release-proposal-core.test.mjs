@@ -10,11 +10,11 @@ import {
   parseProposalMessage,
   planProposalMaintenance,
   proposalCommitMessage,
-  refreshReleasePrBody,
 } from '../scripts/release-proposal-core.mjs';
 import {
   createRefUpdate,
   extractPullRequestMergeCommitOid,
+  releaseQaIssueMarker,
 } from '../scripts/release-proposal-github.mjs';
 
 const lineState = (overrides = {}) => ({
@@ -96,29 +96,24 @@ test('an open proposal refreshes in place when its release source advances', () 
   });
 });
 
-test('refreshing a proposal body updates only its exact source line', () => {
-  const oldSource = '1'.repeat(40);
-  const newSource = '2'.repeat(40);
-  const body = [
-    'Release proposal for **1.0.0**.',
-    '',
-    `Source: \`${oldSource}\``,
-    '',
-    'Merging this PR authorizes publication of its exact merge commit.',
-    '',
-    'This clean proposal supersedes #2.',
-  ].join('\n');
-
-  assert.equal(
-    refreshReleasePrBody(body, { sourceOid: newSource, version: '1.0.0' }),
-    body.replace(oldSource, newSource)
-  );
-  assert.throws(() =>
-    refreshReleasePrBody('manually replaced body', {
-      sourceOid: newSource,
-      version: '1.0.0',
-    })
-  );
+test('a current proposal repairs a stale generated body without replacing its commit', () => {
+  const [action] = planProposalMaintenance([
+    lineState({
+      openPr: { bodyCurrent: false, number: 12 },
+      staged: {
+        oid: '3'.repeat(40),
+        sourceOid: '1'.repeat(40),
+        version: '1.0.0',
+      },
+    }),
+  ]);
+  assert.deepEqual(action, {
+    kind: 'sync',
+    line: 'v1.0',
+    openPr: { bodyCurrent: false, number: 12 },
+    reason: 'release PR body is stale',
+    version: '1.0.0',
+  });
 });
 
 test('a closed unmerged proposal gets a clean draft replacement', () => {
@@ -354,4 +349,16 @@ test('GitHub mutations accept only main and canonical release ref names', () => 
   assert.throws(() =>
     createRefUpdate({ afterOid: '1'.repeat(40), name: 'refs/heads/feature/release' })
   );
+});
+
+test('release QA companion identities are fixed to a PR or proposal commit', () => {
+  assert.equal(
+    releaseQaIssueMarker(`proposal:${'a'.repeat(40)}`),
+    `<!-- fablebook:release-qa=v1 identity=proposal:${'a'.repeat(40)} -->`
+  );
+  assert.equal(
+    releaseQaIssueMarker('pr:42'),
+    '<!-- fablebook:release-qa=v1 identity=pr:42 -->'
+  );
+  assert.throws(() => releaseQaIssueMarker('release:v1.0'));
 });

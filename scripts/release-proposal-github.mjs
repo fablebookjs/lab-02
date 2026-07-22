@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
-import { ZERO_OID } from './release-proposal-core.mjs';
+import {
+  parseReleaseLine,
+  parseStableVersion,
+  ZERO_OID,
+} from './release-proposal-core.mjs';
 
 export const PILOT_REPOSITORY = 'fablebookjs/lab-02';
 
@@ -212,20 +216,13 @@ export async function updateRefs(token, repositoryId, refUpdates) {
 }
 
 export async function createDraftReleasePr(token, action) {
-  const superseded =
-    action.supersededPr === undefined
-      ? ''
-      : `\n\nThis clean proposal supersedes #${action.supersededPr}.`;
+  if (!String(action.body ?? '').includes('<!-- fablebook:release-pr=v1 -->')) {
+    throw new Error('Release PR creation requires one rendered canonical body.');
+  }
   return githubRequest(`/repos/${PILOT_REPOSITORY}/pulls`, {
     body: {
       base: `releases/${action.line}`,
-      body: [
-        `Release proposal for **${action.version}**.`,
-        '',
-        `Source: \`${action.releaseOid}\``,
-        '',
-        'Merging this PR authorizes publication of its exact merge commit.',
-      ].join('\n') + superseded,
+      body: action.body,
       draft: true,
       head: `staged/${action.line}`,
       maintainer_can_modify: false,
@@ -234,6 +231,80 @@ export async function createDraftReleasePr(token, action) {
     method: 'POST',
     token,
   });
+}
+
+export function releaseQaIssueMarker(identity) {
+  if (!/^(?:pr:[1-9]\d*|proposal:[0-9a-f]{40})$/.test(identity ?? '')) {
+    throw new Error(`Release QA issue has an invalid identity: ${identity}`);
+  }
+  return `<!-- fablebook:release-qa=v1 identity=${identity} -->`;
+}
+
+const releaseQaIssueBody = ({ identity, line, version }) =>
+  [
+    releaseQaIssueMarker(identity),
+    `# Release QA ${version}`,
+    '',
+    `This issue is the findings workspace for the [\`${line}\` release line](https://github.com/${PILOT_REPOSITORY}/tree/releases/${line}).`,
+    '',
+    'Create every QA finding as a sub-issue of this issue, and link the affected pull request or commit. Resolve or explicitly dispose every applicable finding before checking its corresponding item in the release PR.',
+    '',
+    'The release PR is the publication authority and owns the required QA checklist. This issue only organizes findings.',
+  ].join('\n');
+
+export async function ensureReleaseQaIssue(token, { identity, line, version }) {
+  const parsedLine = parseReleaseLine(line);
+  const parsedVersion = parseStableVersion(version);
+  if (parsedLine.major !== parsedVersion.major || parsedLine.minor !== parsedVersion.minor) {
+    throw new Error(`${version} does not belong to release line ${line}.`);
+  }
+  const marker = releaseQaIssueMarker(identity);
+  const matches = [];
+  for (let page = 1; ; page += 1) {
+    const query = new URLSearchParams({
+      direction: 'desc',
+      page: String(page),
+      per_page: '100',
+      sort: 'created',
+      state: 'all',
+    });
+    const batch = await githubRequest(`/repos/${PILOT_REPOSITORY}/issues?${query}`, { token });
+    matches.push(
+      ...batch.filter((issue) => issue.pull_request === undefined && issue.body?.includes(marker))
+    );
+    if (batch.length < 100) {
+      break;
+    }
+  }
+  if (matches.length > 1) {
+    throw new Error(`Release QA identity ${identity} has more than one companion issue.`);
+  }
+
+  let issue = matches[0] ?? null;
+  if (issue === null) {
+    issue = await githubRequest(`/repos/${PILOT_REPOSITORY}/issues`, {
+      body: {
+        body: releaseQaIssueBody({ identity, line, version }),
+        title: `Release QA ${version}`,
+      },
+      method: 'POST',
+      token,
+    });
+  } else if (issue.state !== 'open') {
+    issue = await githubRequest(`/repos/${PILOT_REPOSITORY}/issues/${issue.number}`, {
+      body: { state: 'open' },
+      method: 'PATCH',
+      token,
+    });
+  }
+  if (
+    !Number.isSafeInteger(issue.number) ||
+    issue.number <= 0 ||
+    issue.html_url !== `https://github.com/${PILOT_REPOSITORY}/issues/${issue.number}`
+  ) {
+    throw new Error('GitHub returned a noncanonical release QA issue.');
+  }
+  return { number: issue.number, url: issue.html_url };
 }
 
 export async function closePullRequest(token, number) {

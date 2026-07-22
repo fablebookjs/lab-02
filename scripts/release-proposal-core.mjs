@@ -88,22 +88,6 @@ export function proposalCommitMessage({ attempt, line, sourceOid, version }) {
   ].join('\n');
 }
 
-export function refreshReleasePrBody(body, { sourceOid, version }) {
-  parseStableVersion(version);
-  if (!/^[0-9a-f]{40}$/.test(sourceOid)) {
-    throw new Error(`Release PR source is not a full commit OID: ${sourceOid}`);
-  }
-  const expectedHeading = `Release proposal for **${version}**.`;
-  if (!String(body).startsWith(expectedHeading)) {
-    throw new Error('Release PR body does not have the expected canonical heading.');
-  }
-  const sourceLines = String(body).match(/^Source: `[0-9a-f]{40}`$/gm) ?? [];
-  if (sourceLines.length !== 1) {
-    throw new Error('Release PR body does not have exactly one canonical source line.');
-  }
-  return String(body).replace(sourceLines[0], `Source: \`${sourceOid}\``);
-}
-
 export function developmentCommitMessage({ line, sourceOid, version }) {
   return [
     `release: begin ${version} development`,
@@ -216,6 +200,15 @@ export function planProposalMaintenance(lines) {
         );
       }
       if (state.staged.sourceOid === state.releaseOid) {
+        if (state.openPr.bodyCurrent === false) {
+          return {
+            kind: 'sync',
+            line: state.line,
+            openPr: state.openPr,
+            reason: 'release PR body is stale',
+            version: state.staged.version,
+          };
+        }
         return { kind: 'none', line: state.line, reason: 'open proposal is current' };
       }
       return {
