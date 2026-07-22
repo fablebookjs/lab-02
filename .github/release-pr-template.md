@@ -1,6 +1,5 @@
-<!-- fablebook:release-pr=v1 -->
+<!-- fablebook:release-pr=v2 -->
 <!-- fablebook:proposal={{proposal_oid}} source={{release_oid}} version={{version}} -->
-<!-- fablebook:qa-issue={{qa_issue_number}} -->
 # Release {{version}}
 
 > [!WARNING]
@@ -12,7 +11,7 @@
 | Release line | [`releases/{{line}}`]({{release_branch_url}}) | Proposal branch | [`staged/{{line}}`]({{proposal_branch_url}}) |
 | Version | **{{version}}** | npm channel | [`{{npm_channel}}`]({{npm_versions_url}}) |
 | Release source | [`{{release_short_oid}}`]({{release_commit_url}}) | Proposal commit | [`{{proposal_short_oid}}`]({{proposal_commit_url}}) |
-| QA workspace | [Release QA {{version}} #{{qa_issue_number}}]({{qa_issue_url}}) | Packages | {{package_count}} published together |
+| QA | Required checklist below | Packages | {{package_count}} published together |
 
 ## Maintainer procedure
 
@@ -33,7 +32,7 @@ A change introduced without a PR uses the same checklist format with its merge o
 
 1. Open the linked PR or commit and decide which behavior needs manual verification.
 2. Exercise that behavior against this exact proposal.
-3. If you find a problem, create it as a sub-issue of the [Release QA {{version}} issue]({{qa_issue_url}}) and link the affected PR or commit.
+3. If you find a problem, discuss it in this release PR. Open a normal issue only when it needs independent long-term tracking, and link the affected PR or commit.
 4. Resolve or explicitly dispose every applicable finding, then check the included change above.
 
 </details>

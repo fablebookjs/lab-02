@@ -82,13 +82,11 @@ included-change checklist links each release-line merge or direct commit. A
 refresh preserves checked items by their hidden PR or commit identity and adds
 new changes unchecked; a clean replacement starts fresh.
 
-Each proposal also has one companion **Release QA** issue. QA findings are
-created as its sub-issues, while the release PR remains the publication
-authority and owns the required checklist. The release App therefore needs
-repository **Issues: write** in addition to its existing contents and pull
-request permissions. If a ref update succeeds but its body write does not, the
-next maintenance run detects the stale generated identity and repairs the same
-PR.
+The release PR is the only required QA workspace. Maintainers discuss findings
+there and open a normal issue only when a finding needs independent long-term
+tracking. The release App needs only repository contents and pull request
+permissions. If a ref update succeeds but its body write does not, the next
+maintenance run detects the stale generated identity and repairs the same PR.
 
 The credentialless **Release proposal check** verifies that the proposal has
 one parent and that both its parent and `Release-Source` trailer equal the PR's
