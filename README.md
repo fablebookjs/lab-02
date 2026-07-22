@@ -74,7 +74,20 @@ source S ── proposal P (stable X.Y.0) ──▶ staged/vX.Y
 
 Every newly created or recreated release PR starts as a draft. Refreshing an
 open proposal updates its existing staged branch, so the PR and its discussion
-remain in place.
+remain in place. Its body is rendered from
+[`.github/release-pr-template.md`](.github/release-pr-template.md), which keeps
+the maintainer procedure reviewable without embedding prose in controller
+code. The generated included-change checklist links each release-line merge or
+direct commit. A refresh preserves checked items by their hidden PR or commit
+identity and adds new changes unchecked; a clean replacement starts fresh.
+
+Each proposal also has one companion **Release QA** issue. QA findings are
+created as its sub-issues, while the release PR remains the publication
+authority and owns the required checklist. The release App therefore needs
+repository **Issues: write** in addition to its existing contents and pull
+request permissions. If a ref update succeeds but its body write does not, the
+next maintenance run detects the stale generated identity and repairs the same
+PR.
 
 The credentialless **Release proposal check** verifies that the proposal has
 one parent and that both its parent and `Release-Source` trailer equal the PR's
@@ -129,10 +142,8 @@ automation never cherry-picks, edits outcomes, or rewrites the queue on retry.
 One marked comment is created or updated with copy-paste examples for
 `applied`, `already-present`, and `not-applicable` outcomes.
 
-An accidentally closed PR with unresolved tasks is reopened in place. A merged
-PR, or a closed unmerged PR whose tasks are all resolved, is terminal. The
-empty-scope path intentionally creates the same draft PR and leaves it for a
-maintainer to close.
+A merged or closed patchback PR is terminal. The empty-scope path intentionally
+creates the same draft PR and leaves it for a maintainer to close.
 
 **Pull request description check** applies to every repository PR and fails
 while its description contains an unchecked Markdown task. Live branch rules

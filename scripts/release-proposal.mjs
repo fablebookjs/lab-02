@@ -10,18 +10,19 @@ import {
   compareReleaseLines,
   deriveCutVersions,
   developmentCommitMessage,
+  parseDevelopmentCommitMessage,
   parseProposalMessage,
   parseReleaseLine,
   parseStableVersion,
   planProposalMaintenance,
   proposalCommitMessage,
-  refreshReleasePrBody,
   ZERO_OID,
 } from './release-proposal-core.mjs';
 import {
   closePullRequest,
   createDraftReleasePr,
   createRefUpdate,
+  ensureReleaseQaIssue,
   getGitCommit,
   getRef,
   getPullRequest,
@@ -34,8 +35,15 @@ import {
   resolveRefObject,
   updatePullRequestBody,
   updateRefs,
+  withPullRequestMergeCommit,
 } from './release-proposal-github.mjs';
 import { repositoryRoot } from './list-public-packages.mjs';
+import {
+  deriveReleasePrChanges,
+  extractReleaseQaIssueNumber,
+  extractReleasePrIdentity,
+  renderReleasePrBody,
+} from './release-pr-body.mjs';
 
 const execute = promisify(execFile);
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -124,6 +132,116 @@ const publicPackagesAt = async (oid) => {
     }
   }
   return { packages, root };
+};
+
+const releasePrTemplate = () =>
+  readFile(join(repositoryRoot, '.github/release-pr-template.md'), 'utf8');
+
+const associatedPulls = async (token, oid) => {
+  const pulls = [];
+  for (let page = 1; ; page += 1) {
+    const query = new URLSearchParams({ page: String(page), per_page: '100' });
+    const batch = await githubRequest(
+      `/repos/${PILOT_REPOSITORY}/commits/${oid}/pulls?${query}`,
+      { token }
+    );
+    pulls.push(...batch);
+    if (batch.length < 100) {
+      break;
+    }
+  }
+  return Promise.all(pulls.map((pull) => withPullRequestMergeCommit(token, pull)));
+};
+
+const findReleaseCut = async (line) => {
+  const { stdout } = await git(['rev-list', '--first-parent', 'HEAD']);
+  const matches = [];
+  for (const oid of stdout.trim().split('\n').filter(Boolean)) {
+    try {
+      const cut = parseDevelopmentCommitMessage(await commitMessage(oid));
+      if (cut.line === line) {
+        const parents = await commitParents(oid);
+        if (parents.length !== 1 || parents[0] !== cut.sourceOid) {
+          throw new Error(`Release-cut commit ${oid} is not a child of its recorded source.`);
+        }
+        matches.push(cut);
+      }
+    } catch (error) {
+      if (!error.message.includes('missing required release-cut trailers')) {
+        throw error;
+      }
+    }
+  }
+  if (matches.length !== 1) {
+    throw new Error(`Expected one ${line} release-cut record on main, found ${matches.length}.`);
+  }
+  return matches[0];
+};
+
+const releaseChanges = async (token, { boundaryOid, line, releaseOid }) => {
+  const { stdout: ancestry } = await git(['rev-list', '--first-parent', releaseOid]);
+  if (!ancestry.trim().split('\n').includes(boundaryOid)) {
+    throw new Error(`${boundaryOid} is not on the ${line} first-parent release history.`);
+  }
+  const { stdout } = await git([
+    'rev-list',
+    '--first-parent',
+    '--reverse',
+    `${boundaryOid}..${releaseOid}`,
+  ]);
+  const commits = await Promise.all(
+    stdout
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map(async (oid) => ({
+        associatedPulls: await associatedPulls(token, oid),
+        oid,
+        subject: (await commitMessage(oid)).split('\n', 1)[0],
+      }))
+  );
+  return deriveReleasePrChanges({ commits, line });
+};
+
+const renderProposalBody = async ({ action, previousBody = '', proposalOid, qaIssue }) => {
+  const { packages } = await publicPackagesAt(proposalOid);
+  return renderReleasePrBody({
+    changes: action.changes,
+    line: action.line,
+    packageNames: packages.map(({ name }) => name),
+    previousBody,
+    proposalOid,
+    qaIssue,
+    releaseOid: action.releaseOid,
+    supersededPr: action.supersededPr,
+    template: await releasePrTemplate(),
+    version: action.version,
+  });
+};
+
+const createReleasePr = async (token, action, proposalOid) => {
+  const qaIssue = await ensureReleaseQaIssue(token, {
+    identity: `proposal:${proposalOid}`,
+    line: action.line,
+    version: action.version,
+  });
+  const body = await renderProposalBody({ action, proposalOid, qaIssue });
+  return createDraftReleasePr(token, { ...action, body });
+};
+
+const qaIssueForExistingPr = async (token, action, body) => {
+  const number = extractReleaseQaIssueNumber(body);
+  if (number !== null) {
+    return {
+      number,
+      url: `https://github.com/${PILOT_REPOSITORY}/issues/${number}`,
+    };
+  }
+  return ensureReleaseQaIssue(token, {
+    identity: `pr:${action.openPr}`,
+    line: action.line,
+    version: action.version,
+  });
 };
 
 const validateVersionTree = async (oid, version) => {
@@ -474,11 +592,16 @@ async function applyCut(options) {
     ({ state }) => state === 'open'
   );
   if (openPulls.length === 0) {
-    await createDraftReleasePr(token, {
-      line: transition.line,
-      releaseOid: transition.sourceOid,
-      version: transition.releaseVersion,
-    });
+    await createReleasePr(
+      token,
+      {
+        changes: [],
+        line: transition.line,
+        releaseOid: transition.sourceOid,
+        version: transition.releaseVersion,
+      },
+      transition.proposalOid
+    );
   } else if (openPulls.length !== 1) {
     throw new Error(`${transition.line} has more than one open canonical release PR.`);
   }
@@ -561,6 +684,13 @@ const loadMaintenanceStates = async (token) => {
       latestClosed === null
         ? null
         : parseProposalMessage((await getGitCommit(token, latestClosed.head.sha)).message);
+    const openPull = openPulls[0] ?? null;
+    const bodyIdentity = extractReleasePrIdentity(openPull?.body);
+    const bodyCurrent =
+      staged !== null &&
+      bodyIdentity?.proposalOid === staged.oid &&
+      bodyIdentity.releaseOid === releaseOid &&
+      bodyIdentity.version === staged.version;
 
     states.push({
       completedOid: completed.oid,
@@ -576,7 +706,7 @@ const loadMaintenanceStates = async (token) => {
               version: closedProposal.version,
             },
       line,
-      openPr: openPulls[0] ? { number: openPulls[0].number } : null,
+      openPr: openPull ? { bodyCurrent, number: openPull.number } : null,
       releaseOid,
       staged,
     });
@@ -598,7 +728,23 @@ async function prepareMaintenance(options) {
       continue;
     }
     const state = states.find(({ line }) => line === plan.line);
+    let changes;
+    if (plan.kind !== 'dormant') {
+      await git([
+        'fetch',
+        '--no-tags',
+        'origin',
+        `+refs/heads/releases/${plan.line}:refs/remotes/origin/releases/${plan.line}`,
+      ]);
+      const boundaryOid = state.completedOid ?? (await findReleaseCut(plan.line)).sourceOid;
+      changes = await releaseChanges(token, {
+        boundaryOid,
+        line: plan.line,
+        releaseOid: state.releaseOid,
+      });
+    }
     const base = {
+      changes,
       expectedStagedOid: state.staged?.oid ?? null,
       kind: plan.kind,
       line: plan.line,
@@ -606,17 +752,15 @@ async function prepareMaintenance(options) {
       releaseOid: state.releaseOid,
     };
 
-    if (plan.kind === 'dormant' || plan.kind === 'open') {
-      actions.push({ ...base, version: plan.version });
+    if (plan.kind === 'dormant' || plan.kind === 'open' || plan.kind === 'sync') {
+      actions.push({
+        ...base,
+        proposalOid: state.staged?.oid,
+        version: plan.version,
+      });
       continue;
     }
 
-    await git([
-      'fetch',
-      '--no-tags',
-      'origin',
-      `+refs/heads/releases/${plan.line}:refs/remotes/origin/releases/${plan.line}`,
-    ]);
     const attempt = randomUUID();
     const proposalOid = await materializeCommit({
       message: proposalCommitMessage({
@@ -689,7 +833,7 @@ async function applyMaintenance(options) {
 
   for (const action of transition.actions) {
     parseReleaseLine(action.line);
-    if (!['create', 'dormant', 'open', 'recreate', 'refresh'].includes(action.kind)) {
+    if (!['create', 'dormant', 'open', 'recreate', 'refresh', 'sync'].includes(action.kind)) {
       throw new Error(`Unknown maintenance action: ${action.kind}`);
     }
     validateFullOid(action.releaseOid, `${action.line} release source`);
@@ -726,10 +870,17 @@ async function applyMaintenance(options) {
       continue;
     }
 
-    if (action.kind === 'open') {
+    if (action.kind === 'open' || action.kind === 'sync') {
       parseStableVersion(action.version);
-      if (openPulls.length !== 0 || action.expectedStagedOid === null) {
-        throw new Error(`${action.line} can no longer open its prepared staged proposal.`);
+      validateFullOid(action.proposalOid, `${action.line} proposal`);
+      if (
+        action.expectedStagedOid === null ||
+        action.proposalOid !== action.expectedStagedOid ||
+        (action.kind === 'open' && openPulls.length !== 0) ||
+        (action.kind === 'sync' &&
+          (openPulls.length !== 1 || openPulls[0].number !== action.openPr))
+      ) {
+        throw new Error(`${action.line} can no longer use its prepared staged proposal.`);
       }
       await git([
         'fetch',
@@ -747,7 +898,18 @@ async function applyMaintenance(options) {
       }
       await assertExpectedRef(token, `heads/releases/${action.line}`, action.releaseOid);
       await assertExpectedRef(token, `heads/staged/${action.line}`, action.expectedStagedOid);
-      await createDraftReleasePr(token, action);
+      if (action.kind === 'open') {
+        await createReleasePr(token, action, action.proposalOid);
+      } else {
+        const qaIssue = await qaIssueForExistingPr(token, action, openPulls[0].body);
+        const body = await renderProposalBody({
+          action,
+          previousBody: openPulls[0].body,
+          proposalOid: action.proposalOid,
+          qaIssue,
+        });
+        await updatePullRequestBody(token, action.openPr, body);
+      }
       continue;
     }
 
@@ -783,18 +945,18 @@ async function applyMaintenance(options) {
     ]);
 
     if (action.kind === 'refresh') {
-      await updatePullRequestBody(
-        token,
-        action.openPr,
-        refreshReleasePrBody(openPulls[0].body, {
-          sourceOid: action.releaseOid,
-          version: action.version,
-        })
-      );
+      const qaIssue = await qaIssueForExistingPr(token, action, openPulls[0].body);
+      const body = await renderProposalBody({
+        action,
+        previousBody: openPulls[0].body,
+        proposalOid: action.proposalOid,
+        qaIssue,
+      });
+      await updatePullRequestBody(token, action.openPr, body);
     }
 
     if (action.kind === 'create' || action.kind === 'recreate') {
-      await createDraftReleasePr(token, action);
+      await createReleasePr(token, action, action.proposalOid);
     }
   }
   console.log(`Applied ${transition.actions.length} release proposal maintenance actions.`);
