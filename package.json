@@ -11,6 +11,7 @@
     "clean": "tsc -b --clean",
     "compile": "tsc -b",
     "list-packages": "node scripts/list-public-packages.mjs",
+    "prototype:release-pr": "node scripts/prototype-release-pr-body/server.mjs",
     "set-version": "node scripts/set-version.mjs",
     "smoke:packed": "node scripts/consumer-smoke.mjs",
     "test": "node --test test/*.test.mjs"

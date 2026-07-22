@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Release PR body prototype</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --accent: #0969da;
+        --border: #d0d7de;
+        --canvas: #ffffff;
+        --muted: #57606a;
+        --subtle: #f6f8fa;
+        --success: #1a7f37;
+        --warning: #9a6700;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: #1f2328;
+        background: var(--canvas);
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      code {
+        padding: 0.15em 0.35em;
+        border-radius: 5px;
+        background: rgba(175, 184, 193, 0.2);
+        font: 85% ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .topbar {
+        height: 64px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 0 28px;
+        color: white;
+        background: #24292f;
+      }
+      .mark {
+        width: 32px;
+        height: 32px;
+        display: grid;
+        place-items: center;
+        border: 1px solid #57606a;
+        border-radius: 50%;
+        font-weight: 800;
+      }
+      .repo { font-weight: 600; }
+      .tabs {
+        display: flex;
+        gap: 24px;
+        padding: 0 32px;
+        border-bottom: 1px solid var(--border);
+        background: var(--subtle);
+      }
+      .tab { padding: 14px 2px 11px; color: #24292f; }
+      .tab.active { border-bottom: 2px solid #fd8c73; font-weight: 600; }
+      .page { max-width: 1280px; margin: 0 auto; padding: 28px 32px 120px; }
+      .title-row { border-bottom: 1px solid var(--border); padding-bottom: 20px; }
+      h1 { margin: 0 0 8px; font-size: 32px; font-weight: 400; line-height: 1.25; }
+      h1 .number { color: var(--muted); font-weight: 300; }
+      .draft {
+        display: inline-block;
+        margin-right: 6px;
+        padding: 2px 9px;
+        border-radius: 20px;
+        color: white;
+        background: #6e7781;
+        font-weight: 600;
+      }
+      .branchline { color: var(--muted); }
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 820px) minmax(260px, 1fr);
+        gap: 32px;
+        align-items: start;
+        margin-top: 24px;
+      }
+      .conversation-stack { display: grid; gap: 18px; }
+      .comment { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 12px; }
+      .avatar {
+        width: 38px;
+        height: 38px;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        color: white;
+        background: linear-gradient(135deg, #8250df, #0969da);
+        font-weight: 700;
+      }
+      .comment-box { border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+      .comment-head {
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--border);
+        background: var(--subtle);
+        color: var(--muted);
+      }
+      .comment-body { padding: 24px 28px; font-size: 15px; }
+      .comment-body h2 {
+        margin: 28px 0 12px;
+        padding-bottom: 7px;
+        border-bottom: 1px solid #d8dee4;
+        font-size: 22px;
+      }
+      .comment-body h2:first-child { margin-top: 0; }
+      .comment-body h3 { margin: 22px 0 8px; font-size: 17px; }
+      .comment-body p { margin: 0 0 14px; }
+      .comment-body ul, .comment-body ol { margin: 0 0 16px; padding-left: 28px; }
+      .comment-body li { margin: 5px 0; }
+      .live-status {
+        margin-left: 54px;
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        overflow: hidden;
+      }
+      .live-status-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+        background: var(--subtle);
+      }
+      .live-status-body { padding: 18px 20px; }
+      .live-status-body p { margin: 0 0 12px; }
+      .status-pill {
+        display: inline-block;
+        padding: 1px 8px;
+        border: 1px solid #d4a72c;
+        border-radius: 999px;
+        color: var(--warning);
+        background: #fff8c5;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .action-button {
+        padding: 6px 12px;
+        border: 1px solid rgba(31, 35, 40, 0.15);
+        border-radius: 6px;
+        color: white;
+        background: #1f883d;
+        box-shadow: 0 1px 0 rgba(31, 35, 40, 0.1);
+        cursor: pointer;
+        font-weight: 600;
+      }
+      .action-button:disabled { color: var(--muted); background: var(--subtle); cursor: default; }
+      .callout {
+        margin: 0 0 18px;
+        padding: 14px 16px;
+        border: 1px solid #a5d6ff;
+        border-left: 4px solid var(--accent);
+        border-radius: 6px;
+        background: #ddf4ff;
+      }
+      .warning { border-color: #d4a72c; border-left-color: #bf8700; background: #fff8c5; }
+      .success { border-color: #6fdd8b; border-left-color: var(--success); background: #dafbe1; }
+      table { width: 100%; border-collapse: collapse; margin: 0 0 18px; }
+      th, td { padding: 8px 10px; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+      th { background: var(--subtle); font-weight: 600; }
+      blockquote {
+        margin: 0 0 18px;
+        padding: 0 16px;
+        border-left: 4px solid var(--border);
+        color: var(--muted);
+      }
+      pre {
+        margin: 0 0 16px;
+        padding: 14px 16px;
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--subtle);
+      }
+      pre code { padding: 0; background: transparent; font-size: 12px; }
+      details { margin: 14px 0; padding: 10px 14px; border: 1px solid var(--border); border-radius: 6px; }
+      summary { cursor: pointer; font-weight: 600; }
+      .task { list-style: none; margin-left: -24px; }
+      .task input { margin-right: 8px; }
+      .annotation {
+        position: sticky;
+        top: 18px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .annotation h2 { margin: 0; padding: 14px 16px; background: var(--subtle); font-size: 16px; }
+      .annotation-content { padding: 16px; }
+      .annotation h3 { margin: 18px 0 6px; font-size: 14px; }
+      .annotation h3:first-child { margin-top: 0; }
+      .annotation p, .annotation ul { margin: 0 0 10px; color: var(--muted); }
+      .annotation ul { padding-left: 20px; }
+      .owner {
+        display: inline-block;
+        margin: 2px 3px 4px 0;
+        padding: 2px 7px;
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .owner.auto { color: #6639ba; background: #fbefff; }
+      .owner.human { color: #0550ae; background: #ddf4ff; }
+      .switcher {
+        position: fixed;
+        left: 50%;
+        bottom: 24px;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transform: translateX(-50%);
+        padding: 8px;
+        border: 1px solid #57606a;
+        border-radius: 999px;
+        color: white;
+        background: #24292f;
+        box-shadow: 0 8px 30px rgba(31, 35, 40, 0.28);
+      }
+      .switcher button {
+        width: 36px;
+        height: 36px;
+        border: 0;
+        border-radius: 50%;
+        color: white;
+        background: #57606a;
+        cursor: pointer;
+        font-size: 20px;
+      }
+      .switcher button:hover { background: #6e7781; }
+      .variant-name { min-width: 230px; text-align: center; font-weight: 600; }
+      @media (max-width: 900px) {
+        .layout { grid-template-columns: 1fr; }
+        .live-status { margin-left: 0; }
+        .annotation { position: static; }
+        .page { padding-inline: 16px; }
+        .tabs { padding-inline: 16px; overflow: auto; }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Three variants of the release PR body, switchable via ?variant=, in a GitHub-like PR page. -->
+    <header class="topbar">
+      <div class="mark">F</div>
+      <div class="repo">fablebookjs / lab-02</div>
+    </header>
+    <nav class="tabs">
+      <div class="tab">Code</div>
+      <div class="tab">Issues</div>
+      <div class="tab active">Pull requests</div>
+      <div class="tab">Actions</div>
+    </nav>
+    <main class="page">
+      <section class="title-row">
+        <h1>Release 1.0.0 <span class="number">#5</span></h1>
+        <div class="branchline">
+          <span class="draft">Draft</span>
+          <strong>fablebook-release</strong> wants to merge <strong>1 commit</strong> into
+          <code>releases/v1.0</code> from <code>staged/v1.0</code>
+        </div>
+      </section>
+      <div class="layout">
+        <div class="conversation-stack">
+          <section class="comment">
+            <div class="avatar">FB</div>
+            <div class="comment-box">
+              <div class="comment-head"><strong>fablebook-release</strong> opened this pull request</div>
+              <article class="comment-body" id="body"></article>
+            </div>
+          </section>
+          <section class="live-status" id="live-status" hidden></section>
+        </div>
+        <aside class="annotation">
+          <h2>Prototype annotations</h2>
+          <div class="annotation-content" id="annotations"></div>
+        </aside>
+      </div>
+    </main>
+    <div class="switcher" aria-label="Prototype variants">
+      <button id="previous" aria-label="Previous variant">←</button>
+      <div class="variant-name" id="variant-name"></div>
+      <button id="next" aria-label="Next variant">→</button>
+    </div>
+    <script>
+      const changes = `
+        <ul>
+          <li><a href="#">Fix CI fixtures on stable release proposals #3</a></li>
+          <li><a href="#">Fix typo in README about public packages count #6</a></li>
+          <li><a href="#">Update TypeScript to version 7.0.2 #7</a></li>
+          <li><a href="#">Prevent Git fixture cleanup races on v1.0 #12</a></li>
+        </ul>`;
+
+      const variants = {
+        A: {
+          name: 'QA decision dashboard',
+          body: `
+            <h2>Release 1.0.0</h2>
+            <div class="callout warning">
+              <strong>This release does not promote <code>latest</code>.</strong><br />
+              Merging publishes 1.0.0 to the <a href="https://www.npmjs.com/package/@fablebook/lab-02-addon?activeTab=versions"><code>v-1.0</code> npm channel</a>. After publication and channel testing, a maintainer may run <a href="https://github.com/fablebookjs/lab-02/actions/workflows/promote-latest.yml"><strong>Promote latest</strong></a> separately.
+            </div>
+            <table>
+              <tr><th>Release line</th><td><a href="https://github.com/fablebookjs/lab-02/tree/releases/v1.0"><code>releases/v1.0</code></a></td><th>Proposal branch</th><td><a href="https://github.com/fablebookjs/lab-02/tree/staged/v1.0"><code>staged/v1.0</code></a></td></tr>
+              <tr><th>Version</th><td><strong>1.0.0</strong></td><th>npm channel</th><td><a href="https://www.npmjs.com/package/@fablebook/lab-02-addon?activeTab=versions"><code>v-1.0</code></a></td></tr>
+              <tr><th>QA workspace</th><td colspan="3"><a href="#release-qa-workspace">Release QA 1.0.0 companion issue</a></td></tr>
+            </table>
+            <h2>Maintainer procedure</h2>
+            <h3>1. Review the exact proposal</h3>
+            <p>Open the live <strong>Release QA</strong> check below. Confirm that the linked release-line commit, proposal commit, and included changes shown there are the version you intend to test.</p>
+            <h3>2. QA every included change</h3>
+            <p>For every item below, perform the relevant manual QA against this exact proposal. Check the item only when the observed behavior is acceptable and every related finding is resolved or explicitly judged not applicable.</p>
+            <ul id="included-changes">
+              <li class="task"><label><input type="checkbox" data-change="pr:3" checked /> <a href="https://github.com/fablebookjs/lab-02/pull/3">Fix CI fixtures on stable release proposals #3</a></label></li>
+              <li class="task"><label><input type="checkbox" data-change="pr:6" /> <a href="https://github.com/fablebookjs/lab-02/pull/6">Fix typo in README about public packages count #6</a></label></li>
+              <li class="task"><label><input type="checkbox" data-change="pr:7" checked /> <a href="https://github.com/fablebookjs/lab-02/pull/7">Update TypeScript to version 7.0.2 #7</a></label></li>
+            </ul>
+            <p><small>A change introduced without a PR appears in the same checklist with a link to its merge or commit instead. The required unchecked-task check prevents merge until every included change and release-level item is checked.</small></p>
+            <details>
+              <summary>How to QA a change and record findings</summary>
+              <ol>
+                <li>Open the linked PR or commit and decide which behavior needs manual verification.</li>
+                <li>Exercise that behavior against this exact proposal.</li>
+                <li>If you find a problem, create it as a sub-issue of the <a href="#release-qa-workspace">Release QA 1.0.0 companion issue</a> and link the affected PR or commit.</li>
+                <li>Resolve or explicitly dispose every applicable finding, then check the included change above.</li>
+              </ol>
+            </details>
+            <h3>3. Confirm release readiness</h3>
+            <ul>
+              <li class="task"><label><input type="checkbox" /> Ensure all discussions on the release have been resolved</label></li>
+              <li class="task"><label><input type="checkbox" /> <a href="https://github.com/fablebookjs/lab-02/blob/releases/v1.0/CHANGELOG.md">Breaking changes</a> and <a href="https://github.com/fablebookjs/lab-02/blob/releases/v1.0/MIGRATION.md">migration notes</a> have been reviewed</label></li>
+            </ul>
+            <h3>4. Authorize publication</h3>
+            <p>Mark this PR ready for review, obtain the normal approval, then merge it. Merging authorizes the following operations for the exact proposal commit:</p>
+            <ol>
+              <li>Publish the complete package set as <strong>1.0.0</strong> under the linked <a href="https://www.npmjs.com/package/@fablebook/lab-02-addon?activeTab=versions"><code>v-1.0</code> channel</a>.</li>
+              <li>Create the linked Git tag and GitHub Release <a href="https://github.com/fablebookjs/lab-02/releases/tag/v1.0.0"><code>v1.0.0</code></a> for the exact merge commit.</li>
+              <li>Create one checklist-only patchback PR targeting <a href="https://github.com/fablebookjs/lab-02/tree/main"><code>main</code></a>; progress and any failure are visible in the <a href="https://github.com/fablebookjs/lab-02/actions/workflows/maintain-patchback.yml">Maintain patchback action log</a>.</li>
+            </ol>
+            <h3>5. Test the published channel</h3>
+            <ol>
+              <li>Wait for the <a href="https://github.com/fablebookjs/lab-02/actions/workflows/publish-stable-release.yml">Publish stable release action</a> to succeed.</li>
+              <li>Run the clean-install smoke test below and confirm both packages resolve to version <strong>1.0.0</strong>.</li>
+            </ol>
+            <details>
+              <summary>Clean-install smoke-test commands</summary>
+              <pre><code>pilot_dir="$(mktemp -d)"
+cd "$pilot_dir"
+npm init -y
+npm install @fablebook/lab-02-core@v-1.0 @fablebook/lab-02-addon@v-1.0
+npm ls @fablebook/lab-02-core @fablebook/lab-02-addon
+node --input-type=module -e "import { formatSummary } from '@fablebook/lab-02-addon'; if (formatSummary(' QA ', [1, 2]) !== 'qa:3') throw new Error('smoke test failed')"</code></pre>
+              <p><small>The command should exit successfully after <code>npm ls</code> shows both packages at 1.0.0.</small></p>
+            </details>
+            <h3>6. Decide whether to promote <code>latest</code></h3>
+            <p>If channel testing is acceptable and 1.0.0 should become the npm default, run <a href="https://github.com/fablebookjs/lab-02/actions/workflows/promote-latest.yml"><strong>Promote latest</strong></a> with version <strong>1.0.0</strong>. Otherwise, do nothing; the existing <code>latest</code> tags remain unchanged.</p>
+            <hr />
+            <p><small>When this proposal is regenerated, automation refreshes the generated metadata and included-change checklist. It preserves every unchanged item’s checkbox by PR number or commit SHA and adds newly included changes unchecked.</small></p>`,
+          liveStatus: `
+            <div class="live-status-head">
+              <div><strong>Release QA</strong> <span class="status-pill">Action required</span></div>
+              <a href="#release-qa-workspace">Open QA workspace →</a>
+            </div>
+            <div class="live-status-body" id="release-qa-workspace">
+              <p><strong id="qa-progress">2 of 3 included-change checkboxes are complete.</strong> Three QA findings remain open in the <a href="#release-qa-workspace">companion issue</a>.</p>
+              <p id="live-identity"><small>Current source: <a href="https://github.com/fablebookjs/lab-02/commit/2fd1e72218ead69d4222a79cf29f9215d754ab3e"><code>releases/v1.0@2fd1e72</code></a> · Proposal: <a href="https://github.com/fablebookjs/lab-02/tree/staged/v1.0"><code>staged/v1.0</code></a></small></p>
+              <p><small>This required check reads the current proposal, the PR checklist, and the QA issue hierarchy. It never edits the PR description.</small></p>
+              <p><button class="action-button" id="simulate-refresh" type="button">Simulate merged fix #12</button></p>
+              <p id="refresh-result"><small>Try changing a checkbox first. Regeneration should preserve your choices.</small></p>
+            </div>`,
+          annotations: `
+            <h3>Template source</h3>
+            <p>The implementation uses a reviewable <a href="/prototype/release-pr-body/template" target="_blank">Markdown + Mustache template</a>, not a JavaScript string. Wording, ordering, links, and collapsible guidance can be changed in that file.</p>
+            <h3>Guarded regeneration</h3>
+            <p><span class="owner auto">Automation</span> reads the latest body, refreshes generated metadata and checklist membership, then writes the merged result. Unrelated maintainer text remains unchanged.</p>
+            <h3>Checklist identity</h3>
+            <p>Entries are keyed by source PR number or direct commit SHA. Unchanged entries retain their checkbox; a newly included change starts unchecked.</p>
+            <h3>QA hierarchy</h3>
+            <p><a href="#release-qa-workspace">Release QA 1.0.0</a> is the parent issue. QA findings are its native sub-issues and link back to the affected PR or commit. The PR checklist remains the maintainer’s QA decision record.</p>
+            <h3>Refresh versus recreation</h3>
+            <p>A normal proposal refresh preserves checklist state on the same PR. If a maintainer closes the PR, the replacement draft intentionally starts with a fresh checklist.</p>
+            <h3>Accepted tradeoff</h3>
+            <p>A body edit could still overlap a maintainer edit. Regeneration is infrequent, and the controller reads the newest body immediately before replacing only its generated portions.</p>`,
+        },
+        B: {
+          name: 'Release notes first',
+          body: `
+            <div class="callout"><strong>1.0.0 release candidate for the v1.0 line</strong><br />This proposal contains four changes since the previous completed release.</div>
+            <h2>What is shipping</h2>
+            ${changes}
+            <h3>Release notes</h3>
+            <blockquote><strong>Maintainer-owned:</strong> Summarize the user-visible story of this release here. Link longer QA notes when useful.</blockquote>
+            <h2>QA record</h2>
+            <table>
+              <tr><th>Area</th><th>Result</th><th>Evidence or notes</th></tr>
+              <tr><td>Install through <code>v-1.0</code></td><td>⏳ Pending</td><td>Test after publication, before promotion</td></tr>
+              <tr><td>Core package</td><td>☐</td><td>Maintainer adds link or result</td></tr>
+              <tr><td>Addon package</td><td>☐</td><td>Maintainer adds link or result</td></tr>
+            </table>
+            <h2>Ship decision</h2>
+            <ul>
+              <li class="task"><label><input type="checkbox" disabled /> Release notes are accurate</label></li>
+              <li class="task"><label><input type="checkbox" disabled /> QA evidence is sufficient for this line</label></li>
+              <li class="task"><label><input type="checkbox" disabled /> Ready to authorize publication</label></li>
+            </ul>
+            <div class="callout warning"><strong>Merge is the authorization.</strong> It publishes both packages at 1.0.0 on <code>v-1.0</code>, creates <code>v1.0.0</code>, and opens the patchback PR. It does not promote <code>latest</code>.</div>
+            <details><summary>Exact proposal identity</summary><p>Source <code>c3fb2d20924ef3207789f04ff70c72648203c457</code><br />Proposal <code>4cc021df3afb57fd5992c9ad267c88371bd116cc</code><br />Supersedes <a href="#">#2</a></p></details>`,
+          annotations: `
+            <h3>Information hierarchy</h3>
+            <p>Changes and release narrative first; exact machinery is collapsed. This treats the PR as release notes plus a final ship decision.</p>
+            <h3>Ownership</h3>
+            <span class="owner auto">Automation</span>
+            <p>Change list, version, exact identity, and post-merge outcomes.</p>
+            <span class="owner human">Maintainer</span>
+            <p>Release notes, QA table results, and ship checklist.</p>
+            <h3>Lifecycle</h3>
+            <ul><li>Refresh replaces the change list and identity while retaining narrative and QA work.</li><li>A clean replacement intentionally discards the old narrative and starts empty.</li></ul>`,
+        },
+        C: {
+          name: 'Authorization contract',
+          body: `
+            <h2>Authorization: publish 1.0.0</h2>
+            <p>Merging this PR authorizes publication of one immutable snapshot. Review the contract and record the maintainer decision below.</p>
+            <h3>Automation-owned release contract</h3>
+            <table>
+              <tr><th>Input</th><td><code>releases/v1.0@c3fb2d20924ef3207789f04ff70c72648203c457</code></td></tr>
+              <tr><th>Proposal</th><td><code>staged/v1.0@4cc021df3afb57fd5992c9ad267c88371bd116cc</code></td></tr>
+              <tr><th>Package set</th><td><code>@fablebook/lab-02-core</code>, <code>@fablebook/lab-02-addon</code></td></tr>
+              <tr><th>Publication</th><td><strong>1.0.0</strong> on <code>v-1.0</code></td></tr>
+              <tr><th>Completion</th><td>Tag + GitHub Release <code>v1.0.0</code>; one patchback PR to <code>main</code></td></tr>
+              <tr><th>Excluded</th><td>No automatic <code>latest</code> promotion</td></tr>
+            </table>
+            <details open><summary>Changes covered by this authorization</summary>${changes}</details>
+            <h3>Maintainer-owned decision record</h3>
+            <ul>
+              <li class="task"><label><input type="checkbox" disabled /> I reviewed the exact change set above</label></li>
+              <li class="task"><label><input type="checkbox" disabled /> The required QA for this release line is complete</label></li>
+              <li class="task"><label><input type="checkbox" disabled /> I understand that merging starts publication</label></li>
+            </ul>
+            <blockquote><strong>Decision notes:</strong><br /><br />Record exceptions, QA evidence, or why this release is ready.</blockquote>
+            <hr />
+            <p><small>Proposal generation: clean replacement of <a href="#">#2</a>. All maintainer-owned fields intentionally start blank.</small></p>`,
+          annotations: `
+            <h3>Information hierarchy</h3>
+            <p>Exact authority contract first, human decision second. This is the most audit-oriented and least editorial option.</p>
+            <h3>Ownership</h3>
+            <span class="owner auto">Automation</span>
+            <p>The entire contract and covered change set.</p>
+            <span class="owner human">Maintainer</span>
+            <p>Only the decision checklist and notes block.</p>
+            <h3>Lifecycle</h3>
+            <ul><li>Refresh can replace the complete contract atomically while preserving the decision block.</li><li>Recreation and reactivation create a new blank decision block so stale authorization never carries forward.</li></ul>`,
+        },
+      };
+
+      const keys = Object.keys(variants);
+      const requested = new URLSearchParams(location.search).get('variant')?.toUpperCase();
+      let current = keys.includes(requested) ? requested : 'A';
+
+      function updateQaProgress() {
+        const changes = [...document.querySelectorAll('#body input[data-change]')];
+        const progress = document.querySelector('#qa-progress');
+        if (!progress || changes.length === 0) return;
+        const complete = changes.filter((checkbox) => checkbox.checked).length;
+        progress.textContent = `${complete} of ${changes.length} included-change checkboxes are complete.`;
+      }
+
+      function bindQaEvents() {
+        document.querySelectorAll('#body input[type="checkbox"]').forEach((checkbox) => {
+          checkbox.addEventListener('change', updateQaProgress);
+        });
+        document.querySelector('#simulate-refresh')?.addEventListener('click', simulateReleaseRefresh);
+        updateQaProgress();
+      }
+
+      function simulateReleaseRefresh() {
+        const checklist = document.querySelector('#included-changes');
+        const preserved = new Map(
+          [...checklist.querySelectorAll('input[data-change]')].map((checkbox) => [
+            checkbox.dataset.change,
+            checkbox.checked,
+          ])
+        );
+        const refreshedChanges = [
+          ['pr:3', 'https://github.com/fablebookjs/lab-02/pull/3', 'Fix CI fixtures on stable release proposals #3'],
+          ['pr:6', 'https://github.com/fablebookjs/lab-02/pull/6', 'Fix typo in README about public packages count #6'],
+          ['pr:7', 'https://github.com/fablebookjs/lab-02/pull/7', 'Update TypeScript to version 7.0.2 #7'],
+          ['pr:12', 'https://github.com/fablebookjs/lab-02/pull/12', 'Prevent Git fixture cleanup races on v1.0 #12'],
+        ];
+        checklist.innerHTML = refreshedChanges
+          .map(([key, href, label]) => `
+            <li class="task"><label><input type="checkbox" data-change="${key}" ${preserved.get(key) ? 'checked' : ''} /> <a href="${href}">${label}</a></label></li>`)
+          .join('');
+        document.querySelector('#live-identity').innerHTML = `<small>Current source: <a href="https://github.com/fablebookjs/lab-02/commit/c3fb2d20924ef3207789f04ff70c72648203c457"><code>releases/v1.0@c3fb2d2</code></a> · Proposal: <a href="https://github.com/fablebookjs/lab-02/commit/4cc021df3afb57fd5992c9ad267c88371bd116cc"><code>staged/v1.0@4cc021d</code></a></small>`;
+        document.querySelector('#refresh-result').innerHTML = `<small><strong>Proposal regenerated.</strong> Three existing checkbox states were preserved; <a href="https://github.com/fablebookjs/lab-02/pull/12">#12</a> was added unchecked.</small>`;
+        const button = document.querySelector('#simulate-refresh');
+        button.disabled = true;
+        button.textContent = 'Proposal regenerated';
+        bindQaEvents();
+      }
+
+      function render() {
+        const variant = variants[current];
+        document.querySelector('#body').innerHTML = variant.body;
+        const liveStatus = document.querySelector('#live-status');
+        liveStatus.innerHTML = variant.liveStatus || '';
+        liveStatus.hidden = !variant.liveStatus;
+        bindQaEvents();
+        document.querySelector('#annotations').innerHTML = variant.annotations;
+        document.querySelector('#variant-name').textContent = `${current} — ${variant.name}`;
+        const url = new URL(location.href);
+        url.searchParams.set('variant', current);
+        history.replaceState(null, '', url);
+      }
+
+      function cycle(direction) {
+        const index = keys.indexOf(current);
+        current = keys[(index + direction + keys.length) % keys.length];
+        render();
+      }
+
+      document.querySelector('#previous').addEventListener('click', () => cycle(-1));
+      document.querySelector('#next').addEventListener('click', () => cycle(1));
+      addEventListener('keydown', (event) => {
+        if (event.target.matches('input, textarea, [contenteditable]')) return;
+        if (event.key === 'ArrowLeft') cycle(-1);
+        if (event.key === 'ArrowRight') cycle(1);
+      });
+      render();
+    </script>
+  </body>
+</html>
