@@ -7,10 +7,11 @@ const changeKeyPattern = /^(?:pr:[1-9]\d*|commit:[0-9a-f]{40})$/;
 const packageNamePattern = /^@fablebook\/[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const taskPattern =
   /^- \[([ xX])\].*<!-- fablebook:(change|check)=([a-z0-9:.-]+) -->\s*$/gm;
-const qaIssuePattern = /<!-- fablebook:qa-issue=([1-9]\d*) -->/g;
 const proposalIdentityPattern =
   /<!-- fablebook:proposal=([0-9a-f]{40}) source=([0-9a-f]{40}) version=([^ ]+) -->/g;
 const placeholderPattern = /{{([a-z][a-z0-9_]*)}}/g;
+
+export const RELEASE_PR_TEMPLATE_MARKER = '<!-- fablebook:release-pr=v2 -->';
 
 const fullOid = (value, label) => {
   if (!fullOidPattern.test(value ?? '')) {
@@ -49,18 +50,10 @@ export function extractReleasePrCheckboxes(body) {
   return states;
 }
 
-export function extractReleaseQaIssueNumber(body) {
-  const matches = [...String(body ?? '').matchAll(qaIssuePattern)];
-  if (matches.length === 0) {
+export function extractReleasePrIdentity(body) {
+  if (!String(body ?? '').includes(RELEASE_PR_TEMPLATE_MARKER)) {
     return null;
   }
-  if (matches.length !== 1) {
-    throw new Error('Release PR body repeats its QA issue marker.');
-  }
-  return Number.parseInt(matches[0][1], 10);
-}
-
-export function extractReleasePrIdentity(body) {
   const matches = [...String(body ?? '').matchAll(proposalIdentityPattern)];
   if (matches.length === 0) {
     return null;
@@ -187,7 +180,6 @@ export function renderReleasePrBody({
   packageNames,
   previousBody = '',
   proposalOid,
-  qaIssue,
   releaseOid,
   supersededPr,
   template,
@@ -200,11 +192,7 @@ export function renderReleasePrBody({
   }
   fullOid(releaseOid, 'Release PR source');
   fullOid(proposalOid, 'Release PR proposal');
-  positiveInteger(qaIssue?.number, 'Release QA issue number');
-  if (qaIssue.url !== `${repositoryUrl}/issues/${qaIssue.number}`) {
-    throw new Error('Release QA issue has a noncanonical URL.');
-  }
-  if (typeof template !== 'string' || !template.includes('<!-- fablebook:release-pr=v1 -->')) {
+  if (typeof template !== 'string' || !template.includes(RELEASE_PR_TEMPLATE_MARKER)) {
     throw new Error('Release PR template is missing its canonical marker.');
   }
   if (!Array.isArray(packageNames) || packageNames.length === 0) {
@@ -243,8 +231,6 @@ export function renderReleasePrBody({
     proposal_oid: proposalOid,
     proposal_short_oid: proposalOid.slice(0, 7),
     publish_log_url: `${repositoryUrl}/actions/workflows/publish-stable-release.yml`,
-    qa_issue_number: qaIssue.number,
-    qa_issue_url: qaIssue.url,
     release_branch_url: `${repositoryUrl}/tree/releases/${line}`,
     release_commit_url: `${repositoryUrl}/commit/${releaseOid}`,
     release_oid: releaseOid,

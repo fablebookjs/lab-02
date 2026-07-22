@@ -14,7 +14,6 @@ import {
 import {
   createRefUpdate,
   extractPullRequestMergeCommitOid,
-  releaseQaIssueMarker,
 } from '../scripts/release-proposal-github.mjs';
 
 const lineState = (overrides = {}) => ({
@@ -349,16 +348,4 @@ test('GitHub mutations accept only main and canonical release ref names', () => 
   assert.throws(() =>
     createRefUpdate({ afterOid: '1'.repeat(40), name: 'refs/heads/feature/release' })
   );
-});
-
-test('release QA companion identities are fixed to a PR or proposal commit', () => {
-  assert.equal(
-    releaseQaIssueMarker(`proposal:${'a'.repeat(40)}`),
-    `<!-- fablebook:release-qa=v1 identity=proposal:${'a'.repeat(40)} -->`
-  );
-  assert.equal(
-    releaseQaIssueMarker('pr:42'),
-    '<!-- fablebook:release-qa=v1 identity=pr:42 -->'
-  );
-  assert.throws(() => releaseQaIssueMarker('release:v1.0'));
 });

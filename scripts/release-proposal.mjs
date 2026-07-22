@@ -22,7 +22,6 @@ import {
   closePullRequest,
   createDraftReleasePr,
   createRefUpdate,
-  ensureReleaseQaIssue,
   getGitCommit,
   getRef,
   getPullRequest,
@@ -40,7 +39,6 @@ import {
 import { repositoryRoot } from './list-public-packages.mjs';
 import {
   deriveReleasePrChanges,
-  extractReleaseQaIssueNumber,
   extractReleasePrIdentity,
   renderReleasePrBody,
 } from './release-pr-body.mjs';
@@ -203,7 +201,7 @@ const releaseChanges = async (token, { boundaryOid, line, releaseOid }) => {
   return deriveReleasePrChanges({ commits, line });
 };
 
-const renderProposalBody = async ({ action, previousBody = '', proposalOid, qaIssue }) => {
+const renderProposalBody = async ({ action, previousBody = '', proposalOid }) => {
   const { packages } = await publicPackagesAt(proposalOid);
   return renderReleasePrBody({
     changes: action.changes,
@@ -211,7 +209,6 @@ const renderProposalBody = async ({ action, previousBody = '', proposalOid, qaIs
     packageNames: packages.map(({ name }) => name),
     previousBody,
     proposalOid,
-    qaIssue,
     releaseOid: action.releaseOid,
     supersededPr: action.supersededPr,
     template: await releasePrTemplate(),
@@ -220,28 +217,8 @@ const renderProposalBody = async ({ action, previousBody = '', proposalOid, qaIs
 };
 
 const createReleasePr = async (token, action, proposalOid) => {
-  const qaIssue = await ensureReleaseQaIssue(token, {
-    identity: `proposal:${proposalOid}`,
-    line: action.line,
-    version: action.version,
-  });
-  const body = await renderProposalBody({ action, proposalOid, qaIssue });
+  const body = await renderProposalBody({ action, proposalOid });
   return createDraftReleasePr(token, { ...action, body });
-};
-
-const qaIssueForExistingPr = async (token, action, body) => {
-  const number = extractReleaseQaIssueNumber(body);
-  if (number !== null) {
-    return {
-      number,
-      url: `https://github.com/${PILOT_REPOSITORY}/issues/${number}`,
-    };
-  }
-  return ensureReleaseQaIssue(token, {
-    identity: `pr:${action.openPr}`,
-    line: action.line,
-    version: action.version,
-  });
 };
 
 const validateVersionTree = async (oid, version) => {
@@ -901,12 +878,10 @@ async function applyMaintenance(options) {
       if (action.kind === 'open') {
         await createReleasePr(token, action, action.proposalOid);
       } else {
-        const qaIssue = await qaIssueForExistingPr(token, action, openPulls[0].body);
         const body = await renderProposalBody({
           action,
           previousBody: openPulls[0].body,
           proposalOid: action.proposalOid,
-          qaIssue,
         });
         await updatePullRequestBody(token, action.openPr, body);
       }
@@ -945,12 +920,10 @@ async function applyMaintenance(options) {
     ]);
 
     if (action.kind === 'refresh') {
-      const qaIssue = await qaIssueForExistingPr(token, action, openPulls[0].body);
       const body = await renderProposalBody({
         action,
         previousBody: openPulls[0].body,
         proposalOid: action.proposalOid,
-        qaIssue,
       });
       await updatePullRequestBody(token, action.openPr, body);
     }

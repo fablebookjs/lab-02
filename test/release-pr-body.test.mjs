@@ -8,17 +8,12 @@ import {
   deriveReleasePrChanges,
   extractReleasePrCheckboxes,
   extractReleasePrIdentity,
-  extractReleaseQaIssueNumber,
   renderReleasePrBody,
 } from '../scripts/release-pr-body.mjs';
 
 const template = await readFile(join(repositoryRoot, '.github/release-pr-template.md'), 'utf8');
 const releaseOid = 'a'.repeat(40);
 const proposalOid = 'b'.repeat(40);
-const qaIssue = {
-  number: 41,
-  url: 'https://github.com/fablebookjs/lab-02/issues/41',
-};
 const initialChanges = [
   {
     key: 'pr:3',
@@ -40,7 +35,6 @@ const render = (overrides = {}) =>
     line: 'v1.0',
     packageNames: ['@fablebook/lab-02-core', '@fablebook/lab-02-addon'],
     proposalOid,
-    qaIssue,
     releaseOid,
     template,
     version: '1.0.0',
@@ -49,8 +43,7 @@ const render = (overrides = {}) =>
 
 test('the Markdown template renders linked release facts and required maintainer tasks', () => {
   const body = render();
-  assert.match(body, /<!-- fablebook:release-pr=v1 -->/);
-  assert.match(body, /<!-- fablebook:qa-issue=41 -->/);
+  assert.match(body, /<!-- fablebook:release-pr=v2 -->/);
   assert.deepEqual(extractReleasePrIdentity(body), {
     proposalOid,
     releaseOid,
@@ -63,7 +56,11 @@ test('the Markdown template renders linked release facts and required maintainer
   assert.match(body, /<details>\n<summary>Clean-install smoke-test commands<\/summary>/);
   assert.match(body, /@fablebook\/lab-02-core@v-1\.0 @fablebook\/lab-02-addon@v-1\.0/);
   assert.match(body, /Promote latest/);
-  assert.equal(extractReleaseQaIssueNumber(body), 41);
+});
+
+test('an older template revision is stale even when its proposal identity matches', () => {
+  const body = render().replace('fablebook:release-pr=v2', 'fablebook:release-pr=v1');
+  assert.equal(extractReleasePrIdentity(body), null);
 });
 
 test('an in-place refresh preserves known checks and adds a new change unchecked', () => {
