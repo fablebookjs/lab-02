@@ -126,11 +126,12 @@ release-line directory, for example
 
 `npm run validate:release-communication` validates every target directory.
 Composition uses natural, case-insensitive priority order and then the unique
-filename as its tie-breaker. It removes priority metadata from the composed
-records, leaving their display and hosting to the separate migration-guide
-prototype. The release PR lists every migration record for its release line at
-the exact release source so maintainers can review the relevant files before
-publication.
+filename as its tie-breaker. It removes priority metadata from the visible
+records. The release PR lists every migration record for its release line at the
+exact release source so maintainers can review the relevant files before
+publication. The published GitHub Release repeats only the ordered linked
+titles, targeting the canonical Markdown files in that release's exact tag; it
+does not copy the migration instructions into the release body.
 
 ## Stable publication and promotion
 
@@ -146,9 +147,10 @@ contradiction. No product code runs in that job. After the complete set reads
 back successfully, a separate `release-github` job uses the repository-scoped
 App to create or verify annotated `vX.Y.Z` and its non-draft GitHub Release.
 The release body starts with the required highlights captured from the merged
-release PR, followed by an **All changes** details block containing only the
-change entries from the generated `releases/vX.Y.Z.md` record in the authorized
-snapshot.
+release PR. An always-present **Migrations** section follows with either the
+ordered, tag-pinned migration-record links or an explicit empty state. The
+collapsed **All changes** block then contains only the change entries from the
+generated `releases/vX.Y.Z.md` record in the authorized snapshot.
 
 **Promote latest** is a separate manual workflow. Its only input is a completed
 stable version such as `1.0.0`. It resolves that version's annotated tag,
