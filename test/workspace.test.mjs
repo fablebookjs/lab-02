@@ -50,8 +50,8 @@ test('the compiled addon exercises the compiled core package', () => {
   assert.equal(formatSummary(' Demo ', [2, 3]), 'demo:5');
 });
 
-test('the core label API accepts an optional locale', () => {
-  assert.equal(normalizeLabel(' I ', 'tr'), 'ı');
+test('the core label API accepts locale options', () => {
+  assert.equal(normalizeLabel(' I ', { locale: 'tr' }), 'ı');
 });
 
 test('the trusted PR description check requires highlights on every canonical release line', () => {
@@ -82,7 +82,7 @@ test('newly uploaded proposals render from the prepared local content tree', () 
 });
 
 test('summary formatting passes its locale to label normalization', () => {
-  assert.equal(formatSummary(' I ', [2, 3], 'tr'), 'ı:5');
+  assert.equal(formatSummary(' I ', [2, 3], { locale: 'tr' }), 'ı:5');
 });
 
 test('average summaries handle populated and empty values', () => {
@@ -93,5 +93,5 @@ test('average summaries handle populated and empty values', () => {
 });
 
 test('label collections share one locale-aware normalization pass', () => {
-  assert.deepEqual(normalizeLabels([' I ', ' İ '], 'tr'), ['ı', 'i']);
+  assert.deepEqual(normalizeLabels([' I ', ' İ '], { locale: 'tr' }), ['ı', 'i']);
 });

@@ -10,10 +10,10 @@ default `en-US` behavior.
 
 ## How to migrate
 
-Pass the desired locale as the second argument to `normalizeLabel`:
+Pass the desired locale in the options object:
 
 ```ts
-normalizeLabel(' İSTANBUL ', 'tr');
+normalizeLabel(' İSTANBUL ', { locale: 'tr' });
 ```
 
 Consumers that want the existing default do not need to change anything.

@@ -1,4 +1,8 @@
-import { add, normalizeLabel } from '@fablebook/lab-02-core';
+import {
+  add,
+  normalizeLabel,
+  type LabelNormalizationOptions,
+} from '@fablebook/lab-02-core';
 
 export function total(values: number[]): number {
   return values.reduce((sum, value) => add(sum, value), 0);
@@ -11,15 +15,15 @@ export function average(values: number[]): number | undefined {
 export function formatSummary(
   label: string,
   values: number[],
-  locale = 'en-US'
+  options: LabelNormalizationOptions = {}
 ): string {
-  return `${normalizeLabel(label, locale)}:${total(values)}`;
+  return `${normalizeLabel(label, options)}:${total(values)}`;
 }
 
 export function formatAverageSummary(
   label: string,
   values: number[],
-  locale = 'en-US'
+  options: LabelNormalizationOptions = {}
 ): string {
-  return `${normalizeLabel(label, locale)}:${average(values) ?? 'n/a'}`;
+  return `${normalizeLabel(label, options)}:${average(values) ?? 'n/a'}`;
 }
