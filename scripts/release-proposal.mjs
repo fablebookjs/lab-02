@@ -38,7 +38,12 @@ import {
 } from './release-proposal-github.mjs';
 import { repositoryRoot } from './list-public-packages.mjs';
 import {
-  deriveReleasePrChanges,
+  deriveReleaseChanges,
+  RELEASE_RECORD_MARKER,
+  releaseRecordPath,
+  renderReleaseRecord,
+} from './release-communication.mjs';
+import {
   extractReleasePrIdentity,
   renderReleasePrBody,
 } from './release-pr-body.mjs';
@@ -198,7 +203,7 @@ const releaseChanges = async (token, { boundaryOid, line, releaseOid }) => {
         subject: (await commitMessage(oid)).split('\n', 1)[0],
       }))
   );
-  return deriveReleasePrChanges({ commits, line });
+  return deriveReleaseChanges({ commits, line });
 };
 
 const renderProposalBody = async ({ action, previousBody = '', proposalOid }) => {
@@ -253,6 +258,23 @@ const validateProposalCommit = async (oid, expected) => {
   assert.equal(metadata.sourceOid, expected.sourceOid);
   assert.equal(metadata.version, expected.version);
   await validateVersionTree(oid, expected.version);
+  const path = releaseRecordPath(expected.version);
+  let record;
+  try {
+    record = (await git(['show', `${oid}:${path}`])).stdout;
+  } catch {
+    throw new Error(`${oid} does not contain its generated release record at ${path}.`);
+  }
+  if (expected.changes !== undefined) {
+    assert.equal(
+      record,
+      renderReleaseRecord({ changes: expected.changes, version: expected.version })
+    );
+  } else if (
+    !record.startsWith(`${RELEASE_RECORD_MARKER}\n# v${expected.version}\n`)
+  ) {
+    throw new Error(`${path} is not the generated record for v${expected.version}.`);
+  }
 };
 
 const validateDevelopmentCommit = async (oid, expected) => {
@@ -367,7 +389,7 @@ const validateCutTransition = async (transition) => {
   }
 };
 
-const materializeCommit = async ({ message, sourceOid, version }) => {
+const materializeCommit = async ({ changes, message, sourceOid, version }) => {
   const temporaryRoot = await mkdtemp(join(tmpdir(), 'fablebook-release-proposal-'));
   const worktree = join(temporaryRoot, 'worktree');
   let added = false;
@@ -376,6 +398,17 @@ const materializeCommit = async ({ message, sourceOid, version }) => {
     added = true;
     await run(process.execPath, ['scripts/set-version.mjs', version], { cwd: worktree });
     await git(['add', 'package.json', 'package-lock.json', 'packages'], { cwd: worktree });
+    let recordPath = null;
+    if (changes !== undefined) {
+      recordPath = releaseRecordPath(version);
+      await mkdir(join(worktree, 'releases'), { recursive: true });
+      await writeFile(
+        join(worktree, recordPath),
+        renderReleaseRecord({ changes, version }),
+        'utf8'
+      );
+      await git(['add', recordPath], { cwd: worktree });
+    }
 
     const changed = (await git(['diff', '--cached', '--name-only'], { cwd: worktree })).stdout
       .trim()
@@ -384,10 +417,15 @@ const materializeCommit = async ({ message, sourceOid, version }) => {
     if (
       changed.length === 0 ||
       changed.some(
-        (path) => path !== 'package.json' && path !== 'package-lock.json' && !path.endsWith('/package.json')
-      )
+        (path) =>
+          path !== recordPath &&
+          path !== 'package.json' &&
+          path !== 'package-lock.json' &&
+          !path.endsWith('/package.json')
+      ) ||
+      (recordPath !== null && !changed.includes(recordPath))
     ) {
-      throw new Error(`Version materialization changed unexpected files: ${changed.join(', ')}`);
+      throw new Error(`Release materialization changed unexpected files: ${changed.join(', ')}`);
     }
 
     const identity = {
@@ -451,6 +489,7 @@ async function prepareCut(options) {
   const attempt = randomUUID();
 
   const proposalOid = await materializeCommit({
+    changes: [],
     message: proposalCommitMessage({
       attempt,
       line: versions.line,
@@ -471,6 +510,7 @@ async function prepareCut(options) {
   });
 
   await validateProposalCommit(proposalOid, {
+    changes: [],
     line: versions.line,
     sourceOid,
     version: versions.releaseVersion,
@@ -526,6 +566,7 @@ async function applyCut(options) {
   assert.equal(await importedOid(transition.proposalBundleRef), transition.proposalOid);
   assert.equal(await importedOid(transition.developmentBundleRef), transition.developmentOid);
   await validateProposalCommit(transition.proposalOid, {
+    changes: [],
     line: transition.line,
     sourceOid: transition.sourceOid,
     version: transition.releaseVersion,
@@ -654,7 +695,18 @@ const loadMaintenanceStates = async (token) => {
       if (metadata.line !== line) {
         throw new Error(`staged/${line} contains proposal metadata for ${metadata.line}.`);
       }
-      staged = { ...metadata, oid: stagedRef.oid };
+      let releaseRecordCurrent = false;
+      try {
+        const record = (
+          await git(['show', `${stagedRef.oid}:${releaseRecordPath(metadata.version)}`])
+        ).stdout;
+        releaseRecordCurrent = record.startsWith(
+          `${RELEASE_RECORD_MARKER}\n# v${metadata.version}\n`
+        );
+      } catch {
+        // Existing proposals created before release records are refreshed in place.
+      }
+      staged = { ...metadata, oid: stagedRef.oid, releaseRecordCurrent };
     }
 
     const closedProposal =
@@ -740,6 +792,7 @@ async function prepareMaintenance(options) {
 
     const attempt = randomUUID();
     const proposalOid = await materializeCommit({
+      changes,
       message: proposalCommitMessage({
         attempt,
         line: plan.line,
@@ -750,6 +803,7 @@ async function prepareMaintenance(options) {
       version: plan.version,
     });
     await validateProposalCommit(proposalOid, {
+      changes,
       line: plan.line,
       sourceOid: state.releaseOid,
       version: plan.version,
@@ -900,6 +954,7 @@ async function applyMaintenance(options) {
     validateFullOid(action.proposalOid, `${action.line} proposal`);
     parseStableVersion(action.version);
     await validateProposalCommit(action.proposalOid, {
+      changes: action.changes,
       line: action.line,
       sourceOid: action.releaseOid,
       version: action.version,

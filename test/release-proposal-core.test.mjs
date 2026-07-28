@@ -115,6 +115,27 @@ test('a current proposal repairs a stale generated body without replacing its co
   });
 });
 
+test('a current proposal refreshes in place when its release record predates the system', () => {
+  const [action] = planProposalMaintenance([
+    lineState({
+      openPr: { bodyCurrent: true, number: 12 },
+      staged: {
+        oid: '3'.repeat(40),
+        releaseRecordCurrent: false,
+        sourceOid: '1'.repeat(40),
+        version: '1.0.0',
+      },
+    }),
+  ]);
+  assert.deepEqual(action, {
+    kind: 'refresh',
+    line: 'v1.0',
+    openPr: { bodyCurrent: true, number: 12 },
+    reason: 'staged proposal is missing its generated release record',
+    version: '1.0.0',
+  });
+});
+
 test('a closed unmerged proposal gets a clean draft replacement', () => {
   const [action] = planProposalMaintenance([
     lineState({ latestClosedPr: { merged: false, number: 15, version: '1.0.0' } }),
@@ -142,6 +163,25 @@ test('a current staged proposal recovers an interrupted PR creation without a ne
     kind: 'open',
     line: 'v1.0',
     reason: 'current staged proposal has no open PR',
+    version: '1.0.0',
+  });
+});
+
+test('an obsolete staged proposal without a PR is rematerialized with its release record', () => {
+  const [action] = planProposalMaintenance([
+    lineState({
+      staged: {
+        oid: '3'.repeat(40),
+        releaseRecordCurrent: false,
+        sourceOid: '1'.repeat(40),
+        version: '1.0.0',
+      },
+    }),
+  ]);
+  assert.deepEqual(action, {
+    kind: 'create',
+    line: 'v1.0',
+    reason: 'staged proposal is missing its generated release record',
     version: '1.0.0',
   });
 });
