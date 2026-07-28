@@ -62,12 +62,7 @@ test('one release-history interpretation renders the durable per-version record'
   assert.equal(releaseRecordPath('2.1.0'), 'releases/v2.1.0.md');
   assert.equal(
     renderReleaseRecord({ changes, version: '2.1.0' }),
-    `<!-- fablebook:release-record=v1 -->
-# v2.1.0
-
-> Generated from the exact release-line history. Do not edit manually.
-
-## Changes
+    `# v2.1.0 changes
 
 - [Add portable stories](https://github.com/fablebookjs/lab-02/pull/41)
 - [fix: correct the release branch directly](https://github.com/fablebookjs/lab-02/commit/${oid('b')})
@@ -80,6 +75,16 @@ test('one release-history interpretation renders the durable per-version record'
     }),
     `- [Add portable stories](https://github.com/fablebookjs/lab-02/pull/41)
 - [fix: correct the release branch directly](https://github.com/fablebookjs/lab-02/commit/${oid('b')})`
+  );
+});
+
+test('an empty release record uses the same concise visible format', () => {
+  assert.equal(
+    renderReleaseRecord({ changes: [], version: '2.1.1' }),
+    `# v2.1.1 changes
+
+No changes were recorded for this release.
+`
   );
 });
 
