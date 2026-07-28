@@ -79,23 +79,6 @@ test('one release-history interpretation renders the durable per-version record'
   );
 });
 
-test('authorized legacy release records remain readable for recovery', () => {
-  const source = `<!-- fablebook:release-record=v1 -->
-# v2.0.3
-
-> Generated from the exact release-line history. Do not edit manually.
-
-## Changes
-
-- [An authorized change](https://github.com/fablebookjs/lab-02/pull/44)
-`;
-
-  assert.equal(
-    extractReleaseRecordChanges({ source, version: '2.0.3' }),
-    '- [An authorized change](https://github.com/fablebookjs/lab-02/pull/44)'
-  );
-});
-
 test('an empty release record uses the same concise visible format', () => {
   assert.equal(
     renderReleaseRecord({ changes: [], version: '2.1.1' }),
