@@ -11,10 +11,12 @@ import {
   patchbackCommitMessage,
   patchbackExamplesComment,
   patchbackIdentity,
+  patchbackReleaseRecord,
   previousReleaseVersion,
   renderPatchbackBody,
 } from './patchback-core.mjs';
 import { deriveReleaseAuthority, PILOT_REPOSITORY } from './release-publication-core.mjs';
+import { releaseRecordPath } from './release-communication.mjs';
 import {
   parseDevelopmentCommitMessage,
   parseStableVersion,
@@ -266,7 +268,7 @@ const associatedPulls = async (token, oid) => {
 };
 
 const validateManifest = (manifest) => {
-  if (manifest?.schema !== 1 || manifest.repository !== PILOT_REPOSITORY) {
+  if (manifest?.schema !== 2 || manifest.repository !== PILOT_REPOSITORY) {
     throw new Error('Patchback manifest is outside the pilot schema.');
   }
   const identity = patchbackIdentity(manifest.authority?.version);
@@ -283,6 +285,13 @@ const validateManifest = (manifest) => {
     repository: PILOT_REPOSITORY,
     schema: 1,
   });
+  const releaseRecord = patchbackReleaseRecord({
+    source: manifest.releaseRecord?.content,
+    version: authority.version,
+  });
+  if (manifest.releaseRecord?.path !== releaseRecord.path) {
+    throw new Error('Patchback manifest release record path is invalid.');
+  }
   fullOid(manifest.baseMainOid, 'Patchback main base');
   fullOid(manifest.baseMainTreeOid, 'Patchback main tree');
   fullOid(manifest.boundaryOid, 'Patchback boundary');
@@ -317,6 +326,7 @@ const validateManifest = (manifest) => {
     boundaryOid: manifest.boundaryOid,
     items: manifest.items,
     line: authority.line,
+    recordPath: releaseRecord.path,
     snapshotOid: authority.snapshotOid,
     version: authority.version,
   });
@@ -327,6 +337,7 @@ const validateManifest = (manifest) => {
     baseMainOid: manifest.baseMainOid,
     boundaryOid: manifest.boundaryOid,
     line: authority.line,
+    recordPath: releaseRecord.path,
     snapshotOid: authority.snapshotOid,
     version: authority.version,
   });
@@ -374,6 +385,11 @@ async function preparePatchback(options) {
     line: authority.line,
     snapshotOid: authority.snapshotOid,
   });
+  const recordPath = releaseRecordPath(authority.version);
+  const releaseRecord = patchbackReleaseRecord({
+    source: await readFile(join(snapshot, recordPath), 'utf8'),
+    version: authority.version,
+  });
 
   const main = await getRef(token, 'heads/main');
   if (main === null || main.type !== 'commit') {
@@ -390,6 +406,7 @@ async function preparePatchback(options) {
       boundaryOid: boundary.oid,
       items,
       line: authority.line,
+      recordPath: releaseRecord.path,
       snapshotOid: authority.snapshotOid,
       version: authority.version,
     }),
@@ -401,12 +418,14 @@ async function preparePatchback(options) {
       baseMainOid: main.oid,
       boundaryOid: boundary.oid,
       line: authority.line,
+      recordPath: releaseRecord.path,
       snapshotOid: authority.snapshotOid,
       version: authority.version,
     }),
     items,
+    releaseRecord,
     repository: PILOT_REPOSITORY,
-    schema: 1,
+    schema: 2,
     title: identity.title,
   });
   await mkdir(output, { recursive: true });
@@ -441,8 +460,69 @@ const listPatchbackPulls = async (token, branch) => {
 const coordinationMatches = (metadata, manifest) =>
   metadata.boundaryOid === manifest.boundaryOid &&
   metadata.line === manifest.authority.line &&
+  metadata.recordPath === manifest.releaseRecord.path &&
   metadata.snapshotOid === manifest.authority.snapshotOid &&
   metadata.version === manifest.authority.version;
+
+const treeEntries = async (token, oid) => {
+  const tree = await githubRequest(
+    `/repos/${PILOT_REPOSITORY}/git/trees/${oid}?recursive=1`,
+    { token }
+  );
+  if (tree.truncated) {
+    throw new Error('Patchback coordination tree is too large to verify exactly.');
+  }
+  return new Map(
+    tree.tree
+      .filter((entry) => entry.type === 'blob')
+      .map((entry) => [
+        entry.path,
+        {
+          mode: entry.mode,
+          oid: entry.sha,
+          type: entry.type,
+        },
+      ])
+  );
+};
+
+const verifyCoordinationTree = async (token, commit, parent, manifest) => {
+  const [actual, base] = await Promise.all([
+    treeEntries(token, commit.tree.sha),
+    treeEntries(token, parent.tree.sha),
+  ]);
+  const paths = new Set([...actual.keys(), ...base.keys()]);
+  const changed = [...paths].filter((path) => {
+    const left = actual.get(path);
+    const right = base.get(path);
+    return (
+      left?.mode !== right?.mode ||
+      left?.oid !== right?.oid ||
+      left?.type !== right?.type
+    );
+  });
+  if (
+    changed.length !== 1 ||
+    changed[0] !== manifest.releaseRecord.path
+  ) {
+    throw new Error('Patchback coordination commit must change only its release record.');
+  }
+  const record = actual.get(manifest.releaseRecord.path);
+  if (record?.mode !== '100644' || record.type !== 'blob') {
+    throw new Error('Patchback coordination release record is not one regular file.');
+  }
+  const blob = await githubRequest(
+    `/repos/${PILOT_REPOSITORY}/git/blobs/${record.oid}`,
+    { token }
+  );
+  if (
+    blob.encoding !== 'base64' ||
+    Buffer.from(blob.content.replaceAll('\n', ''), 'base64').toString('utf8') !==
+      manifest.releaseRecord.content
+  ) {
+    throw new Error('Patchback coordination release record changed after preparation.');
+  }
+};
 
 const findCoordinationCommit = async (token, headOid, manifest) => {
   let oid = fullOid(headOid, 'Patchback branch head');
@@ -455,12 +535,10 @@ const findCoordinationCommit = async (token, headOid, manifest) => {
           throw new Error('Patchback coordination commit must have exactly one parent.');
         }
         const parent = await getGitCommit(token, commit.parents[0].sha);
-        if (
-          commit.parents[0].sha !== metadata.baseMainOid ||
-          commit.tree.sha !== parent.tree.sha
-        ) {
-          throw new Error('Patchback coordination commit is not empty on its recorded main base.');
+        if (commit.parents[0].sha !== metadata.baseMainOid) {
+          throw new Error('Patchback coordination commit is not based on its recorded main.');
         }
+        await verifyCoordinationTree(token, commit, parent, manifest);
         return { baseMainOid: metadata.baseMainOid, oid: commit.sha };
       }
     } catch (error) {
@@ -535,6 +613,7 @@ const validateExistingPull = (pull, manifest) => {
     pull.head.repo?.full_name !== PILOT_REPOSITORY ||
     !pull.body?.includes(PATCHBACK_BODY_MARKER) ||
     !pull.body.includes(manifest.authority.snapshotOid) ||
+    !pull.body.includes(manifest.releaseRecord.path) ||
     !pull.body.includes(`# Patchback for v${manifest.authority.version}`)
   ) {
     throw new Error('Existing patchback pull request does not match the authorized snapshot.');
@@ -559,6 +638,9 @@ async function applyPatchback(options) {
   let pull = pulls[0] ?? null;
   if (pull !== null) {
     validateExistingPull(pull, manifest);
+    const coordination = await findCoordinationCommit(token, pull.head.sha, manifest);
+    await verifyMainAncestry(token, coordination.baseMainOid);
+    await ensureExamplesComment(token, pull.number, manifest.comment);
     console.log(`Patchback #${pull.number} already exists; no action is required.`);
     return;
   }
@@ -574,11 +656,30 @@ async function applyPatchback(options) {
     if (mainCommit.tree.sha !== manifest.baseMainTreeOid) {
       throw new Error('The prepared main tree changed before patchback creation.');
     }
+    const recordTree = await githubRequest(`/repos/${PILOT_REPOSITORY}/git/trees`, {
+      body: {
+        base_tree: manifest.baseMainTreeOid,
+        tree: [
+          {
+            content: manifest.releaseRecord.content,
+            mode: '100644',
+            path: manifest.releaseRecord.path,
+            type: 'blob',
+          },
+        ],
+      },
+      method: 'POST',
+      token,
+    });
+    fullOid(recordTree.sha, 'Patchback coordination tree');
+    if (recordTree.sha === manifest.baseMainTreeOid) {
+      throw new Error('Patchback release record is already identical on main.');
+    }
     const coordination = await githubRequest(`/repos/${PILOT_REPOSITORY}/git/commits`, {
       body: {
         message: manifest.coordinationMessage,
         parents: [manifest.baseMainOid],
-        tree: manifest.baseMainTreeOid,
+        tree: recordTree.sha,
       },
       method: 'POST',
       token,

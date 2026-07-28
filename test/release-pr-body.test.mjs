@@ -58,7 +58,7 @@ const writeHighlights = (body, highlights = authoredHighlights) =>
 
 test('the Markdown template renders linked release facts and required maintainer tasks', () => {
   const body = render();
-  assert.match(body, /<!-- fablebook:release-pr=v4 -->/);
+  assert.match(body, /<!-- fablebook:release-pr=v5 -->/);
   assert.deepEqual(extractReleasePrIdentity(body), {
     proposalOid,
     releaseOid,
@@ -81,11 +81,36 @@ test('the Markdown template renders linked release facts and required maintainer
   assert.doesNotMatch(visibleBody, /When this proposal is regenerated/);
   assert.doesNotMatch(visibleBody, /\n---\n/);
   assert.match(visibleBody, /review the included changes below/);
+  assert.match(visibleBody, /No migration records target this release line/);
 });
 
 test('an older template revision is stale even when its proposal identity matches', () => {
-  const body = render().replace('fablebook:release-pr=v4', 'fablebook:release-pr=v3');
+  const body = render().replace('fablebook:release-pr=v5', 'fablebook:release-pr=v4');
   assert.equal(extractReleasePrIdentity(body), null);
+});
+
+test('the release PR links ordered migration records at the exact release source', () => {
+  const body = render({
+    migrationRecords: [
+      {
+        filename: 'adopt-portable-stories.md',
+        title: 'Adopt portable stories',
+      },
+      {
+        filename: 'remove-legacy-api.md',
+        title: 'Remove the legacy API',
+      },
+    ],
+  });
+  assert.match(
+    body,
+    new RegExp(
+      `https://github.com/fablebookjs/lab-02/blob/${releaseOid}/migration-notes/v1\\.0/adopt-portable-stories\\.md`
+    )
+  );
+  assert.ok(
+    body.indexOf('Adopt portable stories') < body.indexOf('Remove the legacy API')
+  );
 });
 
 test('an in-place refresh preserves highlights and known checks while adding new changes unchecked', () => {
@@ -158,8 +183,8 @@ test('replacement chooses the highest-numbered closed predecessor for the same v
   );
 
   const previousTemplate = older.replace(
-    'fablebook:release-pr=v4',
-    'fablebook:release-pr=v3'
+    'fablebook:release-pr=v5',
+    'fablebook:release-pr=v4'
   );
   assert.equal(
     requireReleaseHighlights(

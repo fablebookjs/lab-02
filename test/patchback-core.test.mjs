@@ -7,9 +7,11 @@ import {
   patchbackCommitMessage,
   patchbackExamplesComment,
   patchbackIdentity,
+  patchbackReleaseRecord,
   previousReleaseVersion,
   renderPatchbackBody,
 } from '../scripts/patchback-core.mjs';
+import { renderReleaseRecord } from '../scripts/release-communication.mjs';
 
 const containsUncheckedMarkdownTask = (body) =>
   /^\s*[-*+]\s+\[ \](?:\s|$)/m.test(String(body ?? ''));
@@ -21,6 +23,7 @@ const squashOid = '3'.repeat(40);
 const pullMergeOid = '4'.repeat(40);
 const snapshotOid = '5'.repeat(40);
 const directMergeOid = '6'.repeat(40);
+const recordPath = 'releases/v10.4.3.md';
 
 test('patchback identity and coordination commit are version-bound', () => {
   assert.deepEqual(patchbackIdentity('10.4.3'), {
@@ -35,6 +38,7 @@ test('patchback identity and coordination commit are version-bound', () => {
     baseMainOid,
     boundaryOid,
     line: 'v10.4',
+    recordPath,
     snapshotOid,
     version: '10.4.3',
   });
@@ -42,9 +46,22 @@ test('patchback identity and coordination commit are version-bound', () => {
     baseMainOid,
     boundaryOid,
     line: 'v10.4',
+    recordPath,
     snapshotOid,
     version: '10.4.3',
   });
+});
+
+test('patchback release records are exact generated version files', () => {
+  const content = renderReleaseRecord({ changes: [], version: '10.4.3' });
+  assert.deepEqual(patchbackReleaseRecord({ source: content, version: '10.4.3' }), {
+    content,
+    path: recordPath,
+  });
+  assert.throws(
+    () => patchbackReleaseRecord({ source: content, version: '10.4.2' }),
+    /Expected the generated v10.4.2 release record/
+  );
 });
 
 test('scope preserves first-parent order and accounts for every product entry shape', () => {
@@ -185,12 +202,15 @@ test('the generated queue is unchecked while the examples and empty path are mer
     boundaryOid,
     items: [item],
     line: 'v10.4',
+    recordPath: 'releases/v10.4.1.md',
     snapshotOid,
     version: '10.4.1',
   });
   assert.equal(containsUncheckedMarkdownTask(body), true);
+  assert.match(body, /fablebook-patchback-coordination:v2/);
   assert.match(body, new RegExp(directOid));
   assert.match(body, new RegExp(`git cherry-pick ${directOid}`));
+  assert.match(body, /releases\/v10\.4\.1\.md/);
   assert.equal(containsUncheckedMarkdownTask(body.replace('- [ ]', '- [x]')), false);
   assert.equal(containsUncheckedMarkdownTask(patchbackExamplesComment()), false);
 
@@ -199,9 +219,10 @@ test('the generated queue is unchecked while the examples and empty path are mer
     boundaryOid,
     items: [],
     line: 'v10.4',
+    recordPath: 'releases/v10.4.0.md',
     snapshotOid,
     version: '10.4.0',
   });
   assert.equal(containsUncheckedMarkdownTask(empty), false);
-  assert.match(empty, /empty draft is intentionally left for a maintainer to close/);
+  assert.match(empty, /generated release record above is the complete patchback/);
 });

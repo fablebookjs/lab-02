@@ -128,7 +128,9 @@ release-line directory, for example
 Composition uses natural, case-insensitive priority order and then the unique
 filename as its tie-breaker. It removes priority metadata from the composed
 records, leaving their display and hosting to the separate migration-guide
-prototype.
+prototype. The release PR lists every migration record for its release line at
+the exact release source so maintainers can review the relevant files before
+publication.
 
 ## Stable publication and promotion
 
@@ -175,14 +177,19 @@ ambiguous metadata still produce commit-linked items. A merge entry is one item
 with the complete first-parent delta and a `git cherry-pick -m 1` example.
 
 The write job query-first creates `patchbacks/vX.Y.Z` from the then-current
-`main`, adds one empty commit containing the snapshot and boundary identities,
-and opens a draft PR to `main`. Its body is the immutable unchecked work queue;
-automation never cherry-picks, edits outcomes, or rewrites the queue on retry.
-One marked comment is created or updated with copy-paste examples for
-`applied`, `already-present`, and `not-applicable` outcomes.
+`main`, adds one commit containing the exact generated `releases/vX.Y.Z.md`
+record plus the snapshot and boundary identities, and opens a draft PR to
+`main`. The controller verifies that this commit differs from its recorded
+`main` parent only by that exact release record. Its body is the immutable
+unchecked product-change queue; automation never cherry-picks, edits outcomes,
+or rewrites the queue on retry. Migration records travel with the implementation
+merge that authored them. One marked comment is created or updated with
+copy-paste examples for `applied`, `already-present`, and `not-applicable`
+outcomes.
 
-A merged or closed patchback PR is terminal. The empty-scope path intentionally
-creates the same draft PR and leaves it for a maintainer to close.
+A merged or closed patchback PR is terminal. When the product-change scope is
+empty, the draft still contains the generated release record and can be reviewed
+and merged as the complete patchback.
 
 **Pull request description check** applies to every repository PR and fails
 while its description contains an unchecked Markdown task. Live branch rules
