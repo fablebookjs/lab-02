@@ -3,20 +3,29 @@ import test from 'node:test';
 
 import {
   assertOidcPublishEnvironment,
+  composeGitHubReleaseBody,
   deriveReleaseAuthority,
+  deriveReleaseHighlights,
   exactPublication,
   lineChannel,
   promotionDisposition,
   publicationDisposition,
   SETUP_NODE_AUTH_PLACEHOLDER,
 } from '../scripts/release-publication-core.mjs';
+import { renderReleaseRecord } from '../scripts/release-communication.mjs';
 import { proposalCommitMessage } from '../scripts/release-proposal-core.mjs';
+import {
+  RELEASE_HIGHLIGHTS_END,
+  RELEASE_HIGHLIGHTS_START,
+  RELEASE_PR_TEMPLATE_MARKER,
+} from '../scripts/release-pr-body.mjs';
 
 const sourceOid = '1'.repeat(40);
 const proposalOid = '2'.repeat(40);
 const snapshotOid = '3'.repeat(40);
 const treeOid = '4'.repeat(40);
 const integrity = `sha512-${Buffer.alloc(64, 7).toString('base64')}`;
+const highlights = '**Worth upgrading:** The release workflow is ready to test.';
 
 const authorityFixture = () => ({
   headCommit: {
@@ -102,6 +111,50 @@ test('a canonical merge commit is the sole stable publication authority', () => 
   const wrongTree = authorityFixture();
   wrongTree.mergeCommit.tree.sha = '5'.repeat(40);
   assert.throws(() => deriveReleaseAuthority(wrongTree));
+});
+
+test('release highlights remain bound to the authorized proposal', () => {
+  const authority = deriveReleaseAuthority(authorityFixture());
+  const body = `${RELEASE_PR_TEMPLATE_MARKER}
+<!-- fablebook:proposal=${proposalOid} source=${sourceOid} version=1.0.0 -->
+${RELEASE_HIGHLIGHTS_START}
+${highlights}
+${RELEASE_HIGHLIGHTS_END}`;
+  assert.equal(deriveReleaseHighlights({ authority, body }), highlights);
+  assert.throws(() =>
+    deriveReleaseHighlights({
+      authority,
+      body: body.replace(`proposal=${proposalOid}`, `proposal=${'5'.repeat(40)}`),
+    })
+  );
+});
+
+test('the GitHub Release combines highlights with the exact generated record', () => {
+  const releaseRecord = renderReleaseRecord({ changes: [], version: '1.0.0' });
+  const body = composeGitHubReleaseBody({
+    highlights,
+    releaseRecord,
+    version: '1.0.0',
+  });
+  assert.equal(
+    body,
+    `${highlights}
+
+<details>
+<summary>All changes</summary>
+
+${releaseRecord}
+</details>
+`
+  );
+  assert.equal(body.includes(releaseRecord), true);
+  assert.throws(() =>
+    composeGitHubReleaseBody({
+      highlights,
+      releaseRecord: releaseRecord.replace('# v1.0.0', '# v1.0.1'),
+      version: '1.0.0',
+    })
+  );
 });
 
 test('stable publication publishes missing versions and skips only exact completed results', () => {

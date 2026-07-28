@@ -143,6 +143,9 @@ existing version with the same tarball integrity and channel, and stops on a
 contradiction. No product code runs in that job. After the complete set reads
 back successfully, a separate `release-github` job uses the repository-scoped
 App to create or verify annotated `vX.Y.Z` and its non-draft GitHub Release.
+The release body starts with the required highlights captured from the merged
+release PR, followed by an **All changes** details block containing the exact
+generated `releases/vX.Y.Z.md` record from the authorized snapshot.
 
 **Promote latest** is a separate manual workflow. Its only input is a completed
 stable version such as `1.0.0`. It resolves that version's annotated tag,

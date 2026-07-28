@@ -1,4 +1,10 @@
 import { parseProposalMessage, parseReleaseLine, parseStableVersion } from './release-proposal-core.mjs';
+import { RELEASE_RECORD_MARKER } from './release-communication.mjs';
+import {
+  extractReleasePrIdentity,
+  requireReleaseHighlights,
+  validateReleaseHighlights,
+} from './release-pr-body.mjs';
 
 export const NPM_REGISTRY = 'https://registry.npmjs.org/';
 export const PILOT_REPOSITORY = 'fablebookjs/lab-02';
@@ -85,6 +91,32 @@ export function deriveReleaseAuthority({ headCommit, mergeCommit, pull }) {
     sourceOid,
     version: proposal.version,
   };
+}
+
+export function deriveReleaseHighlights({ authority, body }) {
+  const identity = extractReleasePrIdentity(body);
+  if (
+    identity === null ||
+    identity.proposalOid !== authority.proposalOid ||
+    identity.releaseOid !== authority.sourceOid ||
+    identity.version !== authority.version
+  ) {
+    throw new Error('Release highlights are not bound to the authorized proposal.');
+  }
+  return requireReleaseHighlights(body);
+}
+
+export function composeGitHubReleaseBody({ highlights, releaseRecord, version }) {
+  parseStableVersion(version);
+  validateReleaseHighlights(highlights);
+  if (
+    typeof releaseRecord !== 'string' ||
+    !releaseRecord.startsWith(`${RELEASE_RECORD_MARKER}\n# v${version}\n`) ||
+    !releaseRecord.endsWith('\n')
+  ) {
+    throw new Error(`GitHub Release requires the generated v${version} release record.`);
+  }
+  return `${highlights}\n\n<details>\n<summary>All changes</summary>\n\n${releaseRecord}\n</details>\n`;
 }
 
 const packageVersion = (document, name, version) => {
