@@ -7,13 +7,14 @@
     "packages/*"
   ],
   "scripts": {
-    "check": "npm run clean && npm run compile && npm test && npm run smoke:packed",
+    "check": "npm run validate:release-communication && npm run clean && npm run compile && npm test && npm run smoke:packed",
     "clean": "tsc -b --clean",
     "compile": "tsc -b",
     "list-packages": "node scripts/list-public-packages.mjs",
     "set-version": "node scripts/set-version.mjs",
     "smoke:packed": "node scripts/consumer-smoke.mjs",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "validate:release-communication": "node scripts/check-release-communication.mjs"
   },
   "devDependencies": {
     "typescript": "^7.0.2"

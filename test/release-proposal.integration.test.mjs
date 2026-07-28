@@ -7,6 +7,7 @@ import test from 'node:test';
 import { promisify } from 'node:util';
 
 import { parseProposalMessage } from '../scripts/release-proposal-core.mjs';
+import { renderReleaseRecord } from '../scripts/release-communication.mjs';
 import { repositoryRoot } from '../scripts/list-public-packages.mjs';
 
 const execute = promisify(execFile);
@@ -86,6 +87,21 @@ test('prepare-cut creates two validated children and no repository refs', async 
     );
     assert.equal(proposalRoot.version, '1.0.0');
     assert.equal(developmentRoot.version, '1.1.0-alpha.0');
+    assert.equal(
+      (
+        await git(
+          ['show', `${transition.proposalOid}:releases/v1.0.0.md`],
+          repository
+        )
+      ).stdout,
+      renderReleaseRecord({ changes: [], version: '1.0.0' })
+    );
+    await assert.rejects(() =>
+      git(
+        ['show', `${transition.developmentOid}:releases/v1.0.0.md`],
+        repository
+      )
+    );
     assert.equal((await git(['rev-parse', 'main'], repository)).stdout.trim(), sourceOid);
     assert.equal((await git(['branch', '--list'], repository)).stdout.trim(), '* main');
 

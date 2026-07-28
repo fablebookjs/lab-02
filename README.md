@@ -94,6 +94,31 @@ current base SHA. Live repository rules must require this check, require the
 branch to be up to date before merge, dismiss stale approvals, and allow release
 PRs to merge only with a merge commit.
 
+## Release and migration records
+
+Each staged stable proposal contains one generated release record at
+`releases/vX.Y.Z.md`. The controller derives its list from the exact
+first-parent release history it already uses for the release PR: one canonical
+merged PR becomes its linked PR title, while a direct merge, direct commit, or
+ambiguous PR association remains visible as one linked commit subject. The
+record is generated data and contains no curated highlights.
+
+Migration guidance is authored only when a change needs it. Copy
+[`migration-notes/TEMPLATE.md`](migration-notes/TEMPLATE.md) into the target
+release-line directory, for example
+`migration-notes/v2.1/adopt-portable-stories.md`. Each small record has:
+
+- a required free-text `priority` frontmatter value, used only for sorting;
+- one title;
+- nonempty `Who is affected` and `How to migrate` sections;
+- an optional `Automatic migration` section.
+
+`npm run validate:release-communication` validates every target directory.
+Composition uses natural, case-insensitive priority order and then the unique
+filename as its tie-breaker. It removes priority metadata from the composed
+records, leaving their display and hosting to the separate migration-guide
+prototype.
+
 ## Stable publication and promotion
 
 Merging a canonical release PR wakes **Publish stable release**. Its first job

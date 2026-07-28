@@ -1,9 +1,12 @@
 import { parseReleaseLine, parseStableVersion } from './release-proposal-core.mjs';
+import {
+  deriveReleaseChanges,
+  normalizeReleaseChanges,
+} from './release-communication.mjs';
 
 const REPOSITORY = 'fablebookjs/lab-02';
 const repositoryUrl = `https://github.com/${REPOSITORY}`;
 const fullOidPattern = /^[0-9a-f]{40}$/;
-const changeKeyPattern = /^(?:pr:[1-9]\d*|commit:[0-9a-f]{40})$/;
 const packageNamePattern = /^@fablebook\/[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const taskPattern =
   /^- \[([ xX])\].*<!-- fablebook:(change|check)=([a-z0-9:.-]+) -->\s*$/gm;
@@ -25,16 +28,6 @@ const positiveInteger = (value, label) => {
     throw new Error(`${label} is not one positive integer.`);
   }
   return value;
-};
-
-const cleanTitle = (value, fallback) => {
-  const title = String(value ?? '')
-    .split(/\r?\n/, 1)[0]
-    .replace(/[\u0000-\u001f\u007f]/g, ' ')
-    .replace(/[`<>[\]\\]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return (title || fallback).slice(0, 180);
 };
 
 export function extractReleasePrCheckboxes(body) {
@@ -70,70 +63,13 @@ export function extractReleasePrIdentity(body) {
 }
 
 const validateChanges = (changes, states) => {
-  if (!Array.isArray(changes)) {
-    throw new Error('Release PR changes must be an array.');
-  }
-  const identities = new Set();
-  return changes.map((change) => {
-    if (!changeKeyPattern.test(change?.key ?? '')) {
-      throw new Error(`Release change has an invalid identity: ${change?.key}`);
-    }
-    if (identities.has(change.key)) {
-      throw new Error(`Release changes repeat identity ${change.key}.`);
-    }
-    identities.add(change.key);
-    fullOid(change.oid, `Release change ${change.key}`);
-    if (change.key.startsWith('pr:')) {
-      const pullRequest = Number.parseInt(change.key.slice(3), 10);
-      positiveInteger(pullRequest, `Release change ${change.key} pull request`);
-      if (change.url !== `${repositoryUrl}/pull/${pullRequest}`) {
-        throw new Error(`Release change ${change.key} has a noncanonical pull request URL.`);
-      }
-    } else if (change.url !== `${repositoryUrl}/commit/${change.oid}`) {
-      throw new Error(`Release change ${change.key} has a noncanonical commit URL.`);
-    }
-    return {
-      ...change,
-      checkmark: states.get(`change:${change.key}`) ? 'x' : ' ',
-      title: cleanTitle(change.title, `Commit ${change.oid.slice(0, 12)}`),
-    };
-  });
+  return normalizeReleaseChanges(changes).map((change) => ({
+    ...change,
+    checkmark: states.get(`change:${change.key}`) ? 'x' : ' ',
+  }));
 };
 
-const canonicalReleasePull = (pull, line, oid) =>
-  Number.isSafeInteger(pull?.number) &&
-  pull.number > 0 &&
-  pull.merged_at !== null &&
-  pull.base?.ref === `releases/${line}` &&
-  pull.base?.repo?.full_name === REPOSITORY &&
-  pull.merge_commit_sha === oid;
-
-export function deriveReleasePrChanges({ commits, line }) {
-  parseReleaseLine(line);
-  if (!Array.isArray(commits)) {
-    throw new Error('Release PR commits must be an array.');
-  }
-  return commits.map((commit) => {
-    const oid = fullOid(commit?.oid, 'Release PR change');
-    const associated = (commit.associatedPulls ?? []).filter((pull) =>
-      canonicalReleasePull(pull, line, oid)
-    );
-    const pull = associated.length === 1 ? associated[0] : null;
-    return pull
-      ? {
-          key: `pr:${pull.number}`,
-          oid,
-          title: pull.title,
-          url: `${repositoryUrl}/pull/${pull.number}`,
-        }
-      : {
-          key: `commit:${oid}`,
-          oid,
-          title: commit.subject,
-          url: `${repositoryUrl}/commit/${oid}`,
-        };
-  });
-}
+export const deriveReleasePrChanges = deriveReleaseChanges;
 
 const smokeCommands = (packageNames, channel) => {
   const installs = packageNames.map((name) => `${name}@${channel}`).join(' ');
