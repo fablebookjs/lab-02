@@ -9,7 +9,7 @@ import {
   formatSummary,
   total,
 } from '@fablebook/lab-02-addon';
-import { add, normalizeLabel } from '@fablebook/lab-02-core';
+import { add, normalizeLabel, normalizeLabels } from '@fablebook/lab-02-core';
 
 import { listPublicPackages, repositoryRoot } from '../scripts/list-public-packages.mjs';
 
@@ -90,4 +90,8 @@ test('average summaries handle populated and empty values', () => {
   assert.equal(average([]), undefined);
   assert.equal(formatAverageSummary(' Demo ', [2, 4]), 'demo:3');
   assert.equal(formatAverageSummary(' Demo ', []), 'demo:n/a');
+});
+
+test('label collections share one locale-aware normalization pass', () => {
+  assert.deepEqual(normalizeLabels([' I ', ' İ '], 'tr'), ['ı', 'i']);
 });
