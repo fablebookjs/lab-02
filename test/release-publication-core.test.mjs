@@ -143,13 +143,13 @@ test('the GitHub Release combines highlights with only the generated change entr
 <details>
 <summary>All changes</summary>
 
-_No changes were recorded for this release._
+No changes were recorded for this release.
 
 </details>
 `
   );
   assert.doesNotMatch(body, /Generated from the exact release-line history/);
-  assert.doesNotMatch(body, /^# v1\.0\.0$/m);
+  assert.doesNotMatch(body, /^# v1\.0\.0 changes$/m);
   assert.doesNotMatch(body, /^## Changes$/m);
   assert.throws(() =>
     composeGitHubReleaseBody({

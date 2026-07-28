@@ -14,7 +14,8 @@ const priorityOrder = new Intl.Collator('en', {
   sensitivity: 'base',
 });
 
-export const RELEASE_RECORD_MARKER = '<!-- fablebook:release-record=v1 -->';
+const LEGACY_RELEASE_RECORD_MARKER = '<!-- fablebook:release-record=v1 -->';
+export const RELEASE_RECORD_MARKER = '<!-- fablebook:release-record=v2 -->';
 
 const fullOid = (value, label) => {
   if (!fullOidPattern.test(value ?? '')) {
@@ -117,15 +118,11 @@ export function renderReleaseRecord({ changes, version }) {
   const normalized = normalizeReleaseChanges(changes);
   const renderedChanges =
     normalized.length === 0
-      ? '_No changes were recorded for this release._'
+      ? 'No changes were recorded for this release.'
       : normalized.map(({ title, url }) => `- [${title}](${url})`).join('\n');
   return [
     RELEASE_RECORD_MARKER,
-    `# v${version}`,
-    '',
-    '> Generated from the exact release-line history. Do not edit manually.',
-    '',
-    '## Changes',
+    `# v${version} changes`,
     '',
     renderedChanges,
     '',
@@ -134,7 +131,11 @@ export function renderReleaseRecord({ changes, version }) {
 
 export function extractReleaseRecordChanges({ source, version }) {
   parseStableVersion(version);
-  const prefix = `${RELEASE_RECORD_MARKER}
+  const currentPrefix = `${RELEASE_RECORD_MARKER}
+# v${version} changes
+
+`;
+  const legacyPrefix = `${LEGACY_RELEASE_RECORD_MARKER}
 # v${version}
 
 > Generated from the exact release-line history. Do not edit manually.
@@ -142,9 +143,15 @@ export function extractReleaseRecordChanges({ source, version }) {
 ## Changes
 
 `;
+  const prefix =
+    typeof source === 'string'
+      ? [currentPrefix, legacyPrefix].find((candidate) =>
+          source.startsWith(candidate)
+        )
+      : undefined;
   if (
     typeof source !== 'string' ||
-    !source.startsWith(prefix) ||
+    prefix === undefined ||
     !source.endsWith('\n')
   ) {
     throw new Error(`Expected the generated v${version} release record.`);

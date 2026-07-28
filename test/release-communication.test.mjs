@@ -62,12 +62,8 @@ test('one release-history interpretation renders the durable per-version record'
   assert.equal(releaseRecordPath('2.1.0'), 'releases/v2.1.0.md');
   assert.equal(
     renderReleaseRecord({ changes, version: '2.1.0' }),
-    `<!-- fablebook:release-record=v1 -->
-# v2.1.0
-
-> Generated from the exact release-line history. Do not edit manually.
-
-## Changes
+    `<!-- fablebook:release-record=v2 -->
+# v2.1.0 changes
 
 - [Add portable stories](https://github.com/fablebookjs/lab-02/pull/41)
 - [fix: correct the release branch directly](https://github.com/fablebookjs/lab-02/commit/${oid('b')})
@@ -80,6 +76,34 @@ test('one release-history interpretation renders the durable per-version record'
     }),
     `- [Add portable stories](https://github.com/fablebookjs/lab-02/pull/41)
 - [fix: correct the release branch directly](https://github.com/fablebookjs/lab-02/commit/${oid('b')})`
+  );
+});
+
+test('authorized legacy release records remain readable for recovery', () => {
+  const source = `<!-- fablebook:release-record=v1 -->
+# v2.0.3
+
+> Generated from the exact release-line history. Do not edit manually.
+
+## Changes
+
+- [An authorized change](https://github.com/fablebookjs/lab-02/pull/44)
+`;
+
+  assert.equal(
+    extractReleaseRecordChanges({ source, version: '2.0.3' }),
+    '- [An authorized change](https://github.com/fablebookjs/lab-02/pull/44)'
+  );
+});
+
+test('an empty release record uses the same concise visible format', () => {
+  assert.equal(
+    renderReleaseRecord({ changes: [], version: '2.1.1' }),
+    `<!-- fablebook:release-record=v2 -->
+# v2.1.1 changes
+
+No changes were recorded for this release.
+`
   );
 });
 
