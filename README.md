@@ -26,7 +26,7 @@ The check compiles both packages, verifies the lockstep and internal-dependency
 invariants, packs the actual npm artifacts, installs them into a temporary
 offline consumer, and exercises the addon-to-core path.
 
-The **CI: Build, test & pack** workflow runs the same check on pull requests
+The **CI: Validate changes** workflow runs the same check on pull requests
 and protected branch updates. It is one of the small required checks used by
 the pilot rulesets.
 
@@ -57,7 +57,7 @@ Five workflow surfaces implement the first release vertical slice:
   older line dormant.
 - **MANUAL - Release: Repair release PRs** invokes that same main-bound
   controller as an explicit recovery action. It is not a normal release step.
-- **Release: Block stale release PRs** prevents a proposal based on stale
+- **Release: Protect approval** prevents a proposal based on stale
   release-line source from becoming the authorized release snapshot.
 
 Preparation and mutation are separate jobs. The uncredentialed job checks the
@@ -94,7 +94,7 @@ tracking. The release App needs only repository contents and pull request
 permissions. If a ref update succeeds but its body write does not, the next
 maintenance run detects the stale generated identity and repairs the same PR.
 
-The credentialless **Release: Block stale release PRs** workflow verifies that
+The credentialless **Release: Protect approval** workflow verifies that
 the proposal has one parent and that both its parent and `Release-Source`
 trailer equal the PR's current base SHA. Live repository rules must require
 this check, require the branch to be up to date before merge, dismiss stale
@@ -205,7 +205,7 @@ A merged or closed patchback PR is terminal. When the product-change scope is
 empty, the draft still contains the generated release record and can be reviewed
 and merged with any migration records as the complete patchback.
 
-**PR: Block merge while tasks remain** applies to every repository PR and
+**PR: Enforce readiness** applies to every repository PR and
 fails while its description contains an unchecked Markdown task. Live branch
 rules must require the `PR description has no unchecked tasks` check for `main`
 and the release branches. It adds no semantic patchback verification.

@@ -93,14 +93,14 @@ test('workflow names group the Actions overview by maintainer-facing purpose', (
       return match[1];
     }),
     [
-      'CI: Build, test & pack',
+      'CI: Validate changes',
       'MANUAL - Release: Start new release line',
       'Release: Prepare patchback PR',
       'Release: Keep release PRs current',
       'MANUAL - Publish: Promote to latest',
       'Publish: Publish approved release',
-      'PR: Block merge while tasks remain',
-      'Release: Block stale release PRs',
+      'PR: Enforce readiness',
+      'Release: Protect approval',
       'Release: Trigger proposal maintenance',
       'MANUAL - Release: Repair release PRs',
     ]

@@ -1,4 +1,4 @@
-name: 'Release: Block stale release PRs'
+name: 'Release: Protect approval'
 
 on:
   pull_request:

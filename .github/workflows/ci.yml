@@ -1,4 +1,4 @@
-name: 'CI: Build, test & pack'
+name: 'CI: Validate changes'
 
 on:
   pull_request:

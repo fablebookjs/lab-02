@@ -1,4 +1,4 @@
-name: 'PR: Block merge while tasks remain'
+name: 'PR: Enforce readiness'
 
 on:
   pull_request_target:
