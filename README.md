@@ -178,18 +178,24 @@ with the complete first-parent delta and a `git cherry-pick -m 1` example.
 
 The write job query-first creates `patchbacks/vX.Y.Z` from the then-current
 `main`, adds one commit containing the exact generated `releases/vX.Y.Z.md`
-record plus the snapshot and boundary identities, and opens a draft PR to
-`main`. The controller verifies that this commit differs from its recorded
-`main` parent only by that exact release record. Its body is the immutable
-unchecked product-change queue; automation never cherry-picks, edits outcomes,
-or rewrites the queue on retry. Migration records travel with the implementation
-merge that authored them. One marked comment is created or updated with
-copy-paste examples for `applied`, `already-present`, and `not-applicable`
-outcomes.
+record and every validated migration record for that release line from the
+authorized snapshot, then opens a draft PR to `main`. The controller verifies
+that this commit differs from its recorded `main` parent only through those
+release-communication paths and that every synchronized file still exactly
+matches the snapshot. Migration records already identical on `main` remain
+unchanged.
+
+The PR body lists the mechanically synchronized communication separately from
+the immutable unchecked product-change queue; automation never cherry-picks
+product changes, edits outcomes, or rewrites the queue on retry. When the PR is
+first created, automation best-effort assigns it to the maintainer who merged
+the release PR. Assignment failure never blocks creation, and maintainers may
+freely reassign it. One marked comment is created or updated with copy-paste
+examples for `applied`, `already-present`, and `not-applicable` outcomes.
 
 A merged or closed patchback PR is terminal. When the product-change scope is
 empty, the draft still contains the generated release record and can be reviewed
-and merged as the complete patchback.
+and merged with any migration records as the complete patchback.
 
 **Pull request description check** applies to every repository PR and fails
 while its description contains an unchecked Markdown task. Live branch rules

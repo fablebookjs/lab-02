@@ -14,8 +14,6 @@ const priorityOrder = new Intl.Collator('en', {
   sensitivity: 'base',
 });
 
-export const RELEASE_RECORD_MARKER = '<!-- fablebook:release-record=v1 -->';
-
 const fullOid = (value, label) => {
   if (!fullOidPattern.test(value ?? '')) {
     throw new Error(`${label} is not a full commit OID.`);
@@ -117,15 +115,10 @@ export function renderReleaseRecord({ changes, version }) {
   const normalized = normalizeReleaseChanges(changes);
   const renderedChanges =
     normalized.length === 0
-      ? '_No changes were recorded for this release._'
+      ? 'No changes were recorded for this release.'
       : normalized.map(({ title, url }) => `- [${title}](${url})`).join('\n');
   return [
-    RELEASE_RECORD_MARKER,
-    `# v${version}`,
-    '',
-    '> Generated from the exact release-line history. Do not edit manually.',
-    '',
-    '## Changes',
+    `# v${version} changes`,
     '',
     renderedChanges,
     '',
@@ -134,12 +127,7 @@ export function renderReleaseRecord({ changes, version }) {
 
 export function extractReleaseRecordChanges({ source, version }) {
   parseStableVersion(version);
-  const prefix = `${RELEASE_RECORD_MARKER}
-# v${version}
-
-> Generated from the exact release-line history. Do not edit manually.
-
-## Changes
+  const prefix = `# v${version} changes
 
 `;
   if (

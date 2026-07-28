@@ -7,8 +7,10 @@ import {
   patchbackCommitMessage,
   patchbackExamplesComment,
   patchbackIdentity,
+  patchbackMigrationRecords,
   patchbackReleaseRecord,
   previousReleaseVersion,
+  releaseMergerAssignee,
   renderPatchbackBody,
 } from '../scripts/patchback-core.mjs';
 import { renderReleaseRecord } from '../scripts/release-communication.mjs';
@@ -24,6 +26,20 @@ const pullMergeOid = '4'.repeat(40);
 const snapshotOid = '5'.repeat(40);
 const directMergeOid = '6'.repeat(40);
 const recordPath = 'releases/v10.4.3.md';
+const migrationPath = 'migration-notes/v10.4/adopt-new-api.md';
+const migrationSource = `---
+priority: first
+---
+# Adopt the new API
+
+## Who is affected
+
+Users of the old API.
+
+## How to migrate
+
+Use the new API.
+`;
 
 test('patchback identity and coordination commit are version-bound', () => {
   assert.deepEqual(patchbackIdentity('10.4.3'), {
@@ -38,6 +54,7 @@ test('patchback identity and coordination commit are version-bound', () => {
     baseMainOid,
     boundaryOid,
     line: 'v10.4',
+    migrationRecordPaths: [migrationPath],
     recordPath,
     snapshotOid,
     version: '10.4.3',
@@ -46,6 +63,7 @@ test('patchback identity and coordination commit are version-bound', () => {
     baseMainOid,
     boundaryOid,
     line: 'v10.4',
+    migrationRecordPaths: [migrationPath],
     recordPath,
     snapshotOid,
     version: '10.4.3',
@@ -62,6 +80,44 @@ test('patchback release records are exact generated version files', () => {
     () => patchbackReleaseRecord({ source: content, version: '10.4.2' }),
     /Expected the generated v10.4.2 release record/
   );
+});
+
+test('patchback migration records preserve exact validated source content', () => {
+  assert.deepEqual(
+    patchbackMigrationRecords({
+      line: 'v10.4',
+      records: [
+        {
+          filename: 'adopt-new-api.md',
+          source: migrationSource,
+        },
+      ],
+    }),
+    [
+      {
+        content: migrationSource,
+        path: migrationPath,
+        title: 'Adopt the new API',
+      },
+    ]
+  );
+  assert.throws(
+    () =>
+      patchbackMigrationRecords({
+        line: 'v10.4',
+        records: [{ filename: 'adopt-new-api.md', source: '# Missing template' }],
+      }),
+    /must start with frontmatter/
+  );
+});
+
+test('patchback assignment uses only a valid release-PR merger login', () => {
+  assert.equal(
+    releaseMergerAssignee({ merged_by: { login: 'release-maintainer' } }),
+    'release-maintainer'
+  );
+  assert.equal(releaseMergerAssignee({ merged_by: null }), null);
+  assert.equal(releaseMergerAssignee({ merged_by: { login: '<script>' } }), null);
 });
 
 test('scope preserves first-parent order and accounts for every product entry shape', () => {
@@ -202,15 +258,23 @@ test('the generated queue is unchecked while the examples and empty path are mer
     boundaryOid,
     items: [item],
     line: 'v10.4',
+    migrationRecords: [
+      {
+        content: migrationSource,
+        path: migrationPath,
+        title: 'Adopt the new API',
+      },
+    ],
     recordPath: 'releases/v10.4.1.md',
     snapshotOid,
     version: '10.4.1',
   });
   assert.equal(containsUncheckedMarkdownTask(body), true);
-  assert.match(body, /fablebook-patchback-coordination:v2/);
+  assert.match(body, /fablebook-patchback-coordination:v3/);
   assert.match(body, new RegExp(directOid));
   assert.match(body, new RegExp(`git cherry-pick ${directOid}`));
   assert.match(body, /releases\/v10\.4\.1\.md/);
+  assert.match(body, /migration-notes\/v10\.4\/adopt-new-api\.md/);
   assert.equal(containsUncheckedMarkdownTask(body.replace('- [ ]', '- [x]')), false);
   assert.equal(containsUncheckedMarkdownTask(patchbackExamplesComment()), false);
 
@@ -219,10 +283,11 @@ test('the generated queue is unchecked while the examples and empty path are mer
     boundaryOid,
     items: [],
     line: 'v10.4',
+    migrationRecords: [],
     recordPath: 'releases/v10.4.0.md',
     snapshotOid,
     version: '10.4.0',
   });
   assert.equal(containsUncheckedMarkdownTask(empty), false);
-  assert.match(empty, /generated release record above is the complete patchback/);
+  assert.match(empty, /synchronized release communication above is the complete patchback/);
 });
