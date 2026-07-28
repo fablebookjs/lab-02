@@ -12,6 +12,10 @@ export function average(values: number[]): number | undefined {
   return values.length === 0 ? undefined : total(values) / values.length;
 }
 
+export function count(values: number[]): number {
+  return values.length;
+}
+
 export function formatSummary(
   label: string,
   values: number[],
@@ -26,4 +30,12 @@ export function formatAverageSummary(
   options: LabelNormalizationOptions = {}
 ): string {
   return `${normalizeLabel(label, options)}:${average(values) ?? 'n/a'}`;
+}
+
+export function formatCountSummary(
+  label: string,
+  values: number[],
+  locale = 'en-US'
+): string {
+  return `${normalizeLabel(label, locale)}:${count(values)}`;
 }
