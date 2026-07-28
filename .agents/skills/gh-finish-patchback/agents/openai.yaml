@@ -1,0 +1,4 @@
+interface:
+  display_name: "Finish Patch-back PR"
+  short_description: "Resolve and safely merge Lab-02 patch-backs"
+  default_prompt: "Use $gh-finish-patchback to resolve and merge this Lab-02 patch-back PR."

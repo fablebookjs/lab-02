@@ -4,6 +4,10 @@ import test from 'node:test';
 import {
   derivePatchbackItems,
   parsePatchbackCommitMessage,
+  PATCHBACK_BODY_MARKER,
+  PATCHBACK_BODY_SCHEMA_VERSION,
+  PATCHBACK_FULL_OID_PATTERN_SOURCE,
+  PATCHBACK_REPOSITORY,
   patchbackCommitMessage,
   patchbackExamplesComment,
   patchbackIdentity,
@@ -40,6 +44,15 @@ Users of the old API.
 
 Use the new API.
 `;
+
+test('patchback protocol constants describe one shared generated surface', () => {
+  assert.equal(PATCHBACK_REPOSITORY, 'fablebookjs/lab-02');
+  assert.equal(
+    PATCHBACK_BODY_MARKER,
+    `<!-- fablebook-patchback-coordination:v${PATCHBACK_BODY_SCHEMA_VERSION} -->`
+  );
+  assert.match(directOid, new RegExp(`^${PATCHBACK_FULL_OID_PATTERN_SOURCE}$`));
+});
 
 test('patchback identity and coordination commit are version-bound', () => {
   assert.deepEqual(patchbackIdentity('10.4.3'), {
