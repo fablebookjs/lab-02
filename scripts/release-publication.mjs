@@ -8,7 +8,9 @@ import { promisify } from 'node:util';
 import { listPublicPackages } from './list-public-packages.mjs';
 import {
   assertOidcPublishEnvironment,
+  composeGitHubReleaseBody,
   deriveReleaseAuthority,
+  deriveReleaseHighlights,
   exactPublication,
   lineChannel,
   NPM_REGISTRY,
@@ -16,7 +18,9 @@ import {
   promotionDisposition,
   publicationDisposition,
 } from './release-publication-core.mjs';
+import { releaseRecordPath } from './release-communication.mjs';
 import { parseStableVersion } from './release-proposal-core.mjs';
+import { validateReleaseHighlights } from './release-pr-body.mjs';
 import {
   getGitCommit,
   getPullRequest,
@@ -152,6 +156,19 @@ const readLiveAuthority = async (token, pullRequest) => {
   return deriveReleaseAuthority({ headCommit, mergeCommit, pull });
 };
 
+const readLiveRelease = async (token, pullRequest) => {
+  const pull = await getPullRequest(token, pullRequest);
+  const [headCommit, mergeCommit] = await Promise.all([
+    getGitCommit(token, pull.head.sha),
+    getGitCommit(token, pull.merge_commit_sha),
+  ]);
+  const authority = deriveReleaseAuthority({ headCommit, mergeCommit, pull });
+  return {
+    authority,
+    releaseHighlights: deriveReleaseHighlights({ authority, body: pull.body }),
+  };
+};
+
 const canonicalReleasePull = (pull) => {
   const line = pull?.base?.ref?.replace(/^releases\//, '');
   return (
@@ -180,10 +197,14 @@ async function resolvePublication(options) {
     return;
   }
 
-  const authority = await readLiveAuthority(token, signal.pullRequest);
+  const { authority, releaseHighlights } = await readLiveRelease(
+    token,
+    signal.pullRequest
+  );
   await mkdir(output, { recursive: true });
   await writeJson(join(output, 'authority.json'), {
     ...authority,
+    releaseHighlights,
     repository: PILOT_REPOSITORY,
     schema: 1,
   });
@@ -214,6 +235,7 @@ const validateManifest = (manifest) => {
     throw new Error('Publication manifest is outside the accepted pilot schema.');
   }
   parseStableVersion(manifest.version);
+  validateReleaseHighlights(manifest.releaseHighlights);
   for (const field of ['proposalOid', 'snapshotOid', 'sourceOid']) {
     validateOid(manifest[field], `Manifest ${field}`);
   }
@@ -487,12 +509,12 @@ const ensureAnnotatedTag = async (token, manifest) => {
   return tag;
 };
 
-const ensureGitHubRelease = async (token, manifest, tag) => {
+const ensureGitHubRelease = async (token, manifest, tag, body) => {
   let release = await getReleaseByTag(token, tag);
   if (release === null) {
     release = await githubRequest(`/repos/${PILOT_REPOSITORY}/releases`, {
       body: {
-        body: `Published the complete ${manifest.version} package set on ${manifest.channel}.`,
+        body,
         draft: false,
         name: tag,
         prerelease: false,
@@ -502,8 +524,15 @@ const ensureGitHubRelease = async (token, manifest, tag) => {
       method: 'POST',
       token,
     });
+    if (release.body !== body) {
+      throw new Error(`GitHub did not preserve the composed ${tag} release body.`);
+    }
   }
-  if (release.tag_name !== tag || release.draft !== false || release.prerelease !== false) {
+  if (
+    release.tag_name !== tag ||
+    release.draft !== false ||
+    release.prerelease !== false
+  ) {
     throw new Error(`GitHub Release ${tag} contradicts the completed stable release.`);
   }
 };
@@ -522,7 +551,11 @@ const releaseCompletionState = async (token, manifest) => {
   if (release === null) {
     return false;
   }
-  if (release.tag_name !== tag || release.draft !== false || release.prerelease !== false) {
+  if (
+    release.tag_name !== tag ||
+    release.draft !== false ||
+    release.prerelease !== false
+  ) {
     throw new Error(`GitHub Release ${tag} contradicts the completed stable release.`);
   }
   return true;
@@ -530,9 +563,18 @@ const releaseCompletionState = async (token, manifest) => {
 
 async function finalizeRelease(options) {
   ensureTrustedMain();
-  const { manifest } = await loadPublication(options);
+  const { manifest, snapshot } = await loadPublication(options);
   const token = process.env.GH_TOKEN;
   compareAuthority(await readLiveAuthority(token, manifest.pullRequest), manifest);
+  const releaseRecord = await readFile(
+    join(snapshot, releaseRecordPath(manifest.version)),
+    'utf8'
+  );
+  const releaseBody = composeGitHubReleaseBody({
+    highlights: manifest.releaseHighlights,
+    releaseRecord,
+    version: manifest.version,
+  });
   if (await releaseCompletionState(token, manifest)) {
     for (const pkg of manifest.packages) {
       if (!(await observeExactPublication(manifest, pkg))) {
@@ -554,7 +596,7 @@ async function finalizeRelease(options) {
     }
   }
   const tag = await ensureAnnotatedTag(token, manifest);
-  await ensureGitHubRelease(token, manifest, tag);
+  await ensureGitHubRelease(token, manifest, tag, releaseBody);
   await githubRequest(`/repos/${PILOT_REPOSITORY}/dispatches`, {
     body: { event_type: 'release-completed' },
     method: 'POST',

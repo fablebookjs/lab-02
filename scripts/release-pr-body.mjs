@@ -91,8 +91,10 @@ export function extractReleaseHighlights(body) {
   return highlights;
 }
 
-export function requireReleaseHighlights(body) {
-  const highlights = extractReleaseHighlights(body);
+export function validateReleaseHighlights(highlights) {
+  if (typeof highlights !== 'string' || highlights.trim() !== highlights) {
+    throw new Error('Release highlights must be trimmed Markdown text.');
+  }
   const visibleHighlights = highlights
     .replace(/<!--[\s\S]*?-->/g, '')
     .trim();
@@ -103,6 +105,10 @@ export function requireReleaseHighlights(body) {
     throw new Error('Release highlights must replace the blocking empty placeholder.');
   }
   return highlights;
+}
+
+export function requireReleaseHighlights(body) {
+  return validateReleaseHighlights(extractReleaseHighlights(body));
 }
 
 export function recoverReleaseHighlights(body) {
