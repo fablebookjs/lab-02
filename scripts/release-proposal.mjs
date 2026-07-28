@@ -45,7 +45,9 @@ import {
 } from './release-communication.mjs';
 import {
   extractReleasePrIdentity,
+  requireReleaseHighlights,
   renderReleasePrBody,
+  selectLatestMatchingReleasePrBody,
 } from './release-pr-body.mjs';
 
 const execute = promisify(execFile);
@@ -213,6 +215,7 @@ const renderProposalBody = async ({ action, previousBody = '', proposalOid }) =>
     line: action.line,
     packageNames: packages.map(({ name }) => name),
     previousBody,
+    previousHighlightsBody: action.previousHighlightsBody ?? previousBody,
     proposalOid,
     releaseOid: action.releaseOid,
     supersededPr: action.supersededPr,
@@ -722,6 +725,9 @@ const loadMaintenanceStates = async (token) => {
       bodyIdentity.version === staged.version;
 
     states.push({
+      closedPrs: pulls
+        .filter(({ state }) => state === 'closed')
+        .map(({ body, number, state }) => ({ body: body ?? '', number, state })),
       completedOid: completed.oid,
       completedVersion: completed.version,
       latestClosedPr:
@@ -779,6 +785,13 @@ async function prepareMaintenance(options) {
       line: plan.line,
       openPr: plan.openPr?.number,
       releaseOid: state.releaseOid,
+      previousHighlightsBody:
+        plan.kind === 'open' || plan.kind === 'recreate'
+          ? selectLatestMatchingReleasePrBody({
+              pulls: state.closedPrs,
+              version: plan.version,
+            })
+          : undefined,
     };
 
     if (plan.kind === 'dormant' || plan.kind === 'open' || plan.kind === 'sync') {
@@ -1016,6 +1029,7 @@ async function checkPullRequest() {
     sourceOid: pull.base.sha,
     version: metadata.version,
   });
+  requireReleaseHighlights(pull.body);
   console.log(`Release proposal ${pull.head.sha} is current for ${pull.base.sha}.`);
 }
 
