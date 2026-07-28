@@ -6,11 +6,17 @@ import {
   releaseRecordPath,
 } from './release-communication.mjs';
 
+export const PATCHBACK_REPOSITORY = 'fablebookjs/lab-02';
+export const PATCHBACK_BODY_SCHEMA_VERSION = 3;
+export const PATCHBACK_FULL_OID_PATTERN_SOURCE = '[0-9a-f]{40}';
 export const PATCHBACK_COMMENT_MARKER = '<!-- fablebook-patchback-outcome-examples -->';
-export const PATCHBACK_BODY_MARKER = '<!-- fablebook-patchback-coordination:v3 -->';
+export const PATCHBACK_BODY_MARKER =
+  `<!-- fablebook-patchback-coordination:v${PATCHBACK_BODY_SCHEMA_VERSION} -->`;
+
+const fullOidPattern = new RegExp(`^${PATCHBACK_FULL_OID_PATTERN_SOURCE}$`);
 
 const fullOid = (value, label) => {
-  if (!/^[0-9a-f]{40}$/.test(value ?? '')) {
+  if (!fullOidPattern.test(value ?? '')) {
     throw new Error(`${label} is not a full commit OID.`);
   }
   return value;
@@ -160,7 +166,7 @@ const canonicalPull = (pull, line, oid) =>
   pull.number > 0 &&
   pull.merged_at !== null &&
   pull.base?.ref === `releases/${line}` &&
-  pull.base?.repo?.full_name === 'fablebookjs/lab-02' &&
+  pull.base?.repo?.full_name === PATCHBACK_REPOSITORY &&
   pull.merge_commit_sha === oid;
 
 export function derivePatchbackItems({ commits, line, snapshotOid }) {
@@ -202,7 +208,7 @@ export function derivePatchbackItems({ commits, line, snapshotOid }) {
 
 const itemHeading = (item) => {
   if (item.kind === 'pull-request') {
-    return `[PR #${item.pullRequest}](https://github.com/fablebookjs/lab-02/pull/${item.pullRequest}) — ${item.subject}`;
+    return `[PR #${item.pullRequest}](https://github.com/${PATCHBACK_REPOSITORY}/pull/${item.pullRequest}) — ${item.subject}`;
   }
   const label = item.kind === 'direct-merge' ? 'Direct merge' : 'Direct commit';
   return `${label} — ${item.subject}`;
@@ -247,19 +253,19 @@ export function renderPatchbackBody({
     PATCHBACK_BODY_MARKER,
     `# Patchback for v${version}`,
     '',
-    `Authorized snapshot: [\`${snapshotOid}\`](https://github.com/fablebookjs/lab-02/commit/${snapshotOid})`,
-    `Scope starts after ${boundaryLabel}: [\`${boundaryOid}\`](https://github.com/fablebookjs/lab-02/commit/${boundaryOid})`,
+    `Authorized snapshot: [\`${snapshotOid}\`](https://github.com/${PATCHBACK_REPOSITORY}/commit/${snapshotOid})`,
+    `Scope starts after ${boundaryLabel}: [\`${boundaryOid}\`](https://github.com/${PATCHBACK_REPOSITORY}/commit/${boundaryOid})`,
     '',
     '## Mechanically synchronized release communication',
     '',
-    `- Generated release record: [\`${recordPath}\`](https://github.com/fablebookjs/lab-02/blob/${snapshotOid}/${recordPath})`,
+    `- Generated release record: [\`${recordPath}\`](https://github.com/${PATCHBACK_REPOSITORY}/blob/${snapshotOid}/${recordPath})`,
     ...(migrationRecords.length === 0
       ? ['- Migration records: _None target this release line._']
       : [
           '- Migration records:',
           ...migrationRecords.map(
             ({ path, title }) =>
-              `  - [${title}](https://github.com/fablebookjs/lab-02/blob/${snapshotOid}/${path}) (\`${path}\`)`
+              `  - [${title}](https://github.com/${PATCHBACK_REPOSITORY}/blob/${snapshotOid}/${path}) (\`${path}\`)`
           ),
         ]),
     '',
@@ -277,7 +283,7 @@ export function renderPatchbackBody({
   const queue = items.flatMap((item) => [
     '',
     `- [ ] **${itemHeading(item)}**`,
-    `  - Release commit: [\`${item.oid}\`](https://github.com/fablebookjs/lab-02/commit/${item.oid})`,
+    `  - Release commit: [\`${item.oid}\`](https://github.com/${PATCHBACK_REPOSITORY}/commit/${item.oid})`,
     `  - Apply: \`${item.command}\``,
     '  - Outcome: _record `applied`, `already-present`, or `not-applicable` before checking this item_',
   ]);

@@ -2,9 +2,13 @@
 
 import { spawnSync } from 'node:child_process';
 
-const REPOSITORY = 'fablebookjs/lab-02';
-const BODY_MARKER = /^<!-- fablebook-patchback-coordination:v(\d+) -->$/m;
-const FULL_OID = '[0-9a-f]{40}';
+import {
+  PATCHBACK_BODY_MARKER,
+  PATCHBACK_BODY_SCHEMA_VERSION,
+  PATCHBACK_FULL_OID_PATTERN_SOURCE,
+  PATCHBACK_REPOSITORY,
+  patchbackIdentity,
+} from '../../../../scripts/patchback-core.mjs';
 
 function fail(message) {
   console.error(`inspect-patchback-pr: ${message}`);
@@ -25,7 +29,7 @@ function pullNumber(value) {
     fail('pass a pull request number or canonical GitHub pull request URL');
   }
 
-  const match = /^\/fablebookjs\/lab-02\/pull\/([1-9]\d*)\/?$/.exec(url.pathname);
+  const match = /^\/([^/]+)\/([^/]+)\/pull\/([1-9]\d*)\/?$/.exec(url.pathname);
   if (
     url.protocol !== 'https:' ||
     url.hostname !== 'github.com' ||
@@ -34,11 +38,12 @@ function pullNumber(value) {
     url.port ||
     url.search ||
     url.hash ||
-    !match
+    !match ||
+    `${match[1]}/${match[2]}` !== PATCHBACK_REPOSITORY
   ) {
-    fail(`the pull request must belong to ${REPOSITORY}`);
+    fail(`the pull request must belong to ${PATCHBACK_REPOSITORY}`);
   }
-  const number = Number(match[1]);
+  const number = Number(match[3]);
   if (!Number.isSafeInteger(number)) fail('pull request number is outside the safe range');
   return number;
 }
@@ -86,11 +91,12 @@ function parseItems(body, diagnostics) {
   for (const [index, match] of headings.entries()) {
     const end = headings[index + 1]?.index ?? queue.length;
     const block = queue.slice(match.index, end);
-    const release = new RegExp(`^  - Release commit: \\[\\\`(${FULL_OID})\\\`\\]`, 'm').exec(
-      block
-    );
+    const release = new RegExp(
+      `^  - Release commit: \\[\\\`(${PATCHBACK_FULL_OID_PATTERN_SOURCE})\\\`\\]`,
+      'm'
+    ).exec(block);
     const apply = new RegExp(
-      `^  - Apply: \\\`git cherry-pick (?:-(m) 1 )?(${FULL_OID})\\\`$`,
+      `^  - Apply: \\\`git cherry-pick (?:-(m) 1 )?(${PATCHBACK_FULL_OID_PATTERN_SOURCE})\\\`$`,
       'm'
     ).exec(block);
     const outcome = /^  - Outcome: (.+)$/m.exec(block);
@@ -103,9 +109,9 @@ function parseItems(body, diagnostics) {
       diagnostics.push(`queue item ${index + 1} applies a different commit than it names`);
     }
 
-    const pull = /\[PR #([1-9]\d*)\]\(https:\/\/github\.com\/fablebookjs\/lab-02\/pull\/\1\)/.exec(
-      match[2]
-    );
+    const pull = new RegExp(
+      `\\[PR #([1-9]\\d*)\\]\\(https://github\\.com/${PATCHBACK_REPOSITORY}/pull/\\1\\)`
+    ).exec(match[2]);
     const placeholder =
       '_record `applied`, `already-present`, or `not-applicable` before checking this item_';
     const resolved = /^(?:applied|already-present|not-applicable) — \S.+/.test(outcome[1]);
@@ -155,7 +161,7 @@ const fields = [
 ].join(',');
 const result = spawnSync(
   'gh',
-  ['pr', 'view', String(number), '--repo', REPOSITORY, '--json', fields],
+  ['pr', 'view', String(number), '--repo', PATCHBACK_REPOSITORY, '--json', fields],
   { encoding: 'utf8' }
 );
 if (result.error) fail(result.error.message);
@@ -170,21 +176,28 @@ try {
 
 const body = String(pull.body ?? '');
 const diagnostics = [];
-const marker = BODY_MARKER.exec(body);
+const marker = body.split(/\r?\n/, 1)[0] === PATCHBACK_BODY_MARKER;
 const versionMatch = /^# Patchback for v(\d+\.\d+\.\d+)$/m.exec(body);
-const snapshot = new RegExp(`^Authorized snapshot: \\[\\\`(${FULL_OID})\\\`]`, 'm').exec(body);
-const boundary = new RegExp(`^Scope starts after .+: \\[\\\`(${FULL_OID})\\\`]`, 'm').exec(body);
+const snapshot = new RegExp(
+  `^Authorized snapshot: \\[\\\`(${PATCHBACK_FULL_OID_PATTERN_SOURCE})\\\`]`,
+  'm'
+).exec(body);
+const boundary = new RegExp(
+  `^Scope starts after .+: \\[\\\`(${PATCHBACK_FULL_OID_PATTERN_SOURCE})\\\`]`,
+  'm'
+).exec(body);
 
 if (!marker) diagnostics.push('missing generated patch-back marker');
 if (!versionMatch) diagnostics.push('missing canonical patch-back version heading');
 
 const version = versionMatch?.[1] ?? null;
 if (version) {
+  const identity = patchbackIdentity(version);
   if (pull.baseRefName !== 'main') diagnostics.push('base branch is not main');
-  if (pull.headRefName !== `patchbacks/v${version}`) {
+  if (pull.headRefName !== identity.branch) {
     diagnostics.push('head branch does not match the patch-back version');
   }
-  if (pull.title !== `Patch back v${version} to main`) {
+  if (pull.title !== identity.title) {
     diagnostics.push('title does not match the patch-back version');
   }
 }
@@ -223,13 +236,13 @@ const report = {
   head: pull.headRefName,
   headOid: pull.headRefOid,
   items,
-  markerVersion: marker ? Number(marker[1]) : null,
+  markerVersion: marker ? PATCHBACK_BODY_SCHEMA_VERSION : null,
   mergeCommit: pull.mergeCommit?.oid ?? null,
   mergeable: pull.mergeable,
   mergedAt: pull.mergedAt,
   number: pull.number,
   queueResolved: items.every((item) => item.checked && item.resolved),
-  repository: REPOSITORY,
+  repository: PATCHBACK_REPOSITORY,
   scopeBoundary: boundary?.[1] ?? null,
   snapshot: snapshot?.[1] ?? null,
   state: pull.state,
