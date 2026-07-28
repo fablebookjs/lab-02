@@ -88,6 +88,29 @@ No changes were recorded for this release.
   );
 });
 
+test('an authorized historical release record remains readable for recovery', () => {
+  const source = `<!-- fablebook:release-record=v1 -->
+# v2.0.3
+
+> Generated from the exact release-line history. Do not edit manually.
+
+## Changes
+
+- [Add count-based summary formatting](https://github.com/fablebookjs/lab-02/pull/44)
+- [Document adopting count-based summaries](https://github.com/fablebookjs/lab-02/pull/46)
+`;
+
+  assert.equal(
+    extractReleaseRecordChanges({ source, version: '2.0.3' }),
+    `- [Add count-based summary formatting](https://github.com/fablebookjs/lab-02/pull/44)
+- [Document adopting count-based summaries](https://github.com/fablebookjs/lab-02/pull/46)`
+  );
+  assert.throws(
+    () => extractReleaseRecordChanges({ source, version: '2.0.2' }),
+    /Expected the generated v2.0.2 release record/
+  );
+});
+
 test('ambiguous PR metadata falls back to the direct commit identity', () => {
   const pull = {
     base: { ref: 'releases/v2.1', repo: { full_name: 'fablebookjs/lab-02' } },

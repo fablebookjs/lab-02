@@ -506,7 +506,13 @@ const ensureAnnotatedTag = async (token, manifest) => {
       method: 'POST',
       token,
     });
-    tagObject = await readAnnotatedTag(token, tag);
+    tagObject = await waitFor(async () => {
+      const observed = await readAnnotatedTag(token, tag);
+      if (observed === null) {
+        throw new Error(`${tag} is not visible yet.`);
+      }
+      return observed;
+    });
   }
   assertTagTarget(tagObject, tag, manifest.snapshotOid);
   return tag;
