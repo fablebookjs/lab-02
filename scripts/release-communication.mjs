@@ -127,12 +127,26 @@ export function renderReleaseRecord({ changes, version }) {
 
 export function extractReleaseRecordChanges({ source, version }) {
   parseStableVersion(version);
-  const prefix = `# v${version} changes
+  const currentPrefix = `# v${version} changes
 
 `;
+  const historicalPrefix = `<!-- fablebook:release-record=v1 -->
+# v${version}
+
+> Generated from the exact release-line history. Do not edit manually.
+
+## Changes
+
+`;
+  const prefix =
+    typeof source === 'string'
+      ? [currentPrefix, historicalPrefix].find((candidate) =>
+          source.startsWith(candidate)
+        )
+      : undefined;
   if (
     typeof source !== 'string' ||
-    !source.startsWith(prefix) ||
+    prefix === undefined ||
     !source.endsWith('\n')
   ) {
     throw new Error(`Expected the generated v${version} release record.`);
