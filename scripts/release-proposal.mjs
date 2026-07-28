@@ -618,7 +618,7 @@ async function applyCut(options) {
         releaseOid: transition.sourceOid,
         version: transition.releaseVersion,
       },
-      transition.proposalOid
+      uploadedProposalOid
     );
   } else if (openPulls.length !== 1) {
     throw new Error(`${transition.line} has more than one open canonical release PR.`);
@@ -978,13 +978,13 @@ async function applyMaintenance(options) {
       const body = await renderProposalBody({
         action,
         previousBody: openPulls[0].body,
-        proposalOid: action.proposalOid,
+        proposalOid: uploadedProposalOid,
       });
       await updatePullRequestBody(token, action.openPr, body);
     }
 
     if (action.kind === 'create' || action.kind === 'recreate') {
-      await createReleasePr(token, action, action.proposalOid);
+      await createReleasePr(token, action, uploadedProposalOid);
     }
   }
   console.log(`Applied ${transition.actions.length} release proposal maintenance actions.`);
