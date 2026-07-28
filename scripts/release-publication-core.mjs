@@ -1,5 +1,9 @@
 import { parseProposalMessage, parseReleaseLine, parseStableVersion } from './release-proposal-core.mjs';
-import { extractReleaseRecordChanges } from './release-communication.mjs';
+import {
+  cleanReleaseTitle,
+  extractReleaseRecordChanges,
+  migrationRecordDirectory,
+} from './release-communication.mjs';
 import {
   extractReleasePrIdentity,
   requireReleaseHighlights,
@@ -106,11 +110,41 @@ export function deriveReleaseHighlights({ authority, body }) {
   return requireReleaseHighlights(body);
 }
 
-export function composeGitHubReleaseBody({ highlights, releaseRecord, version }) {
-  parseStableVersion(version);
+const renderMigrationLinks = (records, version) => {
+  const { major, minor } = parseStableVersion(version);
+  if (!Array.isArray(records)) {
+    throw new Error('GitHub Release migration records must be an array.');
+  }
+  const filenames = new Set();
+  const directory = migrationRecordDirectory(`v${major}.${minor}`);
+  const links = records.map((record) => {
+    if (
+      !/^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/.test(record?.filename ?? '') ||
+      typeof record?.title !== 'string' ||
+      cleanReleaseTitle(record.title, record.filename.replace(/\.md$/, '')) !== record.title ||
+      filenames.has(record.filename)
+    ) {
+      throw new Error(`Invalid GitHub Release migration record: ${record?.filename}`);
+    }
+    filenames.add(record.filename);
+    const url = `https://github.com/${PILOT_REPOSITORY}/blob/v${version}/${directory}/${record.filename}`;
+    return `- [${record.title}](${url})`;
+  });
+  return links.length === 0
+    ? '_No migrations are required for this release._'
+    : links.join('\n');
+};
+
+export function composeGitHubReleaseBody({
+  highlights,
+  migrationRecords = [],
+  releaseRecord,
+  version,
+}) {
   validateReleaseHighlights(highlights);
+  const migrations = renderMigrationLinks(migrationRecords, version);
   const changes = extractReleaseRecordChanges({ source: releaseRecord, version });
-  return `${highlights}\n\n<details>\n<summary>All changes</summary>\n\n${changes}\n\n</details>\n`;
+  return `${highlights}\n\n## Migrations\n\n${migrations}\n\n<details>\n<summary>All changes</summary>\n\n${changes}\n\n</details>\n`;
 }
 
 const packageVersion = (document, name, version) => {
