@@ -208,6 +208,41 @@ test('the GitHub Release makes an empty migration set explicit', () => {
   );
 });
 
+test('the GitHub Release can recover an authorized historical release record', () => {
+  const body = composeGitHubReleaseBody({
+    highlights,
+    migrationRecords: composeMigrationRecords([
+      {
+        filename: 'adopt-count-summaries.md',
+        source: migration({
+          priority: 'first',
+          title: 'Adopt count-based summaries',
+        }),
+      },
+    ]),
+    releaseRecord: `<!-- fablebook:release-record=v1 -->
+# v2.0.3
+
+> Generated from the exact release-line history. Do not edit manually.
+
+## Changes
+
+- [Add count-based summary formatting](https://github.com/fablebookjs/lab-02/pull/44)
+`,
+    version: '2.0.3',
+  });
+
+  assert.match(
+    body,
+    /## Migrations\n\n- \[Adopt count-based summaries\]\(https:\/\/github\.com\/fablebookjs\/lab-02\/blob\/v2\.0\.3\/migration-notes\/v2\.0\/adopt-count-summaries\.md\)/
+  );
+  assert.match(
+    body,
+    /<summary>All changes<\/summary>\n\n- \[Add count-based summary formatting\]\(https:\/\/github\.com\/fablebookjs\/lab-02\/pull\/44\)/
+  );
+  assert.doesNotMatch(body, /fablebook:release-record|Generated from/);
+});
+
 test('the GitHub Release rejects malformed or repeated migration links', () => {
   const input = {
     highlights,
