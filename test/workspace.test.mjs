@@ -10,6 +10,10 @@ import { listPublicPackages, repositoryRoot } from '../scripts/list-public-packa
 
 const packages = await listPublicPackages();
 const rootManifest = JSON.parse(await readFile(join(repositoryRoot, 'package.json'), 'utf8'));
+const pullRequestDescriptionWorkflow = await readFile(
+  join(repositoryRoot, '.github/workflows/pull-request-description-check.yml'),
+  'utf8'
+);
 
 test('the complete public workspace set is discovered in stable order', () => {
   assert.deepEqual(
@@ -39,4 +43,12 @@ test('the compiled addon exercises the compiled core package', () => {
 
 test('the core label API accepts an optional locale', () => {
   assert.equal(normalizeLabel(' I ', 'tr'), 'ı');
+});
+
+test('the trusted PR description check requires highlights on every canonical release line', () => {
+  assert.match(pullRequestDescriptionWorkflow, /pull_request_target:/);
+  assert.match(pullRequestDescriptionWorkflow, /PR_HEAD_REPOSITORY:/);
+  assert.match(pullRequestDescriptionWorkflow, /staged\/\$\{line\[1\]\}/);
+  assert.match(pullRequestDescriptionWorkflow, /fablebook:release-highlights:start/);
+  assert.match(pullRequestDescriptionWorkflow, /fablebook:release-highlights=empty/);
 });

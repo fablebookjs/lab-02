@@ -110,9 +110,9 @@ reasons to upgrade. An in-place refresh preserves that content. A clean
 replacement selects the highest-numbered closed predecessor for the same
 version and preserves its highlights without carrying over its QA approvals.
 Missing, malformed, or still-placeholder content falls back to the blocking
-empty placeholder. The canonical release-proposal check also reads the block
-on every body edit, so removing its markers or merely checking its placeholder
-cannot authorize a release.
+empty placeholder. The trusted required PR-description check also reads the
+block on every body edit for old and new release lines, so removing its markers
+or merely checking its placeholder cannot authorize a release.
 
 Migration guidance is authored only when a change needs it. Copy
 [`migration-notes/TEMPLATE.md`](migration-notes/TEMPLATE.md) into the target
