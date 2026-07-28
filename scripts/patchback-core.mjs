@@ -1,11 +1,13 @@
 import { parseReleaseLine, parseStableVersion } from './release-proposal-core.mjs';
 import {
+  composeMigrationRecords,
   extractReleaseRecordChanges,
+  migrationRecordDirectory,
   releaseRecordPath,
 } from './release-communication.mjs';
 
 export const PATCHBACK_COMMENT_MARKER = '<!-- fablebook-patchback-outcome-examples -->';
-export const PATCHBACK_BODY_MARKER = '<!-- fablebook-patchback-coordination:v2 -->';
+export const PATCHBACK_BODY_MARKER = '<!-- fablebook-patchback-coordination:v3 -->';
 
 const fullOid = (value, label) => {
   if (!/^[0-9a-f]{40}$/.test(value ?? '')) {
@@ -47,10 +49,53 @@ export function patchbackReleaseRecord({ source, version }) {
   return { content: source, path };
 }
 
+export function patchbackMigrationRecords({ line, records }) {
+  const directory = migrationRecordDirectory(line);
+  if (!Array.isArray(records)) {
+    throw new Error('Patchback migration records must be an array.');
+  }
+  const sources = new Map(records.map(({ filename, source }) => [filename, source]));
+  return composeMigrationRecords(records).map(({ filename, title }) => ({
+    content: sources.get(filename),
+    path: `${directory}/${filename}`,
+    title,
+  }));
+}
+
+export function releaseMergerAssignee(pull) {
+  const login = pull?.merged_by?.login;
+  return typeof login === 'string' &&
+    login.length <= 39 &&
+    /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(login)
+    ? login
+    : null;
+}
+
+const migrationRecordPaths = (paths, line) => {
+  const directory = `${migrationRecordDirectory(line)}/`;
+  if (!Array.isArray(paths)) {
+    throw new Error('Patchback migration record paths must be an array.');
+  }
+  const unique = new Set();
+  for (const path of paths) {
+    const filename = typeof path === 'string' ? path.slice(directory.length) : '';
+    if (
+      path !== `${directory}${filename}` ||
+      !/^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/.test(filename) ||
+      unique.has(path)
+    ) {
+      throw new Error(`Invalid patchback migration record path: ${path}`);
+    }
+    unique.add(path);
+  }
+  return paths;
+};
+
 export function patchbackCommitMessage({
   baseMainOid,
   boundaryOid,
   line,
+  migrationRecordPaths: paths,
   recordPath,
   snapshotOid,
   version,
@@ -66,6 +111,7 @@ export function patchbackCommitMessage({
   if (recordPath !== releaseRecordPath(version)) {
     throw new Error(`Patchback release record must be ${releaseRecordPath(version)}.`);
   }
+  migrationRecordPaths(paths, line);
   return [
     `patchback: coordinate v${version}`,
     '',
@@ -75,6 +121,7 @@ export function patchbackCommitMessage({
     `Patchback-Boundary: ${boundaryOid}`,
     `Patchback-Main-Base: ${baseMainOid}`,
     `Patchback-Release-Record: ${recordPath}`,
+    `Patchback-Migration-Records: ${paths.length === 0 ? 'none' : paths.join(',')}`,
   ].join('\n');
 }
 
@@ -86,10 +133,17 @@ export function parsePatchbackCommitMessage(message) {
       .filter(Boolean)
       .map((match) => [match[1], match[2]])
   );
+  const migrationPaths = trailers['Patchback-Migration-Records'];
   const metadata = {
     baseMainOid: trailers['Patchback-Main-Base'],
     boundaryOid: trailers['Patchback-Boundary'],
     line: trailers['Patchback-Line'],
+    migrationRecordPaths:
+      migrationPaths === undefined
+        ? undefined
+        : migrationPaths === 'none'
+          ? []
+          : migrationPaths.split(','),
     recordPath: trailers['Patchback-Release-Record'],
     snapshotOid: trailers['Patchback-Snapshot'],
     version: trailers['Patchback-Version'],
@@ -159,6 +213,7 @@ export function renderPatchbackBody({
   boundaryOid,
   items,
   line,
+  migrationRecords,
   recordPath,
   snapshotOid,
   version,
@@ -175,6 +230,18 @@ export function renderPatchbackBody({
   if (!Array.isArray(items)) {
     throw new Error('Patchback items must be an array.');
   }
+  if (!Array.isArray(migrationRecords)) {
+    throw new Error('Patchback migration records must be an array.');
+  }
+  migrationRecordPaths(
+    migrationRecords.map(({ path }) => path),
+    line
+  );
+  for (const record of migrationRecords) {
+    if (typeof record.title !== 'string' || record.title.length === 0) {
+      throw new Error(`Patchback migration record has no title: ${record.path}`);
+    }
+  }
 
   const header = [
     PATCHBACK_BODY_MARKER,
@@ -183,16 +250,27 @@ export function renderPatchbackBody({
     `Authorized snapshot: [\`${snapshotOid}\`](https://github.com/fablebookjs/lab-02/commit/${snapshotOid})`,
     `Scope starts after ${boundaryLabel}: [\`${boundaryOid}\`](https://github.com/fablebookjs/lab-02/commit/${boundaryOid})`,
     '',
-    `Generated release record: [\`${recordPath}\`](https://github.com/fablebookjs/lab-02/blob/${snapshotOid}/${recordPath}) is already included from the authorized snapshot.`,
+    '## Mechanically synchronized release communication',
     '',
-    'This ordered queue is fixed to the authorized snapshot. Automation never cherry-picks these changes. For every item, apply it, record that it is already present, or explain why it is not applicable; then check its box.',
+    `- Generated release record: [\`${recordPath}\`](https://github.com/fablebookjs/lab-02/blob/${snapshotOid}/${recordPath})`,
+    ...(migrationRecords.length === 0
+      ? ['- Migration records: _None target this release line._']
+      : [
+          '- Migration records:',
+          ...migrationRecords.map(
+            ({ path, title }) =>
+              `  - [${title}](https://github.com/fablebookjs/lab-02/blob/${snapshotOid}/${path}) (\`${path}\`)`
+          ),
+        ]),
+    '',
+    'This ordered product-change queue is fixed to the authorized snapshot. Automation never cherry-picks or removes its items. Mechanically synchronized communication may make an item already present; for every item, apply it, record that it is already present, or explain why it is not applicable, then check its box.',
   ];
 
   if (items.length === 0) {
     return [
       ...header,
       '',
-      '_No release-line product changes are in this snapshot scope. The generated release record above is the complete patchback._',
+      '_No release-line product changes are in this snapshot scope. The synchronized release communication above is the complete patchback._',
     ].join('\n');
   }
 

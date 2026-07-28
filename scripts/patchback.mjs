@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -11,12 +11,17 @@ import {
   patchbackCommitMessage,
   patchbackExamplesComment,
   patchbackIdentity,
+  patchbackMigrationRecords,
   patchbackReleaseRecord,
   previousReleaseVersion,
+  releaseMergerAssignee,
   renderPatchbackBody,
 } from './patchback-core.mjs';
 import { deriveReleaseAuthority, PILOT_REPOSITORY } from './release-publication-core.mjs';
-import { releaseRecordPath } from './release-communication.mjs';
+import {
+  migrationRecordDirectory,
+  releaseRecordPath,
+} from './release-communication.mjs';
 import {
   parseDevelopmentCommitMessage,
   parseStableVersion,
@@ -106,12 +111,16 @@ const readLiveAuthority = async (token, pullRequest) => {
     getGitCommit(token, pull.head.sha),
     getGitCommit(token, pull.merge_commit_sha),
   ]);
-  return deriveReleaseAuthority({ headCommit, mergeCommit, pull });
+  return {
+    ...deriveReleaseAuthority({ headCommit, mergeCommit, pull }),
+    assignee: releaseMergerAssignee(pull),
+  };
 };
 
 const compareAuthority = (actual, expected) => {
   for (const field of [
     'channel',
+    'assignee',
     'line',
     'proposalOid',
     'pullRequest',
@@ -138,6 +147,13 @@ const validateAuthorityDocument = (document) => {
   fullOid(authority.sourceOid, 'Release source');
   if (!Number.isSafeInteger(authority.pullRequest) || authority.pullRequest <= 0) {
     throw new Error('Patchback authority has an invalid pull request.');
+  }
+  if (
+    authority.assignee !== null &&
+    releaseMergerAssignee({ merged_by: { login: authority.assignee } }) !==
+      authority.assignee
+  ) {
+    throw new Error('Patchback authority has an invalid assignee.');
   }
   return authority;
 };
@@ -267,8 +283,37 @@ const associatedPulls = async (token, oid) => {
   return Promise.all(pulls.map((pull) => withPullRequestMergeCommit(token, pull)));
 };
 
+const loadPatchbackMigrationRecords = async (root, line) => {
+  const directory = migrationRecordDirectory(line);
+  let entries;
+  try {
+    entries = await readdir(join(root, directory), { withFileTypes: true });
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
+  if (
+    entries.some(
+      (entry) => !entry.isFile() || !entry.name.endsWith('.md')
+    )
+  ) {
+    throw new Error(`${directory} contains an unsupported migration record path.`);
+  }
+  return patchbackMigrationRecords({
+    line,
+    records: await Promise.all(
+      entries.map(async ({ name: filename }) => ({
+        filename,
+        source: await readFile(join(root, directory, filename), 'utf8'),
+      }))
+    ),
+  });
+};
+
 const validateManifest = (manifest) => {
-  if (manifest?.schema !== 2 || manifest.repository !== PILOT_REPOSITORY) {
+  if (manifest?.schema !== 3 || manifest.repository !== PILOT_REPOSITORY) {
     throw new Error('Patchback manifest is outside the pilot schema.');
   }
   const identity = patchbackIdentity(manifest.authority?.version);
@@ -291,6 +336,26 @@ const validateManifest = (manifest) => {
   });
   if (manifest.releaseRecord?.path !== releaseRecord.path) {
     throw new Error('Patchback manifest release record path is invalid.');
+  }
+  const migrationDirectory = `${migrationRecordDirectory(authority.line)}/`;
+  const migrationRecords = patchbackMigrationRecords({
+    line: authority.line,
+    records: Array.isArray(manifest.migrationRecords)
+      ? manifest.migrationRecords.map((record) => ({
+          filename:
+            typeof record?.path === 'string' &&
+            record.path.startsWith(migrationDirectory)
+              ? record.path.slice(migrationDirectory.length)
+              : record?.path,
+          source: record?.content,
+        }))
+      : manifest.migrationRecords,
+  });
+  if (
+    JSON.stringify(manifest.migrationRecords) !==
+    JSON.stringify(migrationRecords)
+  ) {
+    throw new Error('Patchback manifest migration records are invalid.');
   }
   fullOid(manifest.baseMainOid, 'Patchback main base');
   fullOid(manifest.baseMainTreeOid, 'Patchback main tree');
@@ -326,6 +391,7 @@ const validateManifest = (manifest) => {
     boundaryOid: manifest.boundaryOid,
     items: manifest.items,
     line: authority.line,
+    migrationRecords,
     recordPath: releaseRecord.path,
     snapshotOid: authority.snapshotOid,
     version: authority.version,
@@ -337,6 +403,7 @@ const validateManifest = (manifest) => {
     baseMainOid: manifest.baseMainOid,
     boundaryOid: manifest.boundaryOid,
     line: authority.line,
+    migrationRecordPaths: migrationRecords.map(({ path }) => path),
     recordPath: releaseRecord.path,
     snapshotOid: authority.snapshotOid,
     version: authority.version,
@@ -390,6 +457,10 @@ async function preparePatchback(options) {
     source: await readFile(join(snapshot, recordPath), 'utf8'),
     version: authority.version,
   });
+  const migrationRecords = await loadPatchbackMigrationRecords(
+    snapshot,
+    authority.line
+  );
 
   const main = await getRef(token, 'heads/main');
   if (main === null || main.type !== 'commit') {
@@ -406,6 +477,7 @@ async function preparePatchback(options) {
       boundaryOid: boundary.oid,
       items,
       line: authority.line,
+      migrationRecords,
       recordPath: releaseRecord.path,
       snapshotOid: authority.snapshotOid,
       version: authority.version,
@@ -418,14 +490,16 @@ async function preparePatchback(options) {
       baseMainOid: main.oid,
       boundaryOid: boundary.oid,
       line: authority.line,
+      migrationRecordPaths: migrationRecords.map(({ path }) => path),
       recordPath: releaseRecord.path,
       snapshotOid: authority.snapshotOid,
       version: authority.version,
     }),
     items,
+    migrationRecords,
     releaseRecord,
     repository: PILOT_REPOSITORY,
-    schema: 2,
+    schema: 3,
     title: identity.title,
   });
   await mkdir(output, { recursive: true });
@@ -460,6 +534,8 @@ const listPatchbackPulls = async (token, branch) => {
 const coordinationMatches = (metadata, manifest) =>
   metadata.boundaryOid === manifest.boundaryOid &&
   metadata.line === manifest.authority.line &&
+  JSON.stringify(metadata.migrationRecordPaths) ===
+    JSON.stringify(manifest.migrationRecords.map(({ path }) => path)) &&
   metadata.recordPath === manifest.releaseRecord.path &&
   metadata.snapshotOid === manifest.authority.snapshotOid &&
   metadata.version === manifest.authority.version;
@@ -501,26 +577,37 @@ const verifyCoordinationTree = async (token, commit, parent, manifest) => {
       left?.type !== right?.type
     );
   });
+  const records = [manifest.releaseRecord, ...manifest.migrationRecords];
+  const allowed = new Set(records.map(({ path }) => path));
   if (
-    changed.length !== 1 ||
-    changed[0] !== manifest.releaseRecord.path
+    !changed.includes(manifest.releaseRecord.path) ||
+    changed.some((path) => !allowed.has(path))
   ) {
-    throw new Error('Patchback coordination commit must change only its release record.');
+    throw new Error(
+      'Patchback coordination commit must change only its release communication records.'
+    );
   }
-  const record = actual.get(manifest.releaseRecord.path);
-  if (record?.mode !== '100644' || record.type !== 'blob') {
-    throw new Error('Patchback coordination release record is not one regular file.');
-  }
-  const blob = await githubRequest(
-    `/repos/${PILOT_REPOSITORY}/git/blobs/${record.oid}`,
-    { token }
-  );
-  if (
-    blob.encoding !== 'base64' ||
-    Buffer.from(blob.content.replaceAll('\n', ''), 'base64').toString('utf8') !==
-      manifest.releaseRecord.content
-  ) {
-    throw new Error('Patchback coordination release record changed after preparation.');
+  for (const expected of records) {
+    const record = actual.get(expected.path);
+    if (record?.mode !== '100644' || record.type !== 'blob') {
+      throw new Error(
+        `Patchback coordination record is not one regular file: ${expected.path}`
+      );
+    }
+    const blob = await githubRequest(
+      `/repos/${PILOT_REPOSITORY}/git/blobs/${record.oid}`,
+      { token }
+    );
+    if (
+      blob.encoding !== 'base64' ||
+      Buffer.from(blob.content.replaceAll('\n', ''), 'base64').toString(
+        'utf8'
+      ) !== expected.content
+    ) {
+      throw new Error(
+        `Patchback coordination record changed after preparation: ${expected.path}`
+      );
+    }
   }
 };
 
@@ -605,6 +692,31 @@ const ensureExamplesComment = async (token, pullRequest, body) => {
   }
 };
 
+const assignNewPatchback = async (token, pullRequest, assignee) => {
+  if (assignee === null) {
+    console.log('The release PR has no assignable merger; patchback assignment was skipped.');
+    return;
+  }
+  try {
+    const issue = await githubRequest(
+      `/repos/${PILOT_REPOSITORY}/issues/${pullRequest}/assignees`,
+      {
+        body: { assignees: [assignee] },
+        method: 'POST',
+        token,
+      }
+    );
+    if (!issue.assignees?.some(({ login }) => login === assignee)) {
+      throw new Error(`GitHub did not assign ${assignee}.`);
+    }
+    console.log(`Assigned patchback #${pullRequest} to ${assignee}.`);
+  } catch (error) {
+    console.warn(
+      `Patchback #${pullRequest} remains unassigned after best-effort assignment to ${assignee}: ${error.message}`
+    );
+  }
+};
+
 const validateExistingPull = (pull, manifest) => {
   if (
     pull.base.ref !== 'main' ||
@@ -614,6 +726,7 @@ const validateExistingPull = (pull, manifest) => {
     !pull.body?.includes(PATCHBACK_BODY_MARKER) ||
     !pull.body.includes(manifest.authority.snapshotOid) ||
     !pull.body.includes(manifest.releaseRecord.path) ||
+    !manifest.migrationRecords.every(({ path }) => pull.body.includes(path)) ||
     !pull.body.includes(`# Patchback for v${manifest.authority.version}`)
   ) {
     throw new Error('Existing patchback pull request does not match the authorized snapshot.');
@@ -656,24 +769,26 @@ async function applyPatchback(options) {
     if (mainCommit.tree.sha !== manifest.baseMainTreeOid) {
       throw new Error('The prepared main tree changed before patchback creation.');
     }
+    const communicationRecords = [
+      manifest.releaseRecord,
+      ...manifest.migrationRecords,
+    ];
     const recordTree = await githubRequest(`/repos/${PILOT_REPOSITORY}/git/trees`, {
       body: {
         base_tree: manifest.baseMainTreeOid,
-        tree: [
-          {
-            content: manifest.releaseRecord.content,
-            mode: '100644',
-            path: manifest.releaseRecord.path,
-            type: 'blob',
-          },
-        ],
+        tree: communicationRecords.map(({ content, path }) => ({
+          content,
+          mode: '100644',
+          path,
+          type: 'blob',
+        })),
       },
       method: 'POST',
       token,
     });
     fullOid(recordTree.sha, 'Patchback coordination tree');
     if (recordTree.sha === manifest.baseMainTreeOid) {
-      throw new Error('Patchback release record is already identical on main.');
+      throw new Error('Patchback release communication is already identical on main.');
     }
     const coordination = await githubRequest(`/repos/${PILOT_REPOSITORY}/git/commits`, {
       body: {
@@ -712,6 +827,7 @@ async function applyPatchback(options) {
   validateExistingPull(pull, manifest);
 
   await ensureExamplesComment(token, pull.number, manifest.comment);
+  await assignNewPatchback(token, pull.number, manifest.authority.assignee);
   console.log(`Patchback #${pull.number} is open for ${manifest.authority.version}.`);
 }
 
