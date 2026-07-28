@@ -12,7 +12,10 @@ import {
   publicationDisposition,
   SETUP_NODE_AUTH_PLACEHOLDER,
 } from '../scripts/release-publication-core.mjs';
-import { renderReleaseRecord } from '../scripts/release-communication.mjs';
+import {
+  composeMigrationRecords,
+  renderReleaseRecord,
+} from '../scripts/release-communication.mjs';
 import { proposalCommitMessage } from '../scripts/release-proposal-core.mjs';
 import {
   RELEASE_HIGHLIGHTS_END,
@@ -26,6 +29,19 @@ const snapshotOid = '3'.repeat(40);
 const treeOid = '4'.repeat(40);
 const integrity = `sha512-${Buffer.alloc(64, 7).toString('base64')}`;
 const highlights = '**Worth upgrading:** The release workflow is ready to test.';
+const migration = ({ priority, title }) => `---
+priority: ${priority}
+---
+# ${title}
+
+## Who is affected
+
+Consumers exercising this test migration.
+
+## How to migrate
+
+Follow the complete instructions in the canonical Markdown record.
+`;
 
 const authorityFixture = () => ({
   headCommit: {
@@ -129,16 +145,32 @@ ${RELEASE_HIGHLIGHTS_END}`;
   );
 });
 
-test('the GitHub Release combines highlights with only the generated change entries', () => {
+test('the GitHub Release links ordered migration records between highlights and changes', () => {
   const releaseRecord = renderReleaseRecord({ changes: [], version: '1.0.0' });
+  const migrationRecords = composeMigrationRecords([
+    {
+      filename: 'cleanup-old-usage.md',
+      source: migration({ priority: '10 - cleanup', title: 'Clean up old usage' }),
+    },
+    {
+      filename: 'adopt-new-api.md',
+      source: migration({ priority: '2 - setup', title: 'Adopt the new API' }),
+    },
+  ]);
   const body = composeGitHubReleaseBody({
     highlights,
+    migrationRecords,
     releaseRecord,
     version: '1.0.0',
   });
   assert.equal(
     body,
     `${highlights}
+
+## Migrations
+
+- [Adopt the new API](https://github.com/fablebookjs/lab-02/blob/v1.0.0/migration-notes/v1.0/adopt-new-api.md)
+- [Clean up old usage](https://github.com/fablebookjs/lab-02/blob/v1.0.0/migration-notes/v1.0/cleanup-old-usage.md)
 
 <details>
 <summary>All changes</summary>
@@ -148,6 +180,9 @@ No changes were recorded for this release.
 </details>
 `
   );
+  assert.doesNotMatch(body, /Who is affected/);
+  assert.doesNotMatch(body, /How to migrate/);
+  assert.doesNotMatch(body, /priority:/);
   assert.doesNotMatch(body, /Generated from the exact release-line history/);
   assert.doesNotMatch(body, /^# v1\.0\.0 changes$/m);
   assert.doesNotMatch(body, /^## Changes$/m);
@@ -156,6 +191,42 @@ No changes were recorded for this release.
       highlights,
       releaseRecord: releaseRecord.replace('# v1.0.0', '# v1.0.1'),
       version: '1.0.0',
+    })
+  );
+});
+
+test('the GitHub Release makes an empty migration set explicit', () => {
+  const body = composeGitHubReleaseBody({
+    highlights,
+    migrationRecords: [],
+    releaseRecord: renderReleaseRecord({ changes: [], version: '1.0.0' }),
+    version: '1.0.0',
+  });
+  assert.match(
+    body,
+    /## Migrations\n\n_No migrations are required for this release\._/
+  );
+});
+
+test('the GitHub Release rejects malformed or repeated migration links', () => {
+  const input = {
+    highlights,
+    releaseRecord: renderReleaseRecord({ changes: [], version: '1.0.0' }),
+    version: '1.0.0',
+  };
+  assert.throws(() =>
+    composeGitHubReleaseBody({
+      ...input,
+      migrationRecords: [{ filename: 'unsafe.md', title: '[Unsafe link]' }],
+    })
+  );
+  assert.throws(() =>
+    composeGitHubReleaseBody({
+      ...input,
+      migrationRecords: [
+        { filename: 'repeated.md', title: 'First title' },
+        { filename: 'repeated.md', title: 'Second title' },
+      ],
     })
   );
 });

@@ -18,7 +18,10 @@ import {
   promotionDisposition,
   publicationDisposition,
 } from './release-publication-core.mjs';
-import { releaseRecordPath } from './release-communication.mjs';
+import {
+  loadMigrationRecords,
+  releaseRecordPath,
+} from './release-communication.mjs';
 import { parseStableVersion } from './release-proposal-core.mjs';
 import { validateReleaseHighlights } from './release-pr-body.mjs';
 import {
@@ -570,8 +573,10 @@ async function finalizeRelease(options) {
     join(snapshot, releaseRecordPath(manifest.version)),
     'utf8'
   );
+  const migrationRecords = await loadMigrationRecords(snapshot, manifest.line);
   const releaseBody = composeGitHubReleaseBody({
     highlights: manifest.releaseHighlights,
+    migrationRecords,
     releaseRecord,
     version: manifest.version,
   });
