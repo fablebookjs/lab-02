@@ -40,3 +40,7 @@ test('the compiled addon exercises the compiled core package', () => {
 test('the core label API accepts an optional locale', () => {
   assert.equal(normalizeLabel(' I ', 'tr'), 'ı');
 });
+
+test('summary formatting passes its locale to label normalization', () => {
+  assert.equal(formatSummary(' I ', [2, 3], 'tr'), 'ı:5');
+});

@@ -4,6 +4,10 @@ export function total(values: number[]): number {
   return values.reduce((sum, value) => add(sum, value), 0);
 }
 
-export function formatSummary(label: string, values: number[]): string {
-  return `${normalizeLabel(label)}:${total(values)}`;
+export function formatSummary(
+  label: string,
+  values: number[],
+  locale = 'en-US'
+): string {
+  return `${normalizeLabel(label, locale)}:${total(values)}`;
 }
