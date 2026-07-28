@@ -14,7 +14,7 @@ const proposalIdentityPattern =
   /<!-- fablebook:proposal=([0-9a-f]{40}) source=([0-9a-f]{40}) version=([^ ]+) -->/g;
 const placeholderPattern = /{{([a-z][a-z0-9_]*)}}/g;
 
-export const RELEASE_PR_TEMPLATE_MARKER = '<!-- fablebook:release-pr=v3 -->';
+export const RELEASE_PR_TEMPLATE_MARKER = '<!-- fablebook:release-pr=v4 -->';
 export const RELEASE_HIGHLIGHTS_START = '<!-- fablebook:release-highlights:start -->';
 export const RELEASE_HIGHLIGHTS_END = '<!-- fablebook:release-highlights:end -->';
 export const RELEASE_HIGHLIGHTS_EMPTY_MARKER =
