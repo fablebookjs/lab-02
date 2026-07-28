@@ -7,6 +7,7 @@ import test from 'node:test';
 import {
   composeMigrationRecords,
   deriveReleaseChanges,
+  extractReleaseRecordChanges,
   loadMigrationRecords,
   migrationRecordDirectory,
   parseMigrationRecord,
@@ -71,6 +72,14 @@ test('one release-history interpretation renders the durable per-version record'
 - [Add portable stories](https://github.com/fablebookjs/lab-02/pull/41)
 - [fix: correct the release branch directly](https://github.com/fablebookjs/lab-02/commit/${oid('b')})
 `
+  );
+  assert.equal(
+    extractReleaseRecordChanges({
+      source: renderReleaseRecord({ changes, version: '2.1.0' }),
+      version: '2.1.0',
+    }),
+    `- [Add portable stories](https://github.com/fablebookjs/lab-02/pull/41)
+- [fix: correct the release branch directly](https://github.com/fablebookjs/lab-02/commit/${oid('b')})`
   );
 });
 

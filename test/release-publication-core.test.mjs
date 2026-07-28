@@ -129,7 +129,7 @@ ${RELEASE_HIGHLIGHTS_END}`;
   );
 });
 
-test('the GitHub Release combines highlights with the exact generated record', () => {
+test('the GitHub Release combines highlights with only the generated change entries', () => {
   const releaseRecord = renderReleaseRecord({ changes: [], version: '1.0.0' });
   const body = composeGitHubReleaseBody({
     highlights,
@@ -143,11 +143,14 @@ test('the GitHub Release combines highlights with the exact generated record', (
 <details>
 <summary>All changes</summary>
 
-${releaseRecord}
+_No changes were recorded for this release._
+
 </details>
 `
   );
-  assert.equal(body.includes(releaseRecord), true);
+  assert.doesNotMatch(body, /Generated from the exact release-line history/);
+  assert.doesNotMatch(body, /^# v1\.0\.0$/m);
+  assert.doesNotMatch(body, /^## Changes$/m);
   assert.throws(() =>
     composeGitHubReleaseBody({
       highlights,

@@ -1,5 +1,5 @@
 import { parseProposalMessage, parseReleaseLine, parseStableVersion } from './release-proposal-core.mjs';
-import { RELEASE_RECORD_MARKER } from './release-communication.mjs';
+import { extractReleaseRecordChanges } from './release-communication.mjs';
 import {
   extractReleasePrIdentity,
   requireReleaseHighlights,
@@ -109,14 +109,8 @@ export function deriveReleaseHighlights({ authority, body }) {
 export function composeGitHubReleaseBody({ highlights, releaseRecord, version }) {
   parseStableVersion(version);
   validateReleaseHighlights(highlights);
-  if (
-    typeof releaseRecord !== 'string' ||
-    !releaseRecord.startsWith(`${RELEASE_RECORD_MARKER}\n# v${version}\n`) ||
-    !releaseRecord.endsWith('\n')
-  ) {
-    throw new Error(`GitHub Release requires the generated v${version} release record.`);
-  }
-  return `${highlights}\n\n<details>\n<summary>All changes</summary>\n\n${releaseRecord}\n</details>\n`;
+  const changes = extractReleaseRecordChanges({ source: releaseRecord, version });
+  return `${highlights}\n\n<details>\n<summary>All changes</summary>\n\n${changes}\n\n</details>\n`;
 }
 
 const packageVersion = (document, name, version) => {

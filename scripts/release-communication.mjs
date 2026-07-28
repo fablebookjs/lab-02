@@ -132,6 +132,30 @@ export function renderReleaseRecord({ changes, version }) {
   ].join('\n');
 }
 
+export function extractReleaseRecordChanges({ source, version }) {
+  parseStableVersion(version);
+  const prefix = `${RELEASE_RECORD_MARKER}
+# v${version}
+
+> Generated from the exact release-line history. Do not edit manually.
+
+## Changes
+
+`;
+  if (
+    typeof source !== 'string' ||
+    !source.startsWith(prefix) ||
+    !source.endsWith('\n')
+  ) {
+    throw new Error(`Expected the generated v${version} release record.`);
+  }
+  const changes = source.slice(prefix.length, -1);
+  if (changes.length === 0) {
+    throw new Error(`Generated v${version} release record has no change content.`);
+  }
+  return changes;
+}
+
 export function migrationRecordDirectory(line) {
   parseReleaseLine(line);
   return `migration-notes/${line}`;
