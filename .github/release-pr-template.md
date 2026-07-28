@@ -1,4 +1,4 @@
-<!-- fablebook:release-pr=v4 -->
+<!-- fablebook:release-pr=v5 -->
 <!-- fablebook:proposal={{proposal_oid}} source={{release_oid}} version={{version}} -->
 # Release {{version}}
 
@@ -48,12 +48,16 @@ A change introduced without a PR uses the same checklist format with its merge o
 
 </details>
 
-### 3. Confirm release readiness
+### 3. Review migration records
+
+{{migration_records}}
+
+### 4. Confirm release readiness
 
 - [{{discussions_checkmark}}] Ensure all discussions on the release have been resolved <!-- fablebook:check=discussions-resolved -->
 - [{{release_docs_checkmark}}] Release highlights and any migration records have been reviewed <!-- fablebook:check=release-docs-reviewed -->
 
-### 4. Authorize publication
+### 5. Authorize publication
 
 Mark this PR ready for review, obtain the normal approval, then merge it. Merging authorizes the following operations for the exact proposal commit:
 
@@ -61,7 +65,7 @@ Mark this PR ready for review, obtain the normal approval, then merge it. Mergin
 2. Create the linked Git tag and GitHub Release [`v{{version}}`]({{github_release_url}}) for the exact merge commit.
 3. Create one checklist-only patchback PR targeting [`main`]({{main_branch_url}}); progress and any failure are visible in the [Maintain patchback action log]({{patchback_log_url}}).
 
-### 5. Test the published channel
+### 6. Test the published channel
 
 1. Wait for the [Publish stable release action]({{publish_log_url}}) to succeed.
 2. Run the clean-install smoke test below and confirm every package resolves to version **{{version}}**.
@@ -75,7 +79,7 @@ Mark this PR ready for review, obtain the normal approval, then merge it. Mergin
 
 </details>
 
-### 6. Decide whether to promote `latest`
+### 7. Decide whether to promote `latest`
 
 If channel testing is acceptable and {{version}} should become the npm default, run [**Promote latest**]({{promote_latest_url}}) with version **{{version}}**. Otherwise, do nothing; the existing `latest` tags remain unchanged.
 

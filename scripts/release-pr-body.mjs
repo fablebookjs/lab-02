@@ -1,6 +1,8 @@
 import { parseReleaseLine, parseStableVersion } from './release-proposal-core.mjs';
 import {
+  cleanReleaseTitle,
   deriveReleaseChanges,
+  migrationRecordDirectory,
   normalizeReleaseChanges,
 } from './release-communication.mjs';
 
@@ -14,7 +16,7 @@ const proposalIdentityPattern =
   /<!-- fablebook:proposal=([0-9a-f]{40}) source=([0-9a-f]{40}) version=([^ ]+) -->/g;
 const placeholderPattern = /{{([a-z][a-z0-9_]*)}}/g;
 
-export const RELEASE_PR_TEMPLATE_MARKER = '<!-- fablebook:release-pr=v4 -->';
+export const RELEASE_PR_TEMPLATE_MARKER = '<!-- fablebook:release-pr=v5 -->';
 export const RELEASE_HIGHLIGHTS_START = '<!-- fablebook:release-highlights:start -->';
 export const RELEASE_HIGHLIGHTS_END = '<!-- fablebook:release-highlights:end -->';
 export const RELEASE_HIGHLIGHTS_EMPTY_MARKER =
@@ -175,6 +177,31 @@ const renderChanges = (changes) =>
         )
         .join('\n');
 
+const renderMigrationRecords = (records, line, releaseOid) => {
+  if (!Array.isArray(records)) {
+    throw new Error('Release PR migration records must be an array.');
+  }
+  if (records.length === 0) {
+    return '_No migration records target this release line._';
+  }
+  const directory = migrationRecordDirectory(line);
+  const filenames = new Set();
+  return records
+    .map((record) => {
+      if (
+        !/^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/.test(record?.filename ?? '') ||
+        filenames.has(record.filename) ||
+        cleanReleaseTitle(record?.title, '') !== record.title
+      ) {
+        throw new Error(`Release PR migration record is invalid: ${record?.filename}`);
+      }
+      filenames.add(record.filename);
+      const path = `${directory}/${record.filename}`;
+      return `- [${record.title}](${repositoryUrl}/blob/${releaseOid}/${path}) (\`${path}\`)`;
+    })
+    .join('\n');
+};
+
 const renderTemplate = (template, view) => {
   const used = new Set();
   const rendered = template.replace(placeholderPattern, (_, name) => {
@@ -194,6 +221,7 @@ const renderTemplate = (template, view) => {
 export function renderReleasePrBody({
   changes,
   line,
+  migrationRecords = [],
   packageNames,
   previousBody = '',
   previousHighlightsBody = previousBody,
@@ -242,6 +270,7 @@ export function renderReleasePrBody({
     github_release_url: `${repositoryUrl}/releases/tag/v${version}`,
     line,
     main_branch_url: `${repositoryUrl}/tree/main`,
+    migration_records: renderMigrationRecords(migrationRecords, line, releaseOid),
     npm_channel: channel,
     npm_versions_url: npmVersionsUrl,
     package_count: uniquePackages.length,

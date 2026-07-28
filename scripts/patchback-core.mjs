@@ -1,7 +1,11 @@
 import { parseReleaseLine, parseStableVersion } from './release-proposal-core.mjs';
+import {
+  extractReleaseRecordChanges,
+  releaseRecordPath,
+} from './release-communication.mjs';
 
 export const PATCHBACK_COMMENT_MARKER = '<!-- fablebook-patchback-outcome-examples -->';
-export const PATCHBACK_BODY_MARKER = '<!-- fablebook-patchback-coordination:v1 -->';
+export const PATCHBACK_BODY_MARKER = '<!-- fablebook-patchback-coordination:v2 -->';
 
 const fullOid = (value, label) => {
   if (!/^[0-9a-f]{40}$/.test(value ?? '')) {
@@ -37,7 +41,20 @@ export function previousReleaseVersion(version) {
   return `${parsed.major}.${parsed.minor}.${parsed.patch - 1}`;
 }
 
-export function patchbackCommitMessage({ baseMainOid, boundaryOid, line, snapshotOid, version }) {
+export function patchbackReleaseRecord({ source, version }) {
+  const path = releaseRecordPath(version);
+  extractReleaseRecordChanges({ source, version });
+  return { content: source, path };
+}
+
+export function patchbackCommitMessage({
+  baseMainOid,
+  boundaryOid,
+  line,
+  recordPath,
+  snapshotOid,
+  version,
+}) {
   fullOid(baseMainOid, 'Patchback main base');
   fullOid(boundaryOid, 'Patchback scope boundary');
   fullOid(snapshotOid, 'Patchback snapshot');
@@ -45,6 +62,9 @@ export function patchbackCommitMessage({ baseMainOid, boundaryOid, line, snapsho
   const identity = patchbackIdentity(version);
   if (identity.line !== line) {
     throw new Error(`${version} does not belong to patchback line ${line}.`);
+  }
+  if (recordPath !== releaseRecordPath(version)) {
+    throw new Error(`Patchback release record must be ${releaseRecordPath(version)}.`);
   }
   return [
     `patchback: coordinate v${version}`,
@@ -54,6 +74,7 @@ export function patchbackCommitMessage({ baseMainOid, boundaryOid, line, snapsho
     `Patchback-Snapshot: ${snapshotOid}`,
     `Patchback-Boundary: ${boundaryOid}`,
     `Patchback-Main-Base: ${baseMainOid}`,
+    `Patchback-Release-Record: ${recordPath}`,
   ].join('\n');
 }
 
@@ -69,6 +90,7 @@ export function parsePatchbackCommitMessage(message) {
     baseMainOid: trailers['Patchback-Main-Base'],
     boundaryOid: trailers['Patchback-Boundary'],
     line: trailers['Patchback-Line'],
+    recordPath: trailers['Patchback-Release-Record'],
     snapshotOid: trailers['Patchback-Snapshot'],
     version: trailers['Patchback-Version'],
   };
@@ -132,10 +154,21 @@ const itemHeading = (item) => {
   return `${label} — ${item.subject}`;
 };
 
-export function renderPatchbackBody({ boundaryLabel, boundaryOid, items, line, snapshotOid, version }) {
+export function renderPatchbackBody({
+  boundaryLabel,
+  boundaryOid,
+  items,
+  line,
+  recordPath,
+  snapshotOid,
+  version,
+}) {
   const identity = patchbackIdentity(version);
   if (identity.line !== line) {
     throw new Error(`${version} does not belong to patchback line ${line}.`);
+  }
+  if (recordPath !== releaseRecordPath(version)) {
+    throw new Error(`Patchback release record must be ${releaseRecordPath(version)}.`);
   }
   fullOid(boundaryOid, 'Patchback boundary');
   fullOid(snapshotOid, 'Patchback snapshot');
@@ -150,6 +183,8 @@ export function renderPatchbackBody({ boundaryLabel, boundaryOid, items, line, s
     `Authorized snapshot: [\`${snapshotOid}\`](https://github.com/fablebookjs/lab-02/commit/${snapshotOid})`,
     `Scope starts after ${boundaryLabel}: [\`${boundaryOid}\`](https://github.com/fablebookjs/lab-02/commit/${boundaryOid})`,
     '',
+    `Generated release record: [\`${recordPath}\`](https://github.com/fablebookjs/lab-02/blob/${snapshotOid}/${recordPath}) is already included from the authorized snapshot.`,
+    '',
     'This ordered queue is fixed to the authorized snapshot. Automation never cherry-picks these changes. For every item, apply it, record that it is already present, or explain why it is not applicable; then check its box.',
   ];
 
@@ -157,7 +192,7 @@ export function renderPatchbackBody({ boundaryLabel, boundaryOid, items, line, s
     return [
       ...header,
       '',
-      '_No release-line product changes are in this snapshot scope. This empty draft is intentionally left for a maintainer to close._',
+      '_No release-line product changes are in this snapshot scope. The generated release record above is the complete patchback._',
     ].join('\n');
   }
 

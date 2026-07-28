@@ -38,7 +38,9 @@ import {
 } from './release-proposal-github.mjs';
 import { repositoryRoot } from './list-public-packages.mjs';
 import {
+  composeMigrationRecords,
   deriveReleaseChanges,
+  migrationRecordDirectory,
   RELEASE_RECORD_MARKER,
   releaseRecordPath,
   renderReleaseRecord,
@@ -208,6 +210,36 @@ const releaseChanges = async (token, { boundaryOid, line, releaseOid }) => {
   return deriveReleaseChanges({ commits, line });
 };
 
+const migrationRecordsAt = async (oid, line) => {
+  const directory = migrationRecordDirectory(line);
+  let filenames;
+  try {
+    const { stdout } = await git([
+      'ls-tree',
+      '-r',
+      '--name-only',
+      `${oid}:${directory}`,
+    ]);
+    filenames = stdout.trim().split('\n').filter(Boolean);
+  } catch {
+    return [];
+  }
+  if (
+    filenames.some(
+      (filename) => filename.includes('/') || !filename.endsWith('.md')
+    )
+  ) {
+    throw new Error(`${directory} contains an unsupported migration record path.`);
+  }
+  const records = await Promise.all(
+    filenames.map(async (filename) => ({
+      filename,
+      source: (await git(['show', `${oid}:${directory}/${filename}`])).stdout,
+    }))
+  );
+  return composeMigrationRecords(records);
+};
+
 const renderProposalBody = async ({
   action,
   contentOid = proposalOid,
@@ -218,6 +250,7 @@ const renderProposalBody = async ({
   return renderReleasePrBody({
     changes: action.changes,
     line: action.line,
+    migrationRecords: await migrationRecordsAt(contentOid, action.line),
     packageNames: packages.map(({ name }) => name),
     previousBody,
     previousHighlightsBody: action.previousHighlightsBody ?? previousBody,
