@@ -14,7 +14,6 @@ const priorityOrder = new Intl.Collator('en', {
   sensitivity: 'base',
 });
 
-const LEGACY_RELEASE_RECORD_MARKER = '<!-- fablebook:release-record=v1 -->';
 export const RELEASE_RECORD_MARKER = '<!-- fablebook:release-record=v2 -->';
 
 const fullOid = (value, label) => {
@@ -131,27 +130,13 @@ export function renderReleaseRecord({ changes, version }) {
 
 export function extractReleaseRecordChanges({ source, version }) {
   parseStableVersion(version);
-  const currentPrefix = `${RELEASE_RECORD_MARKER}
+  const prefix = `${RELEASE_RECORD_MARKER}
 # v${version} changes
 
 `;
-  const legacyPrefix = `${LEGACY_RELEASE_RECORD_MARKER}
-# v${version}
-
-> Generated from the exact release-line history. Do not edit manually.
-
-## Changes
-
-`;
-  const prefix =
-    typeof source === 'string'
-      ? [currentPrefix, legacyPrefix].find((candidate) =>
-          source.startsWith(candidate)
-        )
-      : undefined;
   if (
     typeof source !== 'string' ||
-    prefix === undefined ||
+    !source.startsWith(prefix) ||
     !source.endsWith('\n')
   ) {
     throw new Error(`Expected the generated v${version} release record.`);
