@@ -58,7 +58,7 @@ const writeHighlights = (body, highlights = authoredHighlights) =>
 
 test('the Markdown template renders linked release facts and required maintainer tasks', () => {
   const body = render();
-  assert.match(body, /<!-- fablebook:release-pr=v5 -->/);
+  assert.match(body, /<!-- fablebook:release-pr=v6 -->/);
   assert.deepEqual(extractReleasePrIdentity(body), {
     proposalOid,
     releaseOid,
@@ -66,7 +66,8 @@ test('the Markdown template renders linked release facts and required maintainer
   });
   assert.match(body, new RegExp(`https://github.com/fablebookjs/lab-02/commit/${releaseOid}`));
   assert.match(body, new RegExp(`https://github.com/fablebookjs/lab-02/commit/${proposalOid}`));
-  assert.match(body, /- \[ \] \[Fix the release fixture\]\(https:\/\/github\.com\/fablebookjs\/lab-02\/pull\/3\) <!-- fablebook:change=pr:3 -->/);
+  assert.match(body, /- \[ \] https:\/\/github\.com\/fablebookjs\/lab-02\/pull\/3 <!-- fablebook:change=pr:3 -->/);
+  assert.doesNotMatch(body, /\[Fix the release fixture\]\(/);
   assert.match(body, new RegExp(`fablebook:change=commit:${'d'.repeat(40)}`));
   assert.match(body, /<details>\n<summary>Clean-install smoke-test commands<\/summary>/);
   assert.match(body, /@fablebook\/lab-02-core@v-1\.0 @fablebook\/lab-02-addon@v-1\.0/);
@@ -85,7 +86,7 @@ test('the Markdown template renders linked release facts and required maintainer
 });
 
 test('an older template revision is stale even when its proposal identity matches', () => {
-  const body = render().replace('fablebook:release-pr=v5', 'fablebook:release-pr=v4');
+  const body = render().replace('fablebook:release-pr=v6', 'fablebook:release-pr=v5');
   assert.equal(extractReleasePrIdentity(body), null);
 });
 
@@ -115,7 +116,10 @@ test('the release PR links ordered migration records at the exact release source
 
 test('an in-place refresh preserves highlights and known checks while adding new changes unchecked', () => {
   const manuallyChecked = writeHighlights(render())
-    .replace('- [ ] [Fix the release fixture]', '- [x] [Fix the release fixture]')
+    .replace(
+      '- [ ] https://github.com/fablebookjs/lab-02/pull/3',
+      '- [x] https://github.com/fablebookjs/lab-02/pull/3'
+    )
     .replace(
       '- [ ] Ensure all discussions on the release have been resolved',
       '- [x] Ensure all discussions on the release have been resolved'
@@ -183,8 +187,8 @@ test('replacement chooses the highest-numbered closed predecessor for the same v
   );
 
   const previousTemplate = older.replace(
-    'fablebook:release-pr=v5',
-    'fablebook:release-pr=v4'
+    'fablebook:release-pr=v6',
+    'fablebook:release-pr=v5'
   );
   assert.equal(
     requireReleaseHighlights(
