@@ -75,3 +75,7 @@ test('newly uploaded proposals render from the prepared local content tree', () 
     /createReleasePr\(token, action, uploadedProposalOid, action\.proposalOid\)/
   );
 });
+
+test('summary formatting passes its locale to label normalization', () => {
+  assert.equal(formatSummary(' I ', [2, 3], 'tr'), 'ı:5');
+});
