@@ -80,7 +80,8 @@ dependency-free named placeholders and keeps the maintainer procedure
 reviewable without embedding prose in controller code. The generated
 included-change checklist links each release-line merge or direct commit. A
 refresh preserves checked items by their hidden PR or commit identity and adds
-new changes unchecked; a clean replacement starts fresh.
+new changes unchecked; a clean replacement starts its QA checklist fresh while
+retaining the same version's marked release highlights.
 
 The release PR is the only required QA workspace. Maintainers discuss findings
 there and open a normal issue only when a finding needs independent long-term
@@ -102,6 +103,16 @@ first-parent release history it already uses for the release PR: one canonical
 merged PR becomes its linked PR title, while a direct merge, direct commit, or
 ambiguous PR association remains visible as one linked commit subject. The
 record is generated data and contains no curated highlights.
+
+Curated release highlights live only in the release PR's marked block.
+Maintainers replace its unchecked placeholder with the short user-facing
+reasons to upgrade. An in-place refresh preserves that content. A clean
+replacement selects the highest-numbered closed predecessor for the same
+version and preserves its highlights without carrying over its QA approvals.
+Missing, malformed, or still-placeholder content falls back to the blocking
+empty placeholder. The canonical release-proposal check also reads the block
+on every body edit, so removing its markers or merely checking its placeholder
+cannot authorize a release.
 
 Migration guidance is authored only when a change needs it. Copy
 [`migration-notes/TEMPLATE.md`](migration-notes/TEMPLATE.md) into the target

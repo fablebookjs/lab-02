@@ -6,9 +6,15 @@ import test from 'node:test';
 import { repositoryRoot } from '../scripts/list-public-packages.mjs';
 import {
   deriveReleasePrChanges,
+  EMPTY_RELEASE_HIGHLIGHTS,
+  extractReleaseHighlights,
   extractReleasePrCheckboxes,
   extractReleasePrIdentity,
+  recoverReleaseHighlights,
+  RELEASE_HIGHLIGHTS_EMPTY_MARKER,
+  requireReleaseHighlights,
   renderReleasePrBody,
+  selectLatestMatchingReleasePrBody,
 } from '../scripts/release-pr-body.mjs';
 
 const template = await readFile(join(repositoryRoot, '.github/release-pr-template.md'), 'utf8');
@@ -41,9 +47,18 @@ const render = (overrides = {}) =>
     ...overrides,
   });
 
+const authoredHighlights = [
+  '**Faster setup:** New projects reach their first rendered story with fewer steps.',
+  '',
+  '- Existing projects can upgrade without configuration changes.',
+].join('\n');
+
+const writeHighlights = (body, highlights = authoredHighlights) =>
+  body.replace(EMPTY_RELEASE_HIGHLIGHTS, highlights);
+
 test('the Markdown template renders linked release facts and required maintainer tasks', () => {
   const body = render();
-  assert.match(body, /<!-- fablebook:release-pr=v2 -->/);
+  assert.match(body, /<!-- fablebook:release-pr=v3 -->/);
   assert.deepEqual(extractReleasePrIdentity(body), {
     proposalOid,
     releaseOid,
@@ -56,15 +71,18 @@ test('the Markdown template renders linked release facts and required maintainer
   assert.match(body, /<details>\n<summary>Clean-install smoke-test commands<\/summary>/);
   assert.match(body, /@fablebook\/lab-02-core@v-1\.0 @fablebook\/lab-02-addon@v-1\.0/);
   assert.match(body, /Promote latest/);
+  assert.equal(extractReleaseHighlights(body), EMPTY_RELEASE_HIGHLIGHTS);
+  assert.match(body, new RegExp(RELEASE_HIGHLIGHTS_EMPTY_MARKER));
+  assert.throws(() => requireReleaseHighlights(body), /blocking empty placeholder/);
 });
 
 test('an older template revision is stale even when its proposal identity matches', () => {
-  const body = render().replace('fablebook:release-pr=v2', 'fablebook:release-pr=v1');
+  const body = render().replace('fablebook:release-pr=v3', 'fablebook:release-pr=v2');
   assert.equal(extractReleasePrIdentity(body), null);
 });
 
-test('an in-place refresh preserves known checks and adds a new change unchecked', () => {
-  const manuallyChecked = render()
+test('an in-place refresh preserves highlights and known checks while adding new changes unchecked', () => {
+  const manuallyChecked = writeHighlights(render())
     .replace('- [ ] [Fix the release fixture]', '- [x] [Fix the release fixture]')
     .replace(
       '- [ ] Ensure all discussions on the release have been resolved',
@@ -89,19 +107,91 @@ test('an in-place refresh preserves known checks and adds a new change unchecked
   assert.equal(states.get('check:discussions-resolved'), true);
   assert.equal(states.get('check:release-docs-reviewed'), false);
   assert.match(refreshed, /Proposal commit[^\n]+fffffff/);
+  assert.equal(requireReleaseHighlights(refreshed), authoredHighlights);
 });
 
-test('a recreated proposal starts with fresh checks and can adopt template prose changes', () => {
+test('a recreated proposal preserves only same-version highlights and starts with fresh checks', () => {
   const checked = render().replaceAll('- [ ]', '- [x]');
   const refreshed = render({ previousBody: checked });
   assert.equal([...extractReleasePrCheckboxes(refreshed).values()].every(Boolean), true);
 
-  const recreated = render({ supersededPr: 9 });
+  const predecessor = writeHighlights(render());
+  const recreated = render({ previousHighlightsBody: predecessor, supersededPr: 9 });
   assert.equal([...extractReleasePrCheckboxes(recreated).values()].some(Boolean), false);
+  assert.equal(requireReleaseHighlights(recreated), authoredHighlights);
   assert.match(recreated, /supersedes \[#9\]/);
 
   const revisedTemplate = template.replace('## Maintainer procedure', '## Release operator guide');
   assert.match(render({ template: revisedTemplate }), /## Release operator guide/);
+});
+
+test('replacement chooses the highest-numbered closed predecessor for the same version', () => {
+  const older = writeHighlights(render(), 'Older highlights');
+  const latest = writeHighlights(render(), 'Latest highlights');
+  const anotherVersion = writeHighlights(
+    render({ version: '1.0.1' }),
+    'Highlights for another version'
+  );
+  const selected = selectLatestMatchingReleasePrBody({
+    pulls: [
+      { body: older, number: 5, state: 'closed' },
+      { body: anotherVersion, number: 20, state: 'closed' },
+      { body: latest, number: 12, state: 'closed' },
+      { body: writeHighlights(render(), 'Still open'), number: 30, state: 'open' },
+    ],
+    version: '1.0.0',
+  });
+  assert.equal(requireReleaseHighlights(selected), 'Latest highlights');
+  assert.equal(
+    selectLatestMatchingReleasePrBody({
+      pulls: [{ body: anotherVersion, number: 20, state: 'closed' }],
+      version: '1.0.0',
+    }),
+    ''
+  );
+
+  const previousTemplate = older.replace(
+    'fablebook:release-pr=v3',
+    'fablebook:release-pr=v2'
+  );
+  assert.equal(
+    requireReleaseHighlights(
+      selectLatestMatchingReleasePrBody({
+        pulls: [{ body: previousTemplate, number: 7, state: 'closed' }],
+        version: '1.0.0',
+      })
+    ),
+    'Older highlights'
+  );
+
+  const malformedLatest = latest.replace(
+    '<!-- fablebook:release-highlights:end -->',
+    '<!-- release-highlights:end -->'
+  );
+  const failedLatest = selectLatestMatchingReleasePrBody({
+    pulls: [
+      { body: older, number: 5, state: 'closed' },
+      { body: malformedLatest, number: 12, state: 'closed' },
+    ],
+    version: '1.0.0',
+  });
+  assert.equal(recoverReleaseHighlights(failedLatest), EMPTY_RELEASE_HIGHLIGHTS);
+});
+
+test('failed highlight extraction always falls back to the blocking empty placeholder', () => {
+  const valid = writeHighlights(render());
+  const malformed = [
+    '',
+    valid.replace('fablebook:release-highlights:start', 'release-highlights:start'),
+    valid.replace(
+      '<!-- fablebook:release-highlights:end -->',
+      '<!-- fablebook:release-highlights:start -->'
+    ),
+    render().replace('- [ ] Replace this placeholder', '- [x] Replace this placeholder'),
+  ];
+  for (const body of malformed) {
+    assert.equal(recoverReleaseHighlights(body), EMPTY_RELEASE_HIGHLIGHTS);
+  }
 });
 
 test('the dependency-free template fails on unknown or omitted placeholders', () => {
@@ -124,6 +214,13 @@ test('duplicate identities and noncanonical links fail closed', () => {
   assert.throws(
     () => extractReleasePrCheckboxes('- [ ] A <!-- fablebook:check=same -->\n- [x] B <!-- fablebook:check=same -->'),
     /repeats checkbox identity/
+  );
+  assert.throws(
+    () =>
+      requireReleaseHighlights(
+        `${writeHighlights(render())}\n<!-- fablebook:release-highlights:start -->`
+      ),
+    /exactly one marked highlights block/
   );
 });
 

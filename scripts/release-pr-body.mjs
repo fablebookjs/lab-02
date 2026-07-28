@@ -14,7 +14,13 @@ const proposalIdentityPattern =
   /<!-- fablebook:proposal=([0-9a-f]{40}) source=([0-9a-f]{40}) version=([^ ]+) -->/g;
 const placeholderPattern = /{{([a-z][a-z0-9_]*)}}/g;
 
-export const RELEASE_PR_TEMPLATE_MARKER = '<!-- fablebook:release-pr=v2 -->';
+export const RELEASE_PR_TEMPLATE_MARKER = '<!-- fablebook:release-pr=v3 -->';
+export const RELEASE_HIGHLIGHTS_START = '<!-- fablebook:release-highlights:start -->';
+export const RELEASE_HIGHLIGHTS_END = '<!-- fablebook:release-highlights:end -->';
+export const RELEASE_HIGHLIGHTS_EMPTY_MARKER =
+  '<!-- fablebook:release-highlights=empty -->';
+export const EMPTY_RELEASE_HIGHLIGHTS =
+  `- [ ] Replace this placeholder with the main reasons to upgrade. ${RELEASE_HIGHLIGHTS_EMPTY_MARKER}`;
 
 const fullOid = (value, label) => {
   if (!fullOidPattern.test(value ?? '')) {
@@ -43,10 +49,7 @@ export function extractReleasePrCheckboxes(body) {
   return states;
 }
 
-export function extractReleasePrIdentity(body) {
-  if (!String(body ?? '').includes(RELEASE_PR_TEMPLATE_MARKER)) {
-    return null;
-  }
+const extractProposalIdentity = (body) => {
   const matches = [...String(body ?? '').matchAll(proposalIdentityPattern)];
   if (matches.length === 0) {
     return null;
@@ -60,6 +63,78 @@ export function extractReleasePrIdentity(body) {
     releaseOid: matches[0][2],
     version: matches[0][3],
   };
+};
+
+export function extractReleasePrIdentity(body) {
+  if (!String(body ?? '').includes(RELEASE_PR_TEMPLATE_MARKER)) {
+    return null;
+  }
+  return extractProposalIdentity(body);
+}
+
+export function extractReleaseHighlights(body) {
+  const source = String(body ?? '');
+  const starts = source.split(RELEASE_HIGHLIGHTS_START).length - 1;
+  const ends = source.split(RELEASE_HIGHLIGHTS_END).length - 1;
+  if (starts !== 1 || ends !== 1) {
+    throw new Error('Release PR body must contain exactly one marked highlights block.');
+  }
+  const start = source.indexOf(RELEASE_HIGHLIGHTS_START) + RELEASE_HIGHLIGHTS_START.length;
+  const end = source.indexOf(RELEASE_HIGHLIGHTS_END, start);
+  if (end < start) {
+    throw new Error('Release PR highlights markers are out of order.');
+  }
+  const highlights = source.slice(start, end).trim();
+  if (highlights.length === 0) {
+    throw new Error('Release PR highlights are empty.');
+  }
+  return highlights;
+}
+
+export function requireReleaseHighlights(body) {
+  const highlights = extractReleaseHighlights(body);
+  const visibleHighlights = highlights
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .trim();
+  if (
+    highlights.includes(RELEASE_HIGHLIGHTS_EMPTY_MARKER) ||
+    visibleHighlights.length === 0
+  ) {
+    throw new Error('Release highlights must replace the blocking empty placeholder.');
+  }
+  return highlights;
+}
+
+export function recoverReleaseHighlights(body) {
+  try {
+    return requireReleaseHighlights(body);
+  } catch {
+    return EMPTY_RELEASE_HIGHLIGHTS;
+  }
+}
+
+export function selectLatestMatchingReleasePrBody({ pulls, version }) {
+  parseStableVersion(version);
+  if (!Array.isArray(pulls)) {
+    throw new Error('Release highlight predecessors must be an array.');
+  }
+  return (
+    [...pulls]
+      .filter(
+        (pull) =>
+          Number.isSafeInteger(pull?.number) &&
+          pull.number > 0 &&
+          pull.state === 'closed'
+      )
+      .sort((left, right) => right.number - left.number)
+      .find((pull) => {
+        try {
+          return extractProposalIdentity(pull.body)?.version === version;
+        } catch {
+          return false;
+        }
+      })?.body ?? ''
+  );
 }
 
 const validateChanges = (changes, states) => {
@@ -115,6 +190,7 @@ export function renderReleasePrBody({
   line,
   packageNames,
   previousBody = '',
+  previousHighlightsBody = previousBody,
   proposalOid,
   releaseOid,
   supersededPr,
@@ -147,16 +223,19 @@ export function renderReleasePrBody({
 
   const states = extractReleasePrCheckboxes(previousBody);
   const renderedChanges = validateChanges(changes, states);
+  const releaseHighlights = [
+    RELEASE_HIGHLIGHTS_START,
+    recoverReleaseHighlights(previousHighlightsBody),
+    RELEASE_HIGHLIGHTS_END,
+  ].join('\n');
   const channel = `v-${line.slice(1)}`;
   const npmVersionsUrl = `https://www.npmjs.com/package/${uniquePackages[0]}?activeTab=versions`;
   const view = {
-    changelog_url: `${repositoryUrl}/blob/main/CHANGELOG.md`,
     changes: renderChanges(renderedChanges),
     discussions_checkmark: states.get('check:discussions-resolved') ? 'x' : ' ',
     github_release_url: `${repositoryUrl}/releases/tag/v${version}`,
     line,
     main_branch_url: `${repositoryUrl}/tree/main`,
-    migration_url: `${repositoryUrl}/blob/main/MIGRATION.md`,
     npm_channel: channel,
     npm_versions_url: npmVersionsUrl,
     package_count: uniquePackages.length,
@@ -171,6 +250,7 @@ export function renderReleasePrBody({
     release_commit_url: `${repositoryUrl}/commit/${releaseOid}`,
     release_oid: releaseOid,
     release_docs_checkmark: states.get('check:release-docs-reviewed') ? 'x' : ' ',
+    release_highlights: releaseHighlights,
     release_short_oid: releaseOid.slice(0, 7),
     smoke_test_commands: smokeCommands(uniquePackages, channel),
     superseded_notice:

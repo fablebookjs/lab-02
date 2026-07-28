@@ -5,6 +5,7 @@ on:
     branches:
       - 'releases/v*'
     types:
+      - edited
       - opened
       - reopened
       - synchronize
