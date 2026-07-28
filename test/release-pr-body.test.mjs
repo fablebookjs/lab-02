@@ -58,7 +58,7 @@ const writeHighlights = (body, highlights = authoredHighlights) =>
 
 test('the Markdown template renders linked release facts and required maintainer tasks', () => {
   const body = render();
-  assert.match(body, /<!-- fablebook:release-pr=v3 -->/);
+  assert.match(body, /<!-- fablebook:release-pr=v4 -->/);
   assert.deepEqual(extractReleasePrIdentity(body), {
     proposalOid,
     releaseOid,
@@ -74,10 +74,17 @@ test('the Markdown template renders linked release facts and required maintainer
   assert.equal(extractReleaseHighlights(body), EMPTY_RELEASE_HIGHLIGHTS);
   assert.match(body, new RegExp(RELEASE_HIGHLIGHTS_EMPTY_MARKER));
   assert.throws(() => requireReleaseHighlights(body), /blocking empty placeholder/);
+
+  const visibleBody = body.replace(/<!--[\s\S]*?-->/g, '');
+  assert.doesNotMatch(visibleBody, /Write the short, user-facing reasons to upgrade/);
+  assert.doesNotMatch(visibleBody, /A change introduced without a PR/);
+  assert.doesNotMatch(visibleBody, /When this proposal is regenerated/);
+  assert.doesNotMatch(visibleBody, /\n---\n/);
+  assert.match(visibleBody, /review the included changes below/);
 });
 
 test('an older template revision is stale even when its proposal identity matches', () => {
-  const body = render().replace('fablebook:release-pr=v3', 'fablebook:release-pr=v2');
+  const body = render().replace('fablebook:release-pr=v4', 'fablebook:release-pr=v3');
   assert.equal(extractReleasePrIdentity(body), null);
 });
 
@@ -151,8 +158,8 @@ test('replacement chooses the highest-numbered closed predecessor for the same v
   );
 
   const previousTemplate = older.replace(
-    'fablebook:release-pr=v3',
-    'fablebook:release-pr=v2'
+    'fablebook:release-pr=v4',
+    'fablebook:release-pr=v3'
   );
   assert.equal(
     requireReleaseHighlights(
