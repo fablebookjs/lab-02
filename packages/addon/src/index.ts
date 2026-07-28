@@ -35,7 +35,7 @@ export function formatAverageSummary(
 export function formatCountSummary(
   label: string,
   values: number[],
-  locale = 'en-US'
+  options: LabelNormalizationOptions = {}
 ): string {
-  return `${normalizeLabel(label, locale)}:${count(values)}`;
+  return `${normalizeLabel(label, options)}:${count(values)}`;
 }

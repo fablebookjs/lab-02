@@ -98,6 +98,7 @@ test('count summaries report the number of values', () => {
   assert.equal(count([2, 4, 8]), 3);
   assert.equal(count([]), 0);
   assert.equal(formatCountSummary(' Items ', [2, 4, 8]), 'items:3');
+  assert.equal(formatCountSummary(' I ', [2, 4, 8], { locale: 'tr' }), 'ı:3');
 });
 
 test('label collections share one locale-aware normalization pass', () => {
