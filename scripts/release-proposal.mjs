@@ -312,7 +312,9 @@ const validateProposalCommit = async (oid, expected) => {
       renderReleaseRecord({ changes: expected.changes, version: expected.version })
     );
   } else if (
-    !record.startsWith(`${RELEASE_RECORD_MARKER}\n# v${expected.version}\n`)
+    !record.startsWith(
+      `${RELEASE_RECORD_MARKER}\n# v${expected.version} changes\n`
+    )
   ) {
     throw new Error(`${path} is not the generated record for v${expected.version}.`);
   }
@@ -743,7 +745,7 @@ const loadMaintenanceStates = async (token) => {
           await git(['show', `${stagedRef.oid}:${releaseRecordPath(metadata.version)}`])
         ).stdout;
         releaseRecordCurrent = record.startsWith(
-          `${RELEASE_RECORD_MARKER}\n# v${metadata.version}\n`
+          `${RELEASE_RECORD_MARKER}\n# v${metadata.version} changes\n`
         );
       } catch {
         // Existing proposals created before release records are refreshed in place.
