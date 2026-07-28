@@ -1,0 +1,14 @@
+name: 'MANUAL - Release: Repair release PRs'
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  repair:
+    name: repair release PRs
+    uses: ./.github/workflows/maintain-release-proposal.yml
+    secrets: inherit

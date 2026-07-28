@@ -1,4 +1,4 @@
-name: Release proposal check
+name: 'Release: Protect approval'
 
 on:
   pull_request:

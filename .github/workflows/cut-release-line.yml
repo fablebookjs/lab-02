@@ -1,4 +1,4 @@
-name: Cut release line
+name: 'MANUAL - Release: Start new release line'
 
 on:
   workflow_dispatch:

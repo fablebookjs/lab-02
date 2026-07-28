@@ -26,8 +26,9 @@ The check compiles both packages, verifies the lockstep and internal-dependency
 invariants, packs the actual npm artifacts, installs them into a temporary
 offline consumer, and exercises the addon-to-core path.
 
-The **CI** workflow runs the same check on pull requests and protected branch
-updates. It is one of the small required checks used by the pilot rulesets.
+The **CI: Validate changes** workflow runs the same check on pull requests
+and protected branch updates. It is one of the small required checks used by
+the pilot rulesets.
 
 ## Materialize an exact version
 
@@ -43,17 +44,21 @@ version; this repository command only materializes it.
 
 ## Release proposals
 
-Four workflows implement the first release vertical slice:
+Five workflow surfaces implement the first release vertical slice:
 
-- **Cut release line** runs manually from current `main` and asks only whether
-  later development moves to the next minor or major line.
-- **Release proposal signal** carries no permissions or credentials; a release
-  branch push or release-PR closure merely wakes the trusted controller.
-- **Maintain release proposal** runs controller code from `main`, refreshing an
-  existing proposal, replacing a closed proposal with a new draft, activating
-  an older line when work appears, or leaving a completed older line dormant.
-- **Release proposal check** prevents a proposal based on stale release-line
-  source from becoming the authorized release snapshot.
+- **MANUAL - Release: Start new release line** runs from current `main` and asks
+  only whether later development moves to the next minor or major line.
+- **Release: Trigger proposal maintenance** carries no permissions or
+  credentials; a release branch push or release-PR closure merely wakes the
+  trusted controller.
+- **Release: Keep release PRs current** runs controller code from `main`,
+  refreshing an existing proposal, replacing a closed proposal with a new
+  draft, activating an older line when work appears, or leaving a completed
+  older line dormant.
+- **MANUAL - Release: Repair release PRs** invokes that same main-bound
+  controller as an explicit recovery action. It is not a normal release step.
+- **Release: Protect approval** prevents a proposal based on stale
+  release-line source from becoming the authorized release snapshot.
 
 Preparation and mutation are separate jobs. The uncredentialed job checks the
 trusted controller, installs and compiles each materialized version, and
@@ -89,11 +94,11 @@ tracking. The release App needs only repository contents and pull request
 permissions. If a ref update succeeds but its body write does not, the next
 maintenance run detects the stale generated identity and repairs the same PR.
 
-The credentialless **Release proposal check** verifies that the proposal has
-one parent and that both its parent and `Release-Source` trailer equal the PR's
-current base SHA. Live repository rules must require this check, require the
-branch to be up to date before merge, dismiss stale approvals, and allow release
-PRs to merge only with a merge commit.
+The credentialless **Release: Protect approval** workflow verifies that
+the proposal has one parent and that both its parent and `Release-Source`
+trailer equal the PR's current base SHA. Live repository rules must require
+this check, require the branch to be up to date before merge, dismiss stale
+approvals, and allow release PRs to merge only with a merge commit.
 
 ## Release and migration records
 
@@ -135,10 +140,11 @@ does not copy the migration instructions into the release body.
 
 ## Stable publication and promotion
 
-Merging a canonical release PR wakes **Publish stable release**. Its first job
-re-reads the PR and proves that its two-parent merge commit contains the exact
-reviewed proposal. That uncredentialed job checks out the immutable snapshot,
-installs, compiles, tests, and packs the dynamically discovered package set.
+Merging a canonical release PR wakes **Publish: Publish approved release**. Its
+first job re-reads the PR and proves that its two-parent merge commit contains
+the exact reviewed proposal. That uncredentialed job checks out the immutable
+snapshot, installs, compiles, tests, and packs the dynamically discovered
+package set.
 
 A fresh OIDC-only job queries npm before each package write. It publishes a
 missing package directly under the line channel such as `v-1.0`, skips only an
@@ -152,21 +158,21 @@ ordered, tag-pinned migration-record links or an explicit empty state. The
 collapsed **All changes** block then contains only the change entries from the
 generated `releases/vX.Y.Z.md` record in the authorized snapshot.
 
-**Promote latest** is a separate manual workflow. Its only input is a completed
-stable version such as `1.0.0`. It resolves that version's annotated tag,
-derives the historical package set from the tagged snapshot without npm write
-authority, and then waits for approval on the `npm-promotion` environment. The
-approved job receives the package-scoped token and moves those packages to
-`latest` sequentially. All promotion runs share one queue; a rerun skips tags
-already at the requested version. Selecting an older completed version is the
-rollback mechanism.
+**MANUAL - Publish: Promote to latest** is a separate workflow. Its only input
+is a completed stable version such as `1.0.0`. It resolves that version's
+annotated tag, derives the historical package set from the tagged snapshot
+without npm write authority, and then waits for approval on the `npm-promotion`
+environment. The approved job receives the package-scoped token and moves those
+packages to `latest` sequentially. All promotion runs share one queue; a rerun
+skips tags already at the requested version. Selecting an older completed
+version is the rollback mechanism.
 
 ## Patchback coordination
 
-The same merged release-PR signal independently wakes **Maintain patchback**, so
-patchback preparation starts in parallel with publication and does not wait for
-npm or GitHub Release completion. The workflow derives its ordered scope from
-the authorized snapshot's first-parent release history:
+The same merged release-PR signal independently wakes **Release: Prepare
+patchback PR**, so patchback preparation starts in parallel with publication
+and does not wait for npm or GitHub Release completion. The workflow derives
+its ordered scope from the authorized snapshot's first-parent release history:
 
 - `X.Y.0` starts after the durable release-cut source recorded on `main`;
 - later patches start after the preceding completed release tag;
@@ -199,10 +205,10 @@ A merged or closed patchback PR is terminal. When the product-change scope is
 empty, the draft still contains the generated release record and can be reviewed
 and merged with any migration records as the complete patchback.
 
-**Pull request description check** applies to every repository PR and fails
-while its description contains an unchecked Markdown task. Live branch rules
-must require the `PR description has no unchecked tasks` check for `main` and
-the release branches. It adds no semantic patchback verification.
+**PR: Enforce readiness** applies to every repository PR and
+fails while its description contains an unchecked Markdown task. Live branch
+rules must require the `PR description has no unchecked tasks` check for `main`
+and the release branches. It adds no semantic patchback verification.
 
 Live setup configures both packages to trust
 `publish-stable-release.yml`, provide the App variables and secret through the

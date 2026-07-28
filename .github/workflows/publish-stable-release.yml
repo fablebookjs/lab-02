@@ -1,9 +1,9 @@
-name: Publish stable release
+name: 'Publish: Publish approved release'
 
 on:
   workflow_run:
     workflows:
-      - Release proposal signal
+      - 'Release: Trigger proposal maintenance'
     types:
       - completed
 

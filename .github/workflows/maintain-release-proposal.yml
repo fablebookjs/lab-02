@@ -1,13 +1,13 @@
-name: Maintain release proposal
+name: 'Release: Keep release PRs current'
 
 on:
   repository_dispatch:
     types:
       - release-completed
-  workflow_dispatch:
+  workflow_call:
   workflow_run:
     workflows:
-      - Release proposal signal
+      - 'Release: Trigger proposal maintenance'
     types:
       - completed
 
@@ -24,7 +24,7 @@ jobs:
     if: >-
       github.repository == 'fablebookjs/lab-02' &&
       github.ref == 'refs/heads/main' &&
-      (github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_call' ||
       github.event_name == 'repository_dispatch' ||
       github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest

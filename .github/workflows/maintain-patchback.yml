@@ -1,9 +1,9 @@
-name: Maintain patchback
+name: 'Release: Prepare patchback PR'
 
 on:
   workflow_run:
     workflows:
-      - Release proposal signal
+      - 'Release: Trigger proposal maintenance'
     types:
       - completed
 

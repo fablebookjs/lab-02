@@ -1,4 +1,4 @@
-name: Pull request description check
+name: 'PR: Enforce readiness'
 
 on:
   pull_request_target:

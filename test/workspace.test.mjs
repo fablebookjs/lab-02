@@ -25,6 +25,26 @@ const releaseProposalController = await readFile(
   join(repositoryRoot, 'scripts/release-proposal.mjs'),
   'utf8'
 );
+const workflowFiles = [
+  'ci.yml',
+  'cut-release-line.yml',
+  'maintain-patchback.yml',
+  'maintain-release-proposal.yml',
+  'promote-latest.yml',
+  'publish-stable-release.yml',
+  'pull-request-description-check.yml',
+  'release-proposal-check.yml',
+  'release-proposal-signal.yml',
+  'repair-release-proposals.yml',
+];
+const workflows = new Map(
+  await Promise.all(
+    workflowFiles.map(async (filename) => [
+      filename,
+      await readFile(join(repositoryRoot, '.github/workflows', filename), 'utf8'),
+    ])
+  )
+);
 
 test('the complete public workspace set is discovered in stable order', () => {
   assert.deepEqual(
@@ -62,6 +82,55 @@ test('the trusted PR description check requires highlights on every canonical re
   assert.match(pullRequestDescriptionWorkflow, /staged\/\$\{line\[1\]\}/);
   assert.match(pullRequestDescriptionWorkflow, /fablebook:release-highlights:start/);
   assert.match(pullRequestDescriptionWorkflow, /fablebook:release-highlights=empty/);
+});
+
+test('workflow names group the Actions overview by maintainer-facing purpose', () => {
+  assert.deepEqual(
+    workflowFiles.map((filename) => {
+      const source = workflows.get(filename);
+      const match = /^name: '(.+)'$/m.exec(source);
+      assert.ok(match, `${filename} must declare a quoted workflow name`);
+      return match[1];
+    }),
+    [
+      'CI: Validate changes',
+      'MANUAL - Release: Start new release line',
+      'Release: Prepare patchback PR',
+      'Release: Keep release PRs current',
+      'MANUAL - Publish: Promote to latest',
+      'Publish: Publish approved release',
+      'PR: Enforce readiness',
+      'Release: Protect approval',
+      'Release: Trigger proposal maintenance',
+      'MANUAL - Release: Repair release PRs',
+    ]
+  );
+});
+
+test('manual proposal repair is separate from automatic proposal maintenance', () => {
+  const automaticMaintenance = workflows.get('maintain-release-proposal.yml');
+  const manualRepair = workflows.get('repair-release-proposals.yml');
+
+  assert.match(automaticMaintenance, /^  workflow_call:$/m);
+  assert.doesNotMatch(automaticMaintenance, /^  workflow_dispatch:$/m);
+  assert.match(automaticMaintenance, /github\.event_name == 'workflow_call'/);
+
+  assert.match(manualRepair, /^  workflow_dispatch:$/m);
+  assert.match(
+    manualRepair,
+    /uses: \.\/\.github\/workflows\/maintain-release-proposal\.yml/
+  );
+  assert.match(manualRepair, /secrets: inherit/);
+});
+
+test('release controllers follow the renamed credentialless signal workflow', () => {
+  for (const filename of [
+    'maintain-patchback.yml',
+    'maintain-release-proposal.yml',
+    'publish-stable-release.yml',
+  ]) {
+    assert.match(workflows.get(filename), /- 'Release: Trigger proposal maintenance'/);
+  }
 });
 
 test('newly uploaded proposals render from the prepared local content tree', () => {
