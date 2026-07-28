@@ -1,4 +1,4 @@
-<!-- fablebook:release-pr=v5 -->
+<!-- fablebook:release-pr=v6 -->
 <!-- fablebook:proposal={{proposal_oid}} source={{release_oid}} version={{version}} -->
 # Release {{version}}
 

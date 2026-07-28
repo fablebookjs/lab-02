@@ -16,7 +16,7 @@ const proposalIdentityPattern =
   /<!-- fablebook:proposal=([0-9a-f]{40}) source=([0-9a-f]{40}) version=([^ ]+) -->/g;
 const placeholderPattern = /{{([a-z][a-z0-9_]*)}}/g;
 
-export const RELEASE_PR_TEMPLATE_MARKER = '<!-- fablebook:release-pr=v5 -->';
+export const RELEASE_PR_TEMPLATE_MARKER = '<!-- fablebook:release-pr=v6 -->';
 export const RELEASE_HIGHLIGHTS_START = '<!-- fablebook:release-highlights:start -->';
 export const RELEASE_HIGHLIGHTS_END = '<!-- fablebook:release-highlights:end -->';
 export const RELEASE_HIGHLIGHTS_EMPTY_MARKER =
@@ -172,8 +172,8 @@ const renderChanges = (changes) =>
     ? '_No release-line changes have been added since this release boundary._'
     : changes
         .map(
-          ({ checkmark, key, title, url }) =>
-            `- [${checkmark}] [${title}](${url}) <!-- fablebook:change=${key} -->`
+          ({ checkmark, key, url }) =>
+            `- [${checkmark}] ${url} <!-- fablebook:change=${key} -->`
         )
         .join('\n');
 
