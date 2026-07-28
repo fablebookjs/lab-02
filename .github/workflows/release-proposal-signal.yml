@@ -1,4 +1,4 @@
-name: Release proposal signal
+name: 'Release: Trigger proposal maintenance'
 
 on:
   push:

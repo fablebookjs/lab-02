@@ -4,7 +4,7 @@
 
 > [!WARNING]
 > **This release does not promote `latest`.**
-> Merging publishes {{version}} to the [`{{npm_channel}}` npm channel]({{npm_versions_url}}). After publication and channel testing, a maintainer may run [**Promote latest**]({{promote_latest_url}}) separately.
+> Merging publishes {{version}} to the [`{{npm_channel}}` npm channel]({{npm_versions_url}}). After publication and channel testing, a maintainer may run [**MANUAL - Publish: Promote to latest**]({{promote_latest_url}}) separately.
 
 | | | | |
 | --- | --- | --- | --- |
@@ -63,11 +63,11 @@ Mark this PR ready for review, obtain the normal approval, then merge it. Mergin
 
 1. Publish the complete package set as **{{version}}** under the linked [`{{npm_channel}}` channel]({{npm_versions_url}}).
 2. Create the linked Git tag and GitHub Release [`v{{version}}`]({{github_release_url}}) for the exact merge commit.
-3. Create one checklist-only patchback PR targeting [`main`]({{main_branch_url}}); progress and any failure are visible in the [Maintain patchback action log]({{patchback_log_url}}).
+3. Create one checklist-only patchback PR targeting [`main`]({{main_branch_url}}); progress and any failure are visible in the [Release: Prepare patchback PR action log]({{patchback_log_url}}).
 
 ### 6. Test the published channel
 
-1. Wait for the [Publish stable release action]({{publish_log_url}}) to succeed.
+1. Wait for the [Publish: Publish approved release action]({{publish_log_url}}) to succeed.
 2. Run the clean-install smoke test below and confirm every package resolves to version **{{version}}**.
 
 <details>
@@ -81,7 +81,7 @@ Mark this PR ready for review, obtain the normal approval, then merge it. Mergin
 
 ### 7. Decide whether to promote `latest`
 
-If channel testing is acceptable and {{version}} should become the npm default, run [**Promote latest**]({{promote_latest_url}}) with version **{{version}}**. Otherwise, do nothing; the existing `latest` tags remain unchanged.
+If channel testing is acceptable and {{version}} should become the npm default, run [**MANUAL - Publish: Promote to latest**]({{promote_latest_url}}) with version **{{version}}**. Otherwise, do nothing; the existing `latest` tags remain unchanged.
 
 {{superseded_notice}}
 

@@ -1,4 +1,4 @@
-name: Pull request description check
+name: 'PR: Block merge while tasks remain'
 
 on:
   pull_request_target:

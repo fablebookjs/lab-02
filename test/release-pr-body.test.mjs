@@ -71,7 +71,7 @@ test('the Markdown template renders linked release facts and required maintainer
   assert.match(body, new RegExp(`fablebook:change=commit:${'d'.repeat(40)}`));
   assert.match(body, /<details>\n<summary>Clean-install smoke-test commands<\/summary>/);
   assert.match(body, /@fablebook\/lab-02-core@v-1\.0 @fablebook\/lab-02-addon@v-1\.0/);
-  assert.match(body, /Promote latest/);
+  assert.match(body, /MANUAL - Publish: Promote to latest/);
   assert.equal(extractReleaseHighlights(body), EMPTY_RELEASE_HIGHLIGHTS);
   assert.match(body, new RegExp(RELEASE_HIGHLIGHTS_EMPTY_MARKER));
   assert.throws(() => requireReleaseHighlights(body), /blocking empty placeholder/);

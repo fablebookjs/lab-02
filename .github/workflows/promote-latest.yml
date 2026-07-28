@@ -1,4 +1,4 @@
-name: Promote latest
+name: 'MANUAL - Publish: Promote to latest'
 
 on:
   workflow_dispatch:
