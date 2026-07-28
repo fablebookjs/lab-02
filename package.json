@@ -14,6 +14,7 @@
     "set-version": "node scripts/set-version.mjs",
     "smoke:packed": "node scripts/consumer-smoke.mjs",
     "test": "node --test test/*.test.mjs",
+    "prototype:migration-guide": "node prototypes/composed-migration-guide/server.mjs",
     "validate:release-communication": "node scripts/check-release-communication.mjs"
   },
   "devDependencies": {
