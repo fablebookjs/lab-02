@@ -14,6 +14,10 @@ const pullRequestDescriptionWorkflow = await readFile(
   join(repositoryRoot, '.github/workflows/pull-request-description-check.yml'),
   'utf8'
 );
+const releaseProposalController = await readFile(
+  join(repositoryRoot, 'scripts/release-proposal.mjs'),
+  'utf8'
+);
 
 test('the complete public workspace set is discovered in stable order', () => {
   assert.deepEqual(
@@ -51,4 +55,23 @@ test('the trusted PR description check requires highlights on every canonical re
   assert.match(pullRequestDescriptionWorkflow, /staged\/\$\{line\[1\]\}/);
   assert.match(pullRequestDescriptionWorkflow, /fablebook:release-highlights:start/);
   assert.match(pullRequestDescriptionWorkflow, /fablebook:release-highlights=empty/);
+});
+
+test('newly uploaded proposals render from the prepared local content tree', () => {
+  assert.match(
+    releaseProposalController,
+    /contentOid = proposalOid[\s\S]*publicPackagesAt\(contentOid\)/
+  );
+  assert.match(
+    releaseProposalController,
+    /uploadedProposalOid,\s+transition\.proposalOid\s+\)/
+  );
+  assert.match(
+    releaseProposalController,
+    /contentOid: action\.proposalOid,[\s\S]*proposalOid: uploadedProposalOid/
+  );
+  assert.match(
+    releaseProposalController,
+    /createReleasePr\(token, action, uploadedProposalOid, action\.proposalOid\)/
+  );
 });

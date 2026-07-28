@@ -208,8 +208,13 @@ const releaseChanges = async (token, { boundaryOid, line, releaseOid }) => {
   return deriveReleaseChanges({ commits, line });
 };
 
-const renderProposalBody = async ({ action, previousBody = '', proposalOid }) => {
-  const { packages } = await publicPackagesAt(proposalOid);
+const renderProposalBody = async ({
+  action,
+  contentOid = proposalOid,
+  previousBody = '',
+  proposalOid,
+}) => {
+  const { packages } = await publicPackagesAt(contentOid);
   return renderReleasePrBody({
     changes: action.changes,
     line: action.line,
@@ -224,8 +229,8 @@ const renderProposalBody = async ({ action, previousBody = '', proposalOid }) =>
   });
 };
 
-const createReleasePr = async (token, action, proposalOid) => {
-  const body = await renderProposalBody({ action, proposalOid });
+const createReleasePr = async (token, action, proposalOid, contentOid = proposalOid) => {
+  const body = await renderProposalBody({ action, contentOid, proposalOid });
   return createDraftReleasePr(token, { ...action, body });
 };
 
@@ -621,7 +626,8 @@ async function applyCut(options) {
         releaseOid: transition.sourceOid,
         version: transition.releaseVersion,
       },
-      uploadedProposalOid
+      uploadedProposalOid,
+      transition.proposalOid
     );
   } else if (openPulls.length !== 1) {
     throw new Error(`${transition.line} has more than one open canonical release PR.`);
@@ -990,6 +996,7 @@ async function applyMaintenance(options) {
     if (action.kind === 'refresh') {
       const body = await renderProposalBody({
         action,
+        contentOid: action.proposalOid,
         previousBody: openPulls[0].body,
         proposalOid: uploadedProposalOid,
       });
@@ -997,7 +1004,7 @@ async function applyMaintenance(options) {
     }
 
     if (action.kind === 'create' || action.kind === 'recreate') {
-      await createReleasePr(token, action, uploadedProposalOid);
+      await createReleasePr(token, action, uploadedProposalOid, action.proposalOid);
     }
   }
   console.log(`Applied ${transition.actions.length} release proposal maintenance actions.`);
