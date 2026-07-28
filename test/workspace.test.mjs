@@ -3,7 +3,12 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { formatSummary, total } from '@fablebook/lab-02-addon';
+import {
+  average,
+  formatAverageSummary,
+  formatSummary,
+  total,
+} from '@fablebook/lab-02-addon';
 import { add, normalizeLabel } from '@fablebook/lab-02-core';
 
 import { listPublicPackages, repositoryRoot } from '../scripts/list-public-packages.mjs';
@@ -78,4 +83,11 @@ test('newly uploaded proposals render from the prepared local content tree', () 
 
 test('summary formatting passes its locale to label normalization', () => {
   assert.equal(formatSummary(' I ', [2, 3], 'tr'), 'ı:5');
+});
+
+test('average summaries handle populated and empty values', () => {
+  assert.equal(average([2, 4]), 3);
+  assert.equal(average([]), undefined);
+  assert.equal(formatAverageSummary(' Demo ', [2, 4]), 'demo:3');
+  assert.equal(formatAverageSummary(' Demo ', []), 'demo:n/a');
 });
