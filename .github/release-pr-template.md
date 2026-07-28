@@ -1,4 +1,4 @@
-<!-- fablebook:release-pr=v3 -->
+<!-- fablebook:release-pr=v4 -->
 <!-- fablebook:proposal={{proposal_oid}} source={{release_oid}} version={{version}} -->
 # Release {{version}}
 
@@ -15,8 +15,10 @@
 
 ## Release highlights
 
+<!--
 Write the short, user-facing reasons to upgrade. This marked block is preserved
 when the same release proposal is refreshed or replaced.
+-->
 
 {{release_highlights}}
 
@@ -24,7 +26,7 @@ when the same release proposal is refreshed or replaced.
 
 ### 1. Review the exact proposal
 
-Confirm that the linked release source, proposal commit, and included changes above are the version you intend to test.
+Confirm that the linked release source and proposal commit identify the version you intend to test, then review the included changes below.
 
 ### 2. QA every included change
 
@@ -32,7 +34,9 @@ For every item below, perform the relevant manual QA against this exact proposal
 
 {{changes}}
 
+<!--
 A change introduced without a PR uses the same checklist format with its merge or commit URL. The required unchecked-task check prevents merge until every included change and release-level item is checked.
+-->
 
 <details>
 <summary>How to QA a change and record findings</summary>
@@ -77,6 +81,6 @@ If channel testing is acceptable and {{version}} should become the npm default, 
 
 {{superseded_notice}}
 
----
-
+<!--
 When this proposal is regenerated, automation re-renders this template. The marked release highlights are preserved for the same version. Checkbox state is restored by the stable keys in the hidden comments during an in-place refresh; newly included changes and clean replacement checklists start unchecked.
+-->
