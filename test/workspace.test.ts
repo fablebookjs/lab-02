@@ -11,7 +11,7 @@ import {
   formatSummary,
   total,
 } from '@fablebook/lab-02-addon';
-import { add, normalizeLabel, normalizeLabels } from '@fablebook/lab-02-core';
+import { add, normalizeLabel, normalizeLabels, subtract } from '@fablebook/lab-02-core';
 
 import { listPublicPackages, repositoryRoot } from '../scripts/shared/workspace/packages.ts';
 
@@ -51,6 +51,11 @@ test('the compiled addon exercises the compiled core package', () => {
   assert.equal(add(2, 3), 5);
   assert.equal(total([1, 2, 3]), 6);
   assert.equal(formatSummary(' Demo ', [2, 3]), 'demo:5');
+});
+
+test('the core package exposes subtraction', () => {
+  assert.equal(subtract(7, 2), 5);
+  assert.equal(subtract(2, 7), -5);
 });
 
 test('the core label API accepts locale options', () => {
