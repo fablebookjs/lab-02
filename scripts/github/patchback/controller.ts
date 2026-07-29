@@ -1,4 +1,3 @@
-// @ts-nocheck -- The exported operation contracts are strict; typing the migrated controller internals is deferred.
 import { execFile } from 'node:child_process';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -47,6 +46,25 @@ type RunOptions = {
   env?: NodeJS.ProcessEnv;
 };
 
+type CanonicalPullRequest = {
+  base: {
+    ref: string;
+    repo?: { full_name?: string };
+  };
+  body?: string | null;
+  head: {
+    ref: string;
+    repo?: { full_name?: string };
+    sha: string;
+  };
+  number: number;
+};
+
+type IssueComment = {
+  body?: string | null;
+  id: number;
+};
+
 export type ResolvePatchbackOptions = {
   'github-token': string;
   output: string;
@@ -82,7 +100,8 @@ const run = async (command, args, options: RunOptions = {}) => {
       maxBuffer: 20 * 1024 * 1024,
     });
   } catch (error) {
-    const output = [error.stdout, error.stderr].filter(Boolean).join('\n');
+    const failure = error as { stderr?: string; stdout?: string };
+    const output = [failure.stdout, failure.stderr].filter(Boolean).join('\n');
     throw new Error(`${command} ${args.join(' ')} failed${output ? `\n${output}` : ''}`, {
       cause: error,
     });
@@ -234,7 +253,9 @@ const commitSubject = async (root, oid) =>
 
 const findReleaseCut = async (root, line) => {
   const { stdout } = await git(['rev-list', '--first-parent', 'HEAD'], root);
-  const matches = [];
+  const matches: Array<
+    ReturnType<typeof parseDevelopmentCommitMessage> & { commitOid: string }
+  > = [];
   for (const oid of stdout.trim().split('\n').filter(Boolean)) {
     const message = (await git(['show', '-s', '--format=%B', oid], root)).stdout.trimEnd();
     try {
@@ -247,7 +268,10 @@ const findReleaseCut = async (root, line) => {
         matches.push({ ...cut, commitOid: oid });
       }
     } catch (error) {
-      if (!error.message.includes('missing required release-cut trailers')) {
+      if (
+        !(error instanceof Error) ||
+        !error.message.includes('missing required release-cut trailers')
+      ) {
         throw error;
       }
     }
@@ -301,7 +325,7 @@ const firstParentRange = async (root, boundaryOid, snapshotOid) => {
 };
 
 const associatedPulls = async (token, oid) => {
-  const pulls = [];
+  const pulls: unknown[] = [];
   for (let page = 1; ; page += 1) {
     const query = new URLSearchParams({ page: String(page), per_page: '100' });
     const batch = await githubRequest(
@@ -322,7 +346,7 @@ const loadPatchbackMigrationRecords = async (root, line) => {
   try {
     entries = await readdir(join(root, directory), { withFileTypes: true });
   } catch (error) {
-    if (error.code === 'ENOENT') {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return [];
     }
     throw error;
@@ -463,12 +487,15 @@ export async function preparePatchback(
 
   const token = requireGithubToken(options);
   const parsed = parseStableVersion(authority.version);
-  let boundary;
+  let boundary: { label: string; oid: string } | null;
   if (parsed.patch === 0) {
     const cut = await findReleaseCut(controller, authority.line);
     boundary = { label: `release cut for ${authority.line}`, oid: cut.sourceOid };
   } else {
     boundary = await previousCompletedSnapshot(token, authority.version);
+  }
+  if (boundary === null) {
+    throw new Error(`Patchback ${authority.version} has no previous completed snapshot.`);
   }
   fullOid(boundary.oid, 'Patchback boundary');
 
@@ -543,7 +570,7 @@ export async function preparePatchback(
 }
 
 const listPatchbackPulls = async (token, branch) => {
-  const pulls = [];
+  const pulls: CanonicalPullRequest[] = [];
   for (let page = 1; ; page += 1) {
     const query = new URLSearchParams({
       head: `fablebookjs:${branch}`,
@@ -664,7 +691,10 @@ const findCoordinationCommit = async (token, headOid, manifest) => {
         return { baseMainOid: metadata.baseMainOid, oid: commit.sha };
       }
     } catch (error) {
-      if (!error.message.includes('not a structured patchback coordination commit')) {
+      if (
+        !(error instanceof Error) ||
+        !error.message.includes('not a structured patchback coordination commit')
+      ) {
         throw error;
       }
     }
@@ -694,7 +724,7 @@ const verifyMainAncestry = async (token, baseMainOid) => {
 };
 
 const ensureExamplesComment = async (token, pullRequest, body) => {
-  const comments = [];
+  const comments: IssueComment[] = [];
   for (let page = 1; ; page += 1) {
     const query = new URLSearchParams({ page: String(page), per_page: '100' });
     const batch = await githubRequest(
@@ -746,8 +776,9 @@ const assignNewPatchback = async (token, pullRequest, assignee) => {
     }
     console.log(`Assigned patchback #${pullRequest} to ${assignee}.`);
   } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
     console.warn(
-      `Patchback #${pullRequest} remains unassigned after best-effort assignment to ${assignee}: ${error.message}`
+      `Patchback #${pullRequest} remains unassigned after best-effort assignment to ${assignee}: ${detail}`
     );
   }
 };
@@ -797,7 +828,11 @@ export async function applyPatchback(options: ApplyPatchbackOptions): Promise<vo
   let branch = await getRef(token, branchRefName);
   if (branch === null) {
     const main = await getRef(token, 'heads/main');
-    if (main?.oid !== manifest.baseMainOid || main.type !== 'commit') {
+    if (
+      main === null ||
+      main.type !== 'commit' ||
+      main.oid !== manifest.baseMainOid
+    ) {
       throw new Error('main advanced after patchback preparation; no branch was created.');
     }
     const mainCommit = await getGitCommit(token, main.oid);

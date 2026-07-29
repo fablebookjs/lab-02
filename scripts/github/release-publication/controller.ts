@@ -1,4 +1,3 @@
-// @ts-nocheck -- The exported operation contracts are strict; typing the migrated controller internals is deferred.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -6,7 +5,10 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
-import { listPublicPackages } from '../../shared/workspace/packages.ts';
+import {
+  listPublicPackages,
+  type PublicPackage,
+} from '../../shared/workspace/packages.ts';
 import {
   assertOidcPublishEnvironment,
   composeGitHubReleaseBody,
@@ -98,7 +100,8 @@ const run = async (command, args, options: RunOptions = {}) => {
       maxBuffer: 20 * 1024 * 1024,
     });
   } catch (error) {
-    const output = [error.stdout, error.stderr].filter(Boolean).join('\n');
+    const failure = error as { stderr?: string; stdout?: string };
+    const output = [failure.stdout, failure.stderr].filter(Boolean).join('\n');
     throw new Error(`${command} ${args.join(' ')} failed${output ? `\n${output}` : ''}`, {
       cause: error,
     });
@@ -343,7 +346,12 @@ export async function preparePublication(
   const tarballs = join(output, 'tarballs');
   await mkdir(tarballs, { recursive: true });
 
-  const packedPackages = [];
+  const packedPackages: Array<{
+    filename: string;
+    integrity: string;
+    location: string;
+    name: string;
+  }> = [];
   for (const pkg of packages) {
     const { stdout } = await run(
       npm,
@@ -722,7 +730,10 @@ export async function promoteLatest(options: PromoteLatestOptions): Promise<void
   await validateSnapshot(snapshot, snapshotOid);
   const packages = await validatePackageSet(snapshot, version);
 
-  const plan = [];
+  const plan: Array<{
+    disposition: 'skip' | 'update';
+    pkg: PublicPackage;
+  }> = [];
   for (const pkg of packages) {
     plan.push({ disposition: await observePromotion(version, pkg), pkg });
   }
