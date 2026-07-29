@@ -18,6 +18,7 @@ import {
   multiply,
   normalizeLabel,
   normalizeLabels,
+  subtract,
 } from '@fablebook/lab-02-core';
 
 import {
@@ -113,6 +114,11 @@ test('the compiled addon exercises the compiled core package', () => {
   assert.equal(multiply(2, 3), 6);
   assert.equal(total([1, 2, 3]), 6);
   assert.equal(formatSummary(' Demo ', [2, 3]), 'demo:5');
+});
+
+test('the core package exposes subtraction', () => {
+  assert.equal(subtract(7, 2), 5);
+  assert.equal(subtract(2, 7), -5);
 });
 
 test('the core label API accepts locale options', () => {
