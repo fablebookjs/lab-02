@@ -165,7 +165,7 @@ existing version with the same tarball integrity and channel, and stops on a
 contradiction. No product code runs in that job. After the complete set reads
 back successfully, a separate `release-github` job uses the repository-scoped
 App to create or verify annotated `vX.Y.Z` and its non-draft GitHub Release.
-The release body is rendered from the same human-editable template directory:
+The publication controller renders three intentionally small shapes directly:
 initial releases combine **Why upgrade** with noteworthy public changes,
 ordinary patches show only their public changes, and a patch whose complete
 source metadata marks every change `release-note:skip` uses a short maintenance

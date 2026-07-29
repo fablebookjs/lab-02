@@ -5,7 +5,7 @@ import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
-import { listPublicPackages, repositoryRoot } from './list-public-packages.mjs';
+import { listPublicPackages } from './list-public-packages.mjs';
 import {
   assertOidcPublishEnvironment,
   composeGitHubReleaseBody,
@@ -35,24 +35,6 @@ import {
 const execute = promisify(execFile);
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const PACKAGE_PREFIX = '@fablebook/lab-02-';
-const releaseTemplateDirectory = join(
-  repositoryRoot,
-  '.github',
-  'release-templates'
-);
-
-const loadGitHubReleaseTemplates = async () =>
-  Object.fromEntries(
-    await Promise.all(
-      ['initial', 'maintenance', 'patch'].map(async (kind) => [
-        kind,
-        await readFile(
-          join(releaseTemplateDirectory, `github-release-${kind}.md`),
-          'utf8'
-        ),
-      ])
-    )
-  );
 
 const run = async (command, args, options = {}) => {
   try {
@@ -605,7 +587,6 @@ async function finalizeRelease(options) {
     communication: manifest.releaseCommunication,
     migrationRecords,
     releaseRecord,
-    templates: await loadGitHubReleaseTemplates(),
     version: manifest.version,
   });
   if (await releaseCompletionState(token, manifest)) {

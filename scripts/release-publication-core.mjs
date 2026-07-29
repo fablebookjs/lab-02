@@ -11,7 +11,6 @@ import {
   RELEASE_HIGHLIGHTS_START,
   validateReleasePrBody,
 } from './release-pr-body.mjs';
-import { renderMarkdownTemplate } from './release-template.mjs';
 
 export const NPM_REGISTRY = 'https://registry.npmjs.org/';
 export const PILOT_REPOSITORY = 'fablebookjs/lab-02';
@@ -251,7 +250,6 @@ export function composeGitHubReleaseBody({
   communication,
   migrationRecords = [],
   releaseRecord,
-  templates,
   version,
 }) {
   const normalized = validateReleaseCommunication(communication, version);
@@ -268,14 +266,6 @@ export function composeGitHubReleaseBody({
       `Generated v${version} release record contradicts its authorized communication.`
     );
   }
-  if (
-    templates === null ||
-    typeof templates !== 'object' ||
-    Array.isArray(templates)
-  ) {
-    throw new Error('GitHub Release templates are missing.');
-  }
-
   const publicChanges = normalized.changes.filter(
     ({ releaseNoteSkip }) => !releaseNoteSkip
   );
@@ -283,34 +273,18 @@ export function composeGitHubReleaseBody({
     .map(({ title, url }) => `- [${title}](${url})`)
     .join('\n');
   const migrationSection = renderMigrationSection(migrationRecords, version);
-  let view;
+  const title = `# Lab-02 ${version}`;
   if (normalized.kind === 'initial') {
-    view = {
-      migration_section: migrationSection,
-      noteworthy_changes_section:
-        renderedChanges.length === 0
-          ? ''
-          : `\n\n## Noteworthy changes\n\n${renderedChanges}`,
-      version,
-      why_upgrade: normalized.whyUpgrade,
-    };
-  } else if (normalized.kind === 'patch') {
-    view = {
-      migration_section: migrationSection,
-      public_changes: renderedChanges,
-      version,
-    };
-  } else {
-    view = {
-      migration_section: migrationSection,
-      version,
-    };
+    const noteworthyChanges =
+      renderedChanges.length === 0
+        ? ''
+        : `\n\n## Noteworthy changes\n\n${renderedChanges}`;
+    return `${title}\n\n## Why upgrade\n\n${normalized.whyUpgrade}${noteworthyChanges}${migrationSection}\n`;
   }
-  return renderMarkdownTemplate({
-    label: `GitHub Release ${normalized.kind} template`,
-    template: templates[normalized.kind],
-    view,
-  });
+  if (normalized.kind === 'patch') {
+    return `${title}\n\n## What's changed\n\n${renderedChanges}${migrationSection}\n`;
+  }
+  return `${title}\n\nThis maintenance release contains no user-facing changes worth mentioning.${migrationSection}\n`;
 }
 
 const packageVersion = (document, name, version) => {

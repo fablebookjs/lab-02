@@ -38,17 +38,6 @@ const releasePrInitialTemplate = await readFile(
   join(templateDirectory, 'release-pr-initial.md'),
   'utf8'
 );
-const githubReleaseTemplates = Object.fromEntries(
-  await Promise.all(
-    ['initial', 'maintenance', 'patch'].map(async (kind) => [
-      kind,
-      await readFile(
-        join(templateDirectory, `github-release-${kind}.md`),
-        'utf8'
-      ),
-    ])
-  )
-);
 const changes = [
   {
     key: 'pr:41',
@@ -250,7 +239,6 @@ test('the initial GitHub Release renders curated reasons, public changes, and op
     communication: initialCommunication,
     migrationRecords,
     releaseRecord: renderReleaseRecord({ changes, version: '1.0.0' }),
-    templates: githubReleaseTemplates,
     version: '1.0.0',
   });
   assert.equal(
@@ -276,7 +264,7 @@ ${highlights}
   assert.doesNotMatch(body, /Who is affected|How to migrate|priority:/);
 });
 
-test('ordinary and maintenance patches select distinct succinct templates', () => {
+test('ordinary and maintenance patches render distinct succinct outputs', () => {
   const patchChanges = changes.map((change) => ({ ...change }));
   const patchCommunication = {
     changes: communicationChanges,
@@ -289,7 +277,6 @@ test('ordinary and maintenance patches select distinct succinct templates', () =
       changes: patchChanges,
       version: '1.0.1',
     }),
-    templates: githubReleaseTemplates,
     version: '1.0.1',
   });
   assert.equal(
@@ -326,7 +313,6 @@ test('ordinary and maintenance patches select distinct succinct templates', () =
       changes: maintenanceChanges,
       version: '1.0.2',
     }),
-    templates: githubReleaseTemplates,
     version: '1.0.2',
   });
   assert.equal(
@@ -372,7 +358,6 @@ test('historical release records remain readable while contradictions fail close
       whyUpgrade: null,
     },
     releaseRecord,
-    templates: githubReleaseTemplates,
     version: '2.0.3',
   };
   const body = composeGitHubReleaseBody(input);
@@ -398,26 +383,16 @@ test('historical release records remain readable while contradictions fail close
   );
 });
 
-test('templates, migration links, and communication schemas fail closed', () => {
+test('migration links and communication schemas fail closed', () => {
   const input = {
     communication: initialCommunication,
     releaseRecord: renderReleaseRecord({ changes, version: '1.0.0' }),
-    templates: githubReleaseTemplates,
     version: '1.0.0',
   };
   assert.throws(() =>
     composeGitHubReleaseBody({
       ...input,
       migrationRecords: [{ filename: 'unsafe.md', title: '[Unsafe link]' }],
-    })
-  );
-  assert.throws(() =>
-    composeGitHubReleaseBody({
-      ...input,
-      templates: {
-        ...githubReleaseTemplates,
-        initial: `${githubReleaseTemplates.initial}\n{{unknown}}\n`,
-      },
     })
   );
   assert.throws(() =>
