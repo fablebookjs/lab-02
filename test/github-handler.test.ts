@@ -26,12 +26,36 @@ test('a canonical release proposal with visible highlights succeeds', async () =
     runtime({
       base: { ref: 'releases/v2.1' },
       body: [
+        `<!-- fablebook:proposal=${'1'.repeat(40)} source=${'2'.repeat(40)} version=2.1.0 -->`,
         '<!-- fablebook:release-highlights:start -->',
-        'A clear reason to upgrade.',
+        'A clear release highlight.',
         '<!-- fablebook:release-highlights:end -->',
       ].join('\n'),
       head: { ref: 'staged/v2.1', repo: { full_name: 'fablebookjs/lab-02' } },
     }),
+  );
+});
+
+test('a canonical patch proposal does not require release highlights', async () => {
+  await checkDescription(
+    runtime({
+      base: { ref: 'releases/v2.1' },
+      body: `<!-- fablebook:proposal=${'1'.repeat(40)} source=${'2'.repeat(40)} version=2.1.1 -->`,
+      head: { ref: 'staged/v2.1', repo: { full_name: 'fablebookjs/lab-02' } },
+    }),
+  );
+});
+
+test('a canonical release proposal without generated identity fails closed', async () => {
+  await assert.rejects(
+    checkDescription(
+      runtime({
+        base: { ref: 'releases/v2.1' },
+        body: 'No generated proposal identity.',
+        head: { ref: 'staged/v2.1', repo: { full_name: 'fablebookjs/lab-02' } },
+      }),
+    ),
+    /Use one generated release proposal identity/,
   );
 });
 

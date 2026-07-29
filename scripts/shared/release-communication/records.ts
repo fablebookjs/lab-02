@@ -7,6 +7,8 @@ const REPOSITORY = 'fablebookjs/lab-02';
 const repositoryUrl = `https://github.com/${REPOSITORY}`;
 const fullOidPattern = /^[0-9a-f]{40}$/;
 const changeKeyPattern = /^(?:pr:[1-9]\d*|commit:[0-9a-f]{40})$/;
+const releaseRecordChangePattern =
+  /^- \[([^\]\r\n]+)\]\((https:\/\/github\.com\/fablebookjs\/lab-02\/(?:pull\/[1-9]\d*|commit\/[0-9a-f]{40}))\)$/;
 const migrationFilenamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/;
 const metadataKeyPattern = /^[a-z][a-z0-9-]*$/;
 const priorityOrder = new Intl.Collator('en', {
@@ -46,6 +48,28 @@ const canonicalReleasePull = (pull, line, oid) =>
   pull.base?.repo?.full_name === REPOSITORY &&
   pull.merge_commit_sha === oid;
 
+const pullClassification = (pull) => {
+  if (
+    typeof pull.title !== 'string' ||
+    cleanReleaseTitle(pull.title, '').length === 0 ||
+    !Array.isArray(pull.labels) ||
+    pull.labels.some(
+      (label) =>
+        label === null ||
+        typeof label !== 'object' ||
+        typeof label.name !== 'string' ||
+        label.name.length === 0
+    )
+  ) {
+    throw new Error(`Pull request ${pull.number} has malformed release metadata.`);
+  }
+  const labels = new Set(pull.labels.map(({ name }) => name));
+  return {
+    qaSkip: labels.has('qa:skip'),
+    releaseNoteSkip: labels.has('release-note:skip'),
+  };
+};
+
 export function deriveReleaseChanges({ commits, line }) {
   parseReleaseLine(line);
   if (!Array.isArray(commits)) {
@@ -56,20 +80,27 @@ export function deriveReleaseChanges({ commits, line }) {
     const associated = (commit.associatedPulls ?? []).filter((pull) =>
       canonicalReleasePull(pull, line, oid)
     );
+    if (associated.length > 1) {
+      throw new Error(`Release change ${oid} has ambiguous pull request metadata.`);
+    }
     const pull = associated.length === 1 ? associated[0] : null;
-    return pull
-      ? {
-          key: `pr:${pull.number}`,
-          oid,
-          title: pull.title,
-          url: `${repositoryUrl}/pull/${pull.number}`,
-        }
-      : {
-          key: `commit:${oid}`,
-          oid,
-          title: commit.subject,
-          url: `${repositoryUrl}/commit/${oid}`,
-        };
+    if (pull) {
+      return {
+        ...pullClassification(pull),
+        key: `pr:${pull.number}`,
+        oid,
+        title: pull.title,
+        url: `${repositoryUrl}/pull/${pull.number}`,
+      };
+    }
+    return {
+      key: `commit:${oid}`,
+      oid,
+      qaSkip: false,
+      releaseNoteSkip: false,
+      title: commit.subject,
+      url: `${repositoryUrl}/commit/${oid}`,
+    };
   });
 }
 
@@ -87,18 +118,31 @@ export function normalizeReleaseChanges(changes) {
     }
     identities.add(change.key);
     const oid = fullOid(change.oid, `Release change ${change.key}`);
+    if (
+      typeof change.qaSkip !== 'boolean' ||
+      typeof change.releaseNoteSkip !== 'boolean'
+    ) {
+      throw new Error(`Release change ${change.key} has invalid classification.`);
+    }
     if (change.key.startsWith('pr:')) {
       const pullRequest = Number.parseInt(change.key.slice(3), 10);
       positiveInteger(pullRequest, `Release change ${change.key} pull request`);
       if (change.url !== `${repositoryUrl}/pull/${pullRequest}`) {
         throw new Error(`Release change ${change.key} has a noncanonical pull request URL.`);
       }
-    } else if (change.url !== `${repositoryUrl}/commit/${oid}`) {
-      throw new Error(`Release change ${change.key} has a noncanonical commit URL.`);
+    } else {
+      if (change.url !== `${repositoryUrl}/commit/${oid}`) {
+        throw new Error(`Release change ${change.key} has a noncanonical commit URL.`);
+      }
+      if (change.qaSkip || change.releaseNoteSkip) {
+        throw new Error(`Direct release change ${change.key} cannot claim PR exemptions.`);
+      }
     }
     return {
       key: change.key,
       oid,
+      qaSkip: change.qaSkip,
+      releaseNoteSkip: change.releaseNoteSkip,
       title: cleanReleaseTitle(change.title, `Commit ${oid.slice(0, 12)}`),
       url: change.url,
     };
@@ -156,6 +200,26 @@ export function extractReleaseRecordChanges({ source, version }) {
     throw new Error(`Generated v${version} release record has no change content.`);
   }
   return changes;
+}
+
+export function parseReleaseRecordChanges({ source, version }) {
+  const changes = extractReleaseRecordChanges({ source, version });
+  if (changes === 'No changes were recorded for this release.') {
+    return [];
+  }
+  const urls = new Set();
+  return changes.split('\n').map((line) => {
+    const match = releaseRecordChangePattern.exec(line);
+    if (
+      match === null ||
+      cleanReleaseTitle(match[1], '') !== match[1] ||
+      urls.has(match[2])
+    ) {
+      throw new Error(`Generated v${version} release record has invalid change content.`);
+    }
+    urls.add(match[2]);
+    return { title: match[1], url: match[2] };
+  });
 }
 
 export function migrationRecordDirectory(line) {

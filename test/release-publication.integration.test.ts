@@ -67,9 +67,13 @@ test('the authorized stable snapshot packs the complete lockstep package set', a
           line: 'v1.0',
           proposalOid: '2'.repeat(40),
           pullRequest: 42,
-          releaseHighlights: '**Worth upgrading:** Exercise the complete release flow.',
+          releaseCommunication: {
+            changes: [],
+            kind: 'initial',
+            releaseHighlights: '**Worth upgrading:** Exercise the complete release flow.',
+          },
           repository: 'fablebookjs/lab-02',
-          schema: 1,
+          schema: 2,
           snapshotOid,
           sourceOid: '1'.repeat(40),
           version: '1.0.0',
@@ -90,10 +94,11 @@ test('the authorized stable snapshot packs the complete lockstep package set', a
     assert.equal(manifest.snapshotOid, snapshotOid);
     assert.equal(manifest.version, '1.0.0');
     assert.equal(manifest.channel, 'v-1.0');
-    assert.equal(
-      manifest.releaseHighlights,
-      '**Worth upgrading:** Exercise the complete release flow.'
-    );
+    assert.deepEqual(manifest.releaseCommunication, {
+      changes: [],
+      kind: 'initial',
+      releaseHighlights: '**Worth upgrading:** Exercise the complete release flow.',
+    });
     assert.deepEqual(
       manifest.packages.map(({ name }) => name),
       ['@fablebook/lab-02-addon', '@fablebook/lab-02-core']

@@ -11,20 +11,20 @@ import {
   assertOidcPublishEnvironment,
   composeGitHubReleaseBody,
   deriveReleaseAuthority,
-  deriveReleaseHighlights,
+  deriveReleaseCommunication,
   exactPublication,
   lineChannel,
   NPM_REGISTRY,
   PILOT_REPOSITORY,
   promotionDisposition,
   publicationDisposition,
+  validateReleaseCommunication,
 } from '../../shared/release-publication/core.ts';
 import {
   loadMigrationRecords,
   releaseRecordPath,
 } from '../../shared/release-communication/records.ts';
 import { parseStableVersion } from '../../shared/release-proposal/core.ts';
-import { validateReleaseHighlights } from '../../shared/release-proposal/body.ts';
 import {
   getGitCommit,
   getPullRequest,
@@ -217,7 +217,10 @@ const readLiveRelease = async (token, pullRequest) => {
   const authority = deriveReleaseAuthority({ headCommit, mergeCommit, pull });
   return {
     authority,
-    releaseHighlights: deriveReleaseHighlights({ authority, body: pull.body }),
+    releaseCommunication: deriveReleaseCommunication({
+      authority,
+      body: pull.body,
+    }),
   };
 };
 
@@ -250,16 +253,16 @@ export async function resolvePublication(
     return outputs;
   }
 
-  const { authority, releaseHighlights } = await readLiveRelease(
+  const { authority, releaseCommunication } = await readLiveRelease(
     token,
     signal.pullRequest
   );
   await mkdir(output, { recursive: true });
   await writeJson(join(output, 'authority.json'), {
     ...authority,
-    releaseHighlights,
+    releaseCommunication,
     repository: PILOT_REPOSITORY,
-    schema: 1,
+    schema: 2,
   });
   const outputs: PublicationResolution = {
     publish: true,
@@ -278,7 +281,7 @@ const integrityFor = async (path) => {
 
 const validateManifest = (manifest) => {
   if (
-    manifest.schema !== 1 ||
+    manifest.schema !== 2 ||
     manifest.repository !== PILOT_REPOSITORY ||
     manifest.channel !== lineChannel(manifest.line) ||
     !Number.isSafeInteger(manifest.pullRequest) ||
@@ -289,7 +292,7 @@ const validateManifest = (manifest) => {
     throw new Error('Publication manifest is outside the accepted pilot schema.');
   }
   parseStableVersion(manifest.version);
-  validateReleaseHighlights(manifest.releaseHighlights);
+  validateReleaseCommunication(manifest.releaseCommunication, manifest.version);
   for (const field of ['proposalOid', 'snapshotOid', 'sourceOid']) {
     validateOid(manifest[field], `Manifest ${field}`);
   }
@@ -329,7 +332,7 @@ export async function preparePublication(
   const authorityDocument = await readJson(resolve(requireOption(options, 'authority')));
   const snapshot = resolve(requireOption(options, 'snapshot'));
   const output = resolve(requireOption(options, 'output'));
-  if (authorityDocument.schema !== 1 || authorityDocument.repository !== PILOT_REPOSITORY) {
+  if (authorityDocument.schema !== 2 || authorityDocument.repository !== PILOT_REPOSITORY) {
     throw new Error('Release authority document is outside the pilot schema.');
   }
   const authority = { ...authorityDocument };
@@ -377,7 +380,7 @@ export async function preparePublication(
     ...authority,
     packages: packedPackages,
     repository: PILOT_REPOSITORY,
-    schema: 1,
+    schema: 2,
   });
   await writeJson(join(output, 'publication.json'), manifest);
   console.log(`Prepared ${manifest.packages.length} packages for ${manifest.version}.`);
@@ -634,7 +637,7 @@ export async function finalizeRelease(options: FinalizeReleaseOptions): Promise<
   );
   const migrationRecords = await loadMigrationRecords(snapshot, manifest.line);
   const releaseBody = composeGitHubReleaseBody({
-    highlights: manifest.releaseHighlights,
+    communication: manifest.releaseCommunication,
     migrationRecords,
     releaseRecord,
     version: manifest.version,

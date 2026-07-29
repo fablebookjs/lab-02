@@ -5,13 +5,15 @@ import {
 } from '../release-proposal/core.ts';
 import {
   cleanReleaseTitle,
-  extractReleaseRecordChanges,
   migrationRecordDirectory,
+  parseReleaseRecordChanges,
 } from '../release-communication/records.ts';
 import {
   extractReleasePrIdentity,
   requireReleaseHighlights,
-  validateReleaseHighlights,
+  RELEASE_HIGHLIGHTS_END,
+  RELEASE_HIGHLIGHTS_START,
+  validateReleasePrBody,
 } from '../release-proposal/body.ts';
 
 export const NPM_REGISTRY = 'https://registry.npmjs.org/';
@@ -114,7 +116,122 @@ export function deriveReleaseHighlights({ authority, body }) {
   return requireReleaseHighlights(body);
 }
 
-const renderMigrationLinks = (records, version) => {
+const normalizeCommunicationChanges = (changes) => {
+  if (!Array.isArray(changes)) {
+    throw new Error('Release communication changes must be an array.');
+  }
+  const identities = new Set();
+  return changes.map((change) => {
+    if (
+      !/^(?:pr:[1-9]\d*|commit:[0-9a-f]{40})$/.test(change?.key ?? '') ||
+      identities.has(change.key) ||
+      typeof change.qaSkip !== 'boolean' ||
+      typeof change.releaseNoteSkip !== 'boolean' ||
+      cleanReleaseTitle(change.title, '') !== change.title
+    ) {
+      throw new Error(`Invalid release communication change: ${change?.key}`);
+    }
+    const url = change.key.startsWith('pr:')
+      ? `https://github.com/${PILOT_REPOSITORY}/pull/${change.key.slice(3)}`
+      : `https://github.com/${PILOT_REPOSITORY}/commit/${change.key.slice(7)}`;
+    if (
+      change.url !== url ||
+      (change.key.startsWith('commit:') &&
+        (change.qaSkip || change.releaseNoteSkip))
+    ) {
+      throw new Error(`Contradictory release communication change: ${change.key}`);
+    }
+    identities.add(change.key);
+    return {
+      key: change.key,
+      qaSkip: change.qaSkip,
+      releaseNoteSkip: change.releaseNoteSkip,
+      title: change.title,
+      url,
+    };
+  });
+};
+
+export function validateReleaseCommunication(communication, version) {
+  const { patch } = parseStableVersion(version);
+  if (
+    communication === null ||
+    typeof communication !== 'object' ||
+    Array.isArray(communication) ||
+    !['initial', 'maintenance', 'patch'].includes(communication.kind)
+  ) {
+    throw new Error('Release communication is outside the accepted schema.');
+  }
+  const changes = normalizeCommunicationChanges(communication.changes);
+  const publicChanges = changes.filter(({ releaseNoteSkip }) => !releaseNoteSkip);
+  const expectedKind =
+    patch === 0 ? 'initial' : publicChanges.length === 0 ? 'maintenance' : 'patch';
+  if (communication.kind !== expectedKind) {
+    throw new Error(`${version} has contradictory ${communication.kind} communication.`);
+  }
+  if (
+    expectedKind === 'initial' &&
+    typeof communication.releaseHighlights !== 'string'
+  ) {
+    throw new Error(`${version} initial communication requires release highlights.`);
+  }
+  const releaseHighlights =
+    expectedKind === 'initial'
+      ? requireReleaseHighlights(
+          `${RELEASE_HIGHLIGHTS_START}\n${communication.releaseHighlights}\n${RELEASE_HIGHLIGHTS_END}`
+        )
+      : null;
+  if (
+    expectedKind !== 'initial' &&
+    communication.releaseHighlights !== null
+  ) {
+    throw new Error(`${version} patch communication cannot contain release highlights.`);
+  }
+  return { changes, kind: expectedKind, releaseHighlights };
+}
+
+export function deriveReleaseCommunication({ authority, body }) {
+  const identity = extractReleasePrIdentity(body);
+  if (
+    identity === null ||
+    identity.proposalOid !== authority.proposalOid ||
+    identity.releaseOid !== authority.sourceOid ||
+    identity.version !== authority.version
+  ) {
+    throw new Error('Release communication is not bound to the authorized proposal.');
+  }
+  const rendered = validateReleasePrBody({
+    body,
+    requireAttestations: true,
+    version: authority.version,
+  });
+  const publicChanges = rendered.changes.filter(
+    ({ releaseNoteSkip }) => !releaseNoteSkip
+  );
+  return validateReleaseCommunication(
+    {
+      changes: rendered.changes.map(
+        ({ key, qaSkip, releaseNoteSkip, title, url }) => ({
+          key,
+          qaSkip,
+          releaseNoteSkip,
+          title,
+          url,
+        })
+      ),
+      kind:
+        rendered.kind === 'initial'
+          ? 'initial'
+          : publicChanges.length === 0
+            ? 'maintenance'
+            : 'patch',
+      releaseHighlights: rendered.releaseHighlights,
+    },
+    authority.version
+  );
+}
+
+const renderMigrationSection = (records, version) => {
   const { major, minor } = parseStableVersion(version);
   if (!Array.isArray(records)) {
     throw new Error('GitHub Release migration records must be an array.');
@@ -135,27 +252,56 @@ const renderMigrationLinks = (records, version) => {
     return `- [${record.title}](${url})`;
   });
   return links.length === 0
-    ? '_No migrations are required for this release._'
-    : links.join('\n');
+    ? ''
+    : `\n\n## Migrations\n\n${links.join('\n')}`;
 };
 
 type ComposeGitHubReleaseBodyOptions = {
-  highlights: string;
+  communication: unknown;
   migrationRecords?: Array<{ filename: string; title: string }>;
   releaseRecord: string;
   version: string;
 };
 
 export function composeGitHubReleaseBody({
-  highlights,
+  communication,
   migrationRecords = [],
   releaseRecord,
   version,
 }: ComposeGitHubReleaseBodyOptions) {
-  validateReleaseHighlights(highlights);
-  const migrations = renderMigrationLinks(migrationRecords, version);
-  const changes = extractReleaseRecordChanges({ source: releaseRecord, version });
-  return `${highlights}\n\n## Migrations\n\n${migrations}\n\n<details>\n<summary>All changes</summary>\n\n${changes}\n\n</details>\n`;
+  const normalized = validateReleaseCommunication(communication, version);
+  const recordChanges = parseReleaseRecordChanges({
+    source: releaseRecord,
+    version,
+  });
+  if (
+    JSON.stringify(
+      normalized.changes.map(({ title, url }) => ({ title, url }))
+    ) !== JSON.stringify(recordChanges)
+  ) {
+    throw new Error(
+      `Generated v${version} release record contradicts its authorized communication.`
+    );
+  }
+  const publicChanges = normalized.changes.filter(
+    ({ releaseNoteSkip }) => !releaseNoteSkip
+  );
+  const renderedChanges = publicChanges
+    .map(({ title, url }) => `- [${title}](${url})`)
+    .join('\n');
+  const migrationSection = renderMigrationSection(migrationRecords, version);
+  const title = `# Lab-02 ${version}`;
+  if (normalized.kind === 'initial') {
+    const noteworthyChanges =
+      renderedChanges.length === 0
+        ? ''
+        : `\n\n## Noteworthy changes\n\n${renderedChanges}`;
+    return `${title}\n\n## Release highlights\n\n${normalized.releaseHighlights}${noteworthyChanges}${migrationSection}\n`;
+  }
+  if (normalized.kind === 'patch') {
+    return `${title}\n\n## What's changed\n\n${renderedChanges}${migrationSection}\n`;
+  }
+  return `${title}\n\nThis maintenance release contains no user-facing changes worth mentioning.${migrationSection}\n`;
 }
 
 const packageVersion = (document, name, version) => {
