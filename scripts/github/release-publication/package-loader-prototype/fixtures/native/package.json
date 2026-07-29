@@ -1,0 +1,6 @@
+{
+  "name": "package-loader-native-fixture",
+  "private": true,
+  "type": "module",
+  "version": "3.0.0"
+}

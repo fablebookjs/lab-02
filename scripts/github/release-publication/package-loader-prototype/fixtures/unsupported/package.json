@@ -1,0 +1,6 @@
+{
+  "name": "package-loader-unsupported-fixture",
+  "private": true,
+  "type": "module",
+  "version": "3.0.0"
+}

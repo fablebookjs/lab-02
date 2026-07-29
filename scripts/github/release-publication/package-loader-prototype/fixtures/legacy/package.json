@@ -1,0 +1,9 @@
+{
+  "name": "package-loader-legacy-fixture",
+  "private": true,
+  "scripts": {
+    "list-packages": "node scripts/list-packages.ts"
+  },
+  "type": "module",
+  "version": "3.0.0"
+}
