@@ -1,0 +1,20 @@
+import { resolvePatchback } from './controller.ts';
+import {
+  authenticatedToken,
+  requireEnvironment,
+  setNamedOutputs,
+  type GitHubHandlerRuntime,
+} from '../runtime.ts';
+
+export default async function handler({
+  core,
+  env,
+  github,
+}: GitHubHandlerRuntime): Promise<void> {
+  const outputs = await resolvePatchback({
+    'github-token': await authenticatedToken(github),
+    output: requireEnvironment(env, 'OUTPUT'),
+    signal: requireEnvironment(env, 'SIGNAL'),
+  });
+  setNamedOutputs(core, outputs);
+}

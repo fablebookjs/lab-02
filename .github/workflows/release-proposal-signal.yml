@@ -10,7 +10,8 @@ on:
     types:
       - closed
 
-permissions: {}
+permissions:
+  contents: read
 
 jobs:
   signal:
@@ -18,16 +19,22 @@ jobs:
     steps:
       - name: Wake the trusted main controller
         run: ':'
+      - name: Check out only the trusted main controller
+        if: github.event_name == 'pull_request_target'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          path: controller
+          persist-credentials: false
+          ref: main
       - name: Record the closed pull request without checking out code
         if: github.event_name == 'pull_request_target'
         env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
           SIGNAL: ${{ runner.temp }}/release-pr.json
-        run: |
-          if [[ ! "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
-            exit 1
-          fi
-          printf '{"pullRequest":%s}\n' "$PR_NUMBER" > "$SIGNAL"
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          script: |
+            const handler = require('./controller/scripts/github/release-proposal/signal.ts').default
+            return handler({ github, context, core, env: process.env })
       - name: Transfer the inert pull request identity
         if: github.event_name == 'pull_request_target'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
