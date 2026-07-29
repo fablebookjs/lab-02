@@ -12,7 +12,12 @@ import {
   formatSummary,
   total,
 } from '@fablebook/lab-02-addon';
-import { add, normalizeLabel, normalizeLabels } from '@fablebook/lab-02-core';
+import {
+  add,
+  multiply,
+  normalizeLabel,
+  normalizeLabels,
+} from '@fablebook/lab-02-core';
 
 import {
   listPublicPackages,
@@ -104,6 +109,7 @@ test('all public packages and internal dependencies use the lockstep version', (
 
 test('the compiled addon exercises the compiled core package', () => {
   assert.equal(add(2, 3), 5);
+  assert.equal(multiply(2, 3), 6);
   assert.equal(total([1, 2, 3]), 6);
   assert.equal(formatSummary(' Demo ', [2, 3]), 'demo:5');
 });
