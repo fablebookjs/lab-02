@@ -34,7 +34,6 @@ jobs:
             return handler({
               github,
               context: {
-                ...context,
                 payload: {
                   pull_request: {
                     base: { ref: 'main' },
@@ -45,6 +44,7 @@ jobs:
                     },
                   },
                 },
+                repo: context.repo,
               },
               core,
               env: process.env,
