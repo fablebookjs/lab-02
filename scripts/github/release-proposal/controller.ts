@@ -8,7 +8,7 @@ import {
   compareReleaseLines,
   deriveCutVersions,
   developmentCommitMessage,
-  parseDevelopmentCommitMessage,
+  parseDevelopmentCommitMessageIfPresent,
   parseProposalMessage,
   parseReleaseLine,
   parseStableVersion,
@@ -16,6 +16,7 @@ import {
   proposalCommitMessage,
   ZERO_OID,
 } from '../../shared/release-proposal/core.ts';
+import type { DevelopmentCommit } from '../../shared/release-proposal/core.ts';
 import {
   closePullRequest,
   createDraftReleasePr,
@@ -491,26 +492,17 @@ const associatedPulls = async (token: string, oid: string): Promise<GitPullReque
 
 const findReleaseCut = async (
   line: string,
-): Promise<ReturnType<typeof parseDevelopmentCommitMessage>> => {
+): Promise<DevelopmentCommit> => {
   const { stdout } = await git(['rev-list', '--first-parent', 'HEAD']);
-  const matches: Array<ReturnType<typeof parseDevelopmentCommitMessage>> = [];
+  const matches: DevelopmentCommit[] = [];
   for (const oid of stdout.trim().split('\n').filter(Boolean)) {
-    try {
-      const cut = parseDevelopmentCommitMessage(await commitMessage(oid));
-      if (cut.line === line) {
-        const parents = await commitParents(oid);
-        if (parents.length !== 1 || parents[0] !== cut.sourceOid) {
-          throw new Error(`Release-cut commit ${oid} is not a child of its recorded source.`);
-        }
-        matches.push(cut);
+    const cut = parseDevelopmentCommitMessageIfPresent(await commitMessage(oid));
+    if (cut?.line === line) {
+      const parents = await commitParents(oid);
+      if (parents.length !== 1 || parents[0] !== cut.sourceOid) {
+        throw new Error(`Release-cut commit ${oid} is not a child of its recorded source.`);
       }
-    } catch (error) {
-      if (
-        !(error instanceof Error) ||
-        !error.message.includes('missing required release-cut trailers')
-      ) {
-        throw error;
-      }
+      matches.push(cut);
     }
   }
   if (matches.length !== 1) {

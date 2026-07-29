@@ -6,6 +6,7 @@ import {
   deriveCutVersions,
   nextReleaseVersion,
   parseDevelopmentCommitMessage,
+  parseDevelopmentCommitMessageIfPresent,
   parseDevelopmentVersion,
   parseProposalMessage,
   planProposalMaintenance,
@@ -57,6 +58,27 @@ test('development commits retain the durable release-cut boundary', () => {
     sourceOid,
     version: '10.5.0-alpha.0',
   });
+  assert.deepEqual(parseDevelopmentCommitMessageIfPresent(message), {
+    line: 'v10.4',
+    sourceOid,
+    version: '10.5.0-alpha.0',
+  });
+});
+
+test('release-cut discovery distinguishes ordinary commits from malformed metadata', () => {
+  assert.equal(
+    parseDevelopmentCommitMessageIfPresent('feat: an ordinary commit'),
+    null
+  );
+  assert.throws(
+    () =>
+      parseDevelopmentCommitMessageIfPresent([
+        'release: incomplete cut',
+        '',
+        'Release-Cut-Line: v10.4',
+      ].join('\n')),
+    /missing required Release-Cut-Source trailer/
+  );
 });
 
 test('the first proposal is stable zero and later proposals advance only patch', () => {

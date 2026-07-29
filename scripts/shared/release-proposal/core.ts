@@ -30,11 +30,17 @@ type ProposalCommit = {
   version: string;
 };
 
-type DevelopmentCommit = {
+export type DevelopmentCommit = {
   line: string;
   sourceOid: string;
   version: string;
 };
+
+const developmentTrailerNames: readonly string[] = [
+  'Release-Cut-Line',
+  'Release-Cut-Source',
+  'Development-Version',
+];
 
 export type ProposalState = {
   completedOid: string | null;
@@ -208,8 +214,9 @@ const requiredTrailer = (trailers: Record<string, string>, name: string): string
   return value;
 };
 
-export function parseDevelopmentCommitMessage(message: string): DevelopmentCommit {
-  const trailers = trailersFrom(message);
+const developmentCommitFrom = (
+  trailers: Record<string, string>,
+): DevelopmentCommit => {
   const metadata = {
     line: requiredTrailer(trailers, 'Release-Cut-Line'),
     sourceOid: requiredTrailer(trailers, 'Release-Cut-Source'),
@@ -222,6 +229,20 @@ export function parseDevelopmentCommitMessage(message: string): DevelopmentCommi
     throw new Error(`Release-cut source is not a full commit OID: ${metadata.sourceOid}`);
   }
   return metadata;
+};
+
+export function parseDevelopmentCommitMessage(message: string): DevelopmentCommit {
+  return developmentCommitFrom(trailersFrom(message));
+}
+
+export function parseDevelopmentCommitMessageIfPresent(
+  message: string,
+): DevelopmentCommit | null {
+  const trailers = trailersFrom(message);
+  if (developmentTrailerNames.every((name) => !Object.hasOwn(trailers, name))) {
+    return null;
+  }
+  return developmentCommitFrom(trailers);
 }
 
 export function parseProposalMessage(message: string): ProposalCommit {
