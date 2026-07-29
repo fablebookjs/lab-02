@@ -135,7 +135,7 @@ function normalizeReleasePackages(
     locations.add(item.location);
   }
   return [...packages].sort((left, right) =>
-    left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
+    left.location < right.location ? -1 : left.location > right.location ? 1 : 0,
   );
 }
 
