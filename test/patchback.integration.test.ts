@@ -9,9 +9,10 @@ import { promisify } from 'node:util';
 import { derivePatchbackItems } from '../scripts/shared/patchback/core.ts';
 
 const execute = promisify(execFile);
-const git = (args, cwd) => execute('git', args, { cwd, env: process.env });
-const oid = async (name, cwd) => (await git(['rev-parse', name], cwd)).stdout.trim();
-const parents = async (name, cwd) =>
+const git = (args: string[], cwd: string) => execute('git', args, { cwd, env: process.env });
+const oid = async (name: string, cwd: string): Promise<string> =>
+  (await git(['rev-parse', name], cwd)).stdout.trim();
+const parents = async (name: string, cwd: string): Promise<string[]> =>
   (await git(['show', '-s', '--format=%P', name], cwd)).stdout.trim().split(/\s+/).filter(Boolean);
 
 test('a snapshot range treats a direct merge as one first-parent patchback item', async () => {
@@ -65,7 +66,7 @@ test('a snapshot range treats a direct merge as one first-parent patchback item'
         { kind: 'direct-merge', oid: mergeOid },
       ]
     );
-    assert.equal(items[1].command, `git cherry-pick -m 1 ${mergeOid}`);
+    assert.equal(items[1]?.command, `git cherry-pick -m 1 ${mergeOid}`);
   } finally {
     await rm(root, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
   }

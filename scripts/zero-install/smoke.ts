@@ -8,7 +8,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 if (Number(process.versions.node.split('.')[0]) !== 24) {
   throw new Error(`The zero-install smoke requires Node 24; received ${process.version}.`);
 }
-if (process.env.NODE_PATH) {
+if (process.env['NODE_PATH']) {
   throw new Error('NODE_PATH must be unset for the zero-install smoke.');
 }
 if (existsSync(join(repositoryRoot, 'node_modules'))) {

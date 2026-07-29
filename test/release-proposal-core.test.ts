@@ -258,6 +258,7 @@ test('an older completed line goes dormant but new work activates it again', () 
     }),
     lineState({ line: 'v1.1', releaseOid: '7'.repeat(40) }),
   ])[0];
+  assert.ok(dormant);
   assert.equal(dormant.kind, 'dormant');
 
   const active = planProposalMaintenance([

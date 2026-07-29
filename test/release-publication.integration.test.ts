@@ -9,10 +9,15 @@ import { promisify } from 'node:util';
 import { repositoryRoot } from '../scripts/shared/workspace/packages.ts';
 
 const execute = promisify(execFile);
-const run = (command, args, cwd, env = process.env) =>
+const run = (
+  command: string,
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv = process.env,
+) =>
   execute(command, args, { cwd, env, maxBuffer: 20 * 1024 * 1024 });
-const git = (args, cwd) => run('git', args, cwd);
-const invokeController = (operation, input, cwd) =>
+const git = (args: string[], cwd: string) => run('git', args, cwd);
+const invokeController = (operation: string, input: unknown, cwd: string) =>
   run(
     process.execPath,
     [
@@ -31,7 +36,7 @@ const invokeController = (operation, input, cwd) =>
     },
   );
 
-const copySeed = async (destination) => {
+const copySeed = async (destination: string): Promise<void> => {
   await cp(repositoryRoot, destination, {
     filter: (source) => {
       const path = relative(repositoryRoot, source).split(sep);
@@ -90,7 +95,26 @@ test('the authorized stable snapshot packs the complete lockstep package set', a
       repository,
     );
 
-    const manifest = JSON.parse(await readFile(join(output, 'publication.json'), 'utf8'));
+    const manifest: unknown = JSON.parse(
+      await readFile(join(output, 'publication.json'), 'utf8'),
+    );
+    assert.ok(manifest !== null && typeof manifest === 'object');
+    assert.ok('snapshotOid' in manifest);
+    assert.ok('version' in manifest);
+    assert.ok('channel' in manifest);
+    assert.ok('releaseCommunication' in manifest);
+    assert.ok('packages' in manifest && Array.isArray(manifest.packages));
+    const manifestPackages = manifest.packages.map((pkg) => {
+      assert.ok(pkg !== null && typeof pkg === 'object');
+      assert.ok('name' in pkg && typeof pkg.name === 'string');
+      assert.ok('filename' in pkg && typeof pkg.filename === 'string');
+      assert.ok('integrity' in pkg && typeof pkg.integrity === 'string');
+      return {
+        filename: pkg.filename,
+        integrity: pkg.integrity,
+        name: pkg.name,
+      };
+    });
     assert.equal(manifest.snapshotOid, snapshotOid);
     assert.equal(manifest.version, '1.0.0');
     assert.equal(manifest.channel, 'v-1.0');
@@ -100,14 +124,14 @@ test('the authorized stable snapshot packs the complete lockstep package set', a
       releaseHighlights: '**Worth upgrading:** Exercise the complete release flow.',
     });
     assert.deepEqual(
-      manifest.packages.map(({ name }) => name),
+      manifestPackages.map(({ name }) => name),
       ['@fablebook/lab-02-addon', '@fablebook/lab-02-core']
     );
     assert.deepEqual(
       (await readdir(join(output, 'tarballs'))).sort(),
-      manifest.packages.map(({ filename }) => filename).sort()
+      manifestPackages.map(({ filename }) => filename).sort()
     );
-    assert.ok(manifest.packages.every(({ integrity }) => integrity.startsWith('sha512-')));
+    assert.ok(manifestPackages.every(({ integrity }) => integrity.startsWith('sha512-')));
   } finally {
     await rm(temporaryRoot, {
       force: true,

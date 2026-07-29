@@ -16,11 +16,38 @@ import { repositoryRoot } from '../scripts/shared/workspace/packages.ts';
 
 const execute = promisify(execFile);
 
-const run = (command, args, cwd, env = process.env) =>
+const stringProperty = (
+  value: object,
+  name:
+    | 'developmentOid'
+    | 'developmentVersion'
+    | 'line'
+    | 'proposalOid'
+    | 'releaseVersion'
+    | 'sourceOid',
+): string => {
+  const property = Object.entries(value).find(([key]) => key === name)?.[1];
+  if (typeof property !== 'string') {
+    throw new Error(`Cut transition has no ${name}.`);
+  }
+  return property;
+};
+
+const run = (
+  command: string,
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv = process.env,
+) =>
   execute(command, args, { cwd, env, maxBuffer: 20 * 1024 * 1024 });
 
-const git = (args, cwd) => run('git', args, cwd);
-const invokeController = (operation, input, cwd, env = process.env) =>
+const git = (args: string[], cwd: string) => run('git', args, cwd);
+const invokeController = (
+  operation: string,
+  input: unknown,
+  cwd: string,
+  env: NodeJS.ProcessEnv = process.env,
+) =>
   run(
     process.execPath,
     [
@@ -39,7 +66,7 @@ const invokeController = (operation, input, cwd, env = process.env) =>
     },
   );
 
-const copySeed = async (destination) => {
+const copySeed = async (destination: string): Promise<void> => {
   await cp(repositoryRoot, destination, {
     filter: (source) => {
       const path = relative(repositoryRoot, source).split(sep);
@@ -74,38 +101,53 @@ test('prepare-cut creates two validated children and no repository refs', async 
       repository,
     );
 
-    const transition = JSON.parse(await readFile(join(artifact, 'transition.json'), 'utf8'));
-    assert.equal(transition.sourceOid, sourceOid);
-    assert.equal(transition.line, 'v1.0');
-    assert.equal(transition.releaseVersion, '1.0.0');
-    assert.equal(transition.developmentVersion, '1.1.0-alpha.0');
+    const transition: unknown = JSON.parse(
+      await readFile(join(artifact, 'transition.json'), 'utf8'),
+    );
+    assert.ok(transition !== null && typeof transition === 'object');
+    const cut = {
+      developmentOid: stringProperty(transition, 'developmentOid'),
+      developmentVersion: stringProperty(transition, 'developmentVersion'),
+      line: stringProperty(transition, 'line'),
+      proposalOid: stringProperty(transition, 'proposalOid'),
+      releaseVersion: stringProperty(transition, 'releaseVersion'),
+      sourceOid: stringProperty(transition, 'sourceOid'),
+    };
+    assert.equal(cut.sourceOid, sourceOid);
+    assert.equal(cut.line, 'v1.0');
+    assert.equal(cut.releaseVersion, '1.0.0');
+    assert.equal(cut.developmentVersion, '1.1.0-alpha.0');
 
     assert.equal(
-      (await git(['show', '-s', '--format=%P', transition.proposalOid], repository)).stdout.trim(),
+      (await git(['show', '-s', '--format=%P', cut.proposalOid], repository)).stdout.trim(),
       sourceOid
     );
     assert.equal(
-      (await git(['show', '-s', '--format=%P', transition.developmentOid], repository)).stdout.trim(),
+      (await git(['show', '-s', '--format=%P', cut.developmentOid], repository)).stdout.trim(),
       sourceOid
     );
     const proposal = parseProposalMessage(
-      (await git(['show', '-s', '--format=%B', transition.proposalOid], repository)).stdout
+      (await git(['show', '-s', '--format=%B', cut.proposalOid], repository)).stdout
     );
     assert.equal(proposal.sourceOid, sourceOid);
     assert.equal(proposal.version, '1.0.0');
 
-    const proposalRoot = JSON.parse(
-      (await git(['show', `${transition.proposalOid}:package.json`], repository)).stdout
+    const proposalRoot: unknown = JSON.parse(
+      (await git(['show', `${cut.proposalOid}:package.json`], repository)).stdout
     );
-    const developmentRoot = JSON.parse(
-      (await git(['show', `${transition.developmentOid}:package.json`], repository)).stdout
+    const developmentRoot: unknown = JSON.parse(
+      (await git(['show', `${cut.developmentOid}:package.json`], repository)).stdout
     );
+    assert.ok(proposalRoot !== null && typeof proposalRoot === 'object');
+    assert.ok(developmentRoot !== null && typeof developmentRoot === 'object');
+    assert.ok('version' in proposalRoot);
+    assert.ok('version' in developmentRoot);
     assert.equal(proposalRoot.version, '1.0.0');
     assert.equal(developmentRoot.version, '1.1.0-alpha.0');
     assert.equal(
       (
         await git(
-          ['show', `${transition.proposalOid}:releases/v1.0.0.md`],
+          ['show', `${cut.proposalOid}:releases/v1.0.0.md`],
           repository
         )
       ).stdout,
@@ -113,7 +155,7 @@ test('prepare-cut creates two validated children and no repository refs', async 
     );
     await assert.rejects(() =>
       git(
-        ['show', `${transition.developmentOid}:releases/v1.0.0.md`],
+        ['show', `${cut.developmentOid}:releases/v1.0.0.md`],
         repository
       )
     );
@@ -126,15 +168,15 @@ test('prepare-cut creates two validated children and no repository refs', async 
     );
     const validReleaseBody = renderReleasePrBody({
       changes: [],
-      line: transition.line,
+      line: cut.line,
       packageNames: [
         '@fablebook/lab-02-addon',
         '@fablebook/lab-02-core',
       ],
-      proposalOid: transition.proposalOid,
-      releaseOid: transition.sourceOid,
+      proposalOid: cut.proposalOid,
+      releaseOid: cut.sourceOid,
       template: releasePrTemplate,
-      version: transition.releaseVersion,
+      version: cut.releaseVersion,
     }).replace(
       EMPTY_RELEASE_HIGHLIGHTS,
       '**Worth upgrading:** The release proposal is ready for user evaluation.'
@@ -150,7 +192,7 @@ test('prepare-cut creates two validated children and no repository refs', async 
         head: {
           ref: 'staged/v1.0',
           repo: { full_name: 'fablebookjs/lab-02' },
-          sha: transition.proposalOid,
+          sha: cut.proposalOid,
         },
       },
     };
@@ -164,7 +206,7 @@ test('prepare-cut creates two validated children and no repository refs', async 
       /blocking empty placeholder/,
     );
     pullRequest.pull_request.body = validReleaseBody;
-    pullRequest.pull_request.base.sha = transition.developmentOid;
+    pullRequest.pull_request.base.sha = cut.developmentOid;
     await assert.rejects(() =>
       invokeController('checkPullRequest', pullRequest.pull_request, repository),
     );
@@ -183,13 +225,13 @@ test('prepare-cut creates two validated children and no repository refs', async 
       (
         await git(['rev-parse', 'refs/release-pilot/imported/cut-proposal'], repository)
       ).stdout.trim(),
-      transition.proposalOid
+      cut.proposalOid
     );
     assert.equal(
       (
         await git(['rev-parse', 'refs/release-pilot/imported/cut-development'], repository)
       ).stdout.trim(),
-      transition.developmentOid
+      cut.developmentOid
     );
   } finally {
     await rm(temporaryRoot, {

@@ -15,16 +15,36 @@ export const PATCHBACK_BODY_MARKER =
 
 const fullOidPattern = new RegExp(`^${PATCHBACK_FULL_OID_PATTERN_SOURCE}$`);
 
-const fullOid = (value, label) => {
-  if (!fullOidPattern.test(value ?? '')) {
+export type PatchbackItem = {
+  command: string;
+  kind: 'direct-commit' | 'direct-merge' | 'pull-request';
+  oid: string;
+  pullRequest: number | null;
+  subject: string;
+};
+
+type PatchbackMigrationRecord = {
+  path: string;
+  title: string;
+};
+
+type CanonicalPull = {
+  number: number;
+  title: unknown;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const fullOid = (value: unknown, label: string): string => {
+  if (typeof value !== 'string' || !fullOidPattern.test(value)) {
     throw new Error(`${label} is not a full commit OID.`);
   }
   return value;
 };
 
-const cleanText = (value, fallback) => {
-  const text = String(value ?? '')
-    .split(/\r?\n/, 1)[0]
+const cleanText = (value: unknown, fallback: string): string => {
+  const text = (String(value ?? '').split(/\r?\n/, 1)[0] ?? '')
     .replace(/[\u0000-\u001f\u007f]/g, ' ')
     .replace(/[`<>[\]\\]/g, '')
     .replace(/\s+/g, ' ')
@@ -32,7 +52,11 @@ const cleanText = (value, fallback) => {
   return (text || fallback).slice(0, 160);
 };
 
-export function patchbackIdentity(version) {
+export function patchbackIdentity(version: string): {
+  branch: string;
+  line: string;
+  title: string;
+} {
   const parsed = parseStableVersion(version);
   return {
     branch: `patchbacks/v${version}`,
@@ -41,7 +65,7 @@ export function patchbackIdentity(version) {
   };
 }
 
-export function previousReleaseVersion(version) {
+export function previousReleaseVersion(version: string): string | null {
   const parsed = parseStableVersion(version);
   if (parsed.patch === 0) {
     return null;
@@ -49,27 +73,53 @@ export function previousReleaseVersion(version) {
   return `${parsed.major}.${parsed.minor}.${parsed.patch - 1}`;
 }
 
-export function patchbackReleaseRecord({ source, version }) {
+export function patchbackReleaseRecord({
+  source,
+  version,
+}: {
+  source: unknown;
+  version: string;
+}): { content: string; path: string } {
+  if (typeof source !== 'string') {
+    throw new Error('Patchback release record must contain text.');
+  }
   const path = releaseRecordPath(version);
   extractReleaseRecordChanges({ source, version });
   return { content: source, path };
 }
 
-export function patchbackMigrationRecords({ line, records }) {
+export function patchbackMigrationRecords({
+  line,
+  records,
+}: {
+  line: string;
+  records: unknown;
+}): Array<{ content: string; path: string; title: string }> {
   const directory = migrationRecordDirectory(line);
   if (!Array.isArray(records)) {
     throw new Error('Patchback migration records must be an array.');
   }
-  const sources = new Map(records.map(({ filename, source }) => [filename, source]));
+  const sources = new Map<string, string>();
+  for (const record of records) {
+    if (
+      !isRecord(record) ||
+      typeof record['filename'] !== 'string' ||
+      typeof record['source'] !== 'string'
+    ) {
+      throw new Error('Patchback migration records must contain filename and source text.');
+    }
+    sources.set(record['filename'], record['source']);
+  }
   return composeMigrationRecords(records).map(({ filename, title }) => ({
-    content: sources.get(filename),
+    content: sources.get(filename) ?? '',
     path: `${directory}/${filename}`,
     title,
   }));
 }
 
-export function releaseMergerAssignee(pull) {
-  const login = pull?.merged_by?.login;
+export function releaseMergerAssignee(pull: unknown): string | null {
+  const mergedBy = isRecord(pull) ? pull['merged_by'] : undefined;
+  const login = isRecord(mergedBy) ? mergedBy['login'] : undefined;
   return typeof login === 'string' &&
     login.length <= 39 &&
     /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(login)
@@ -77,7 +127,7 @@ export function releaseMergerAssignee(pull) {
     : null;
 }
 
-const migrationRecordPaths = (paths, line) => {
+const migrationRecordPaths = (paths: unknown, line: string): string[] => {
   const directory = `${migrationRecordDirectory(line)}/`;
   if (!Array.isArray(paths)) {
     throw new Error('Patchback migration record paths must be an array.');
@@ -94,7 +144,7 @@ const migrationRecordPaths = (paths, line) => {
     }
     unique.add(path);
   }
-  return paths;
+  return paths.filter((path): path is string => typeof path === 'string');
 };
 
 export function patchbackCommitMessage({
@@ -105,7 +155,15 @@ export function patchbackCommitMessage({
   recordPath,
   snapshotOid,
   version,
-}) {
+}: {
+  baseMainOid: string;
+  boundaryOid: string;
+  line: string;
+  migrationRecordPaths: string[];
+  recordPath: string;
+  snapshotOid: string;
+  version: string;
+}): string {
   fullOid(baseMainOid, 'Patchback main base');
   fullOid(boundaryOid, 'Patchback scope boundary');
   fullOid(snapshotOid, 'Patchback snapshot');
@@ -131,7 +189,7 @@ export function patchbackCommitMessage({
   ].join('\n');
 }
 
-export function parsePatchbackCommitMessage(message) {
+export function parsePatchbackCommitMessage(message: unknown) {
   const trailers = Object.fromEntries(
     String(message ?? '')
       .split('\n')
@@ -157,19 +215,58 @@ export function parsePatchbackCommitMessage(message) {
   if (Object.values(metadata).some((value) => value === undefined)) {
     throw new Error('Commit is not a structured patchback coordination commit.');
   }
-  patchbackCommitMessage(metadata);
-  return metadata;
+  const validated = {
+    baseMainOid: metadata.baseMainOid,
+    boundaryOid: metadata.boundaryOid,
+    line: metadata.line,
+    migrationRecordPaths: metadata.migrationRecordPaths,
+    recordPath: metadata.recordPath,
+    snapshotOid: metadata.snapshotOid,
+    version: metadata.version,
+  };
+  if (
+    typeof validated.baseMainOid !== 'string' ||
+    typeof validated.boundaryOid !== 'string' ||
+    typeof validated.line !== 'string' ||
+    !Array.isArray(validated.migrationRecordPaths) ||
+    typeof validated.recordPath !== 'string' ||
+    typeof validated.snapshotOid !== 'string' ||
+    typeof validated.version !== 'string'
+  ) {
+    throw new Error('Commit has malformed patchback coordination trailers.');
+  }
+  patchbackCommitMessage(validated);
+  return validated;
 }
 
-const canonicalPull = (pull, line, oid) =>
-  Number.isSafeInteger(pull?.number) &&
-  pull.number > 0 &&
-  pull.merged_at !== null &&
-  pull.base?.ref === `releases/${line}` &&
-  pull.base?.repo?.full_name === PATCHBACK_REPOSITORY &&
-  pull.merge_commit_sha === oid;
+const canonicalPull = (
+  pull: unknown,
+  line: string,
+  oid: string,
+): pull is CanonicalPull => {
+  if (!isRecord(pull) || typeof pull['number'] !== 'number') return false;
+  const base = pull['base'];
+  return (
+    Number.isSafeInteger(pull['number']) &&
+    pull['number'] > 0 &&
+    pull['merged_at'] !== null &&
+    isRecord(base) &&
+    base['ref'] === `releases/${line}` &&
+    isRecord(base['repo']) &&
+    base['repo']['full_name'] === PATCHBACK_REPOSITORY &&
+    pull['merge_commit_sha'] === oid
+  );
+};
 
-export function derivePatchbackItems({ commits, line, snapshotOid }) {
+export function derivePatchbackItems({
+  commits,
+  line,
+  snapshotOid,
+}: {
+  commits: unknown;
+  line: string;
+  snapshotOid: string;
+}): PatchbackItem[] {
   parseReleaseLine(line);
   fullOid(snapshotOid, 'Patchback snapshot');
   if (!Array.isArray(commits) || commits.length === 0) {
@@ -180,19 +277,30 @@ export function derivePatchbackItems({ commits, line, snapshotOid }) {
   }
 
   return commits.slice(0, -1).map((commit) => {
-    const oid = fullOid(commit.oid, 'Patchback item');
-    const parents = (commit.parents ?? []).map((parent) => fullOid(parent, 'Commit parent'));
+    if (!isRecord(commit)) {
+      throw new Error('Every patchback commit must be an object.');
+    }
+    const oid = fullOid(commit['oid'], 'Patchback item');
+    const rawParents = commit['parents'];
+    if (rawParents !== undefined && !Array.isArray(rawParents)) {
+      throw new Error(`Patchback item ${oid} has invalid parents.`);
+    }
+    const parents = (rawParents ?? []).map((parent) => fullOid(parent, 'Commit parent'));
     if (parents.length === 0) {
       throw new Error(`Patchback item ${oid} has no first parent.`);
     }
-    const associated = (commit.associatedPulls ?? []).filter((pull) =>
+    const rawPulls = commit['associatedPulls'];
+    if (rawPulls !== undefined && !Array.isArray(rawPulls)) {
+      throw new Error(`Patchback item ${oid} has invalid pull request metadata.`);
+    }
+    const associated = (rawPulls ?? []).filter((pull): pull is CanonicalPull =>
       canonicalPull(pull, line, oid)
     );
     const pull = associated.length === 1 ? associated[0] : null;
     const merge = parents.length > 1;
     const command = `git cherry-pick ${merge ? '-m 1 ' : ''}${oid}`;
     const subject = cleanText(
-      pull?.title ?? commit.subject,
+      pull?.title ?? commit['subject'],
       pull ? `Pull request #${pull.number}` : `Commit ${oid.slice(0, 12)}`
     );
 
@@ -206,7 +314,7 @@ export function derivePatchbackItems({ commits, line, snapshotOid }) {
   });
 }
 
-const itemHeading = (item) => {
+const itemHeading = (item: PatchbackItem): string => {
   if (item.kind === 'pull-request') {
     return `[PR #${item.pullRequest}](https://github.com/${PATCHBACK_REPOSITORY}/pull/${item.pullRequest}) — ${item.subject}`;
   }
@@ -223,7 +331,16 @@ export function renderPatchbackBody({
   recordPath,
   snapshotOid,
   version,
-}) {
+}: {
+  boundaryLabel: string;
+  boundaryOid: string;
+  items: PatchbackItem[];
+  line: string;
+  migrationRecords: PatchbackMigrationRecord[];
+  recordPath: string;
+  snapshotOid: string;
+  version: string;
+}): string {
   const identity = patchbackIdentity(version);
   if (identity.line !== line) {
     throw new Error(`${version} does not belong to patchback line ${line}.`);
@@ -290,7 +407,7 @@ export function renderPatchbackBody({
   return [...header, '', '## Ordered work queue', ...queue].join('\n');
 }
 
-export function patchbackExamplesComment() {
+export function patchbackExamplesComment(): string {
   return [
     PATCHBACK_COMMENT_MARKER,
     '## Copy-paste outcome examples',

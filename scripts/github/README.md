@@ -26,15 +26,19 @@ its synchronous `require(...).default` bridge.
    syntax. The concise `require(...).default` loader requires the complete
    imported ESM graph to avoid top-level `await`.
 2. **Type correctness:** after `npm ci`, CI checks the handlers, shared
-   modules, and repository tests with TypeScript strict mode. Runtime execution
-   itself does not type-check. Implicit-any cleanup is temporarily deferred
-   globally; new boundaries should still declare their types.
+   modules, and repository tests with the full strict project. Runtime
+   execution itself strips types and does not type-check.
 3. **Dependency boundary:** post-install CI statically checks every runtime
    edge. A separate pre-install smoke loads the real graph without repository
    packages, including a representative handler through the pinned action.
 
+Webhook payloads are `unknown` at the injected runtime boundary. Narrow
+validated event views derive their field types from the exact pinned
+`@octokit/openapi-webhooks-types` declaration package; only fields used by a
+handler are accepted into its view.
+
 Handlers publish independently consumed values with `core.setOutput`. Expected
 no-op decisions succeed with explicit outputs; malformed or unsafe state throws
-a sanitized error. Keep any type suppression narrow, explain it at the
-suppression site, and track broader cleanup rather than weakening the runtime
-boundary.
+a sanitized error. `any`, assertions, and compiler suppressions require a
+nearby `type-escape:` explanation and are mechanically inventoried; broad
+`@ts-ignore` and `@ts-nocheck` directives are forbidden.

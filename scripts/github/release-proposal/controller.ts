@@ -34,8 +34,11 @@ import {
   resolveRefObject,
   updatePullRequestBody,
   updateRefs,
+  validatedGitCommitResponse,
+  validatedPullRequestResponse,
   withPullRequestMergeCommit,
 } from './github.ts';
+import type { GitCommit, GitPullRequest, GitReference } from './github.ts';
 import { repositoryRoot } from '../../shared/workspace/packages.ts';
 import {
   composeMigrationRecords,
@@ -44,6 +47,7 @@ import {
   releaseRecordPath,
   renderReleaseRecord,
 } from '../../shared/release-communication/records.ts';
+import type { ReleaseChange } from '../../shared/release-communication/records.ts';
 import {
   extractReleasePrIdentity,
   renderReleasePrBody,
@@ -76,13 +80,103 @@ type PublicPackageManifest = {
   version?: string;
 };
 
+type ProposalBodyAction = {
+  changes: unknown[];
+  line: string;
+  previousHighlightsBody?: string | undefined;
+  releaseOid: string;
+  supersededPr?: number | undefined;
+  version: string;
+};
+
+type CutTransition = {
+  developmentBundleRef: string;
+  developmentOid: string;
+  developmentVersion: string;
+  kind: 'cut';
+  line: string;
+  proposalBundleRef: string;
+  proposalOid: string;
+  releaseVersion: string;
+  repository: typeof PILOT_REPOSITORY;
+  schema: 1;
+  sourceOid: string;
+};
+
+type BundleRef = {
+  name: string;
+  oid: string;
+};
+
+type MaintenanceActionBase = {
+  expectedStagedOid: string | null;
+  line: string;
+  previousHighlightsBody: string | undefined;
+  releaseOid: string;
+  supersededPr: number | undefined;
+};
+
+type DormantAction = MaintenanceActionBase & {
+  changes: undefined;
+  kind: 'dormant';
+  openPr: number | undefined;
+};
+
+type OpenAction = MaintenanceActionBase & {
+  changes: unknown[];
+  kind: 'open';
+  openPr: undefined;
+  proposalOid: string;
+  version: string;
+};
+
+type SyncAction = MaintenanceActionBase & {
+  changes: unknown[];
+  kind: 'sync';
+  openPr: number;
+  proposalOid: string;
+  version: string;
+};
+
+type MaterializedAction = MaintenanceActionBase & {
+  bundleRef: string;
+  changes: unknown[];
+  kind: 'create' | 'recreate';
+  openPr: number | undefined;
+  proposalOid: string;
+  version: string;
+};
+
+type ReplacementAction = MaintenanceActionBase & {
+  bundleRef: string;
+  changes: unknown[];
+  kind: 'refresh' | 'replace';
+  openPr: number;
+  proposalOid: string;
+  version: string;
+};
+
+type MaintenanceAction =
+  | DormantAction
+  | MaterializedAction
+  | OpenAction
+  | ReplacementAction
+  | SyncAction;
+
+type MaintenanceTransition = {
+  actions: MaintenanceAction[];
+  kind: 'maintenance';
+  repository: typeof PILOT_REPOSITORY;
+  schema: 1;
+};
+
 type MaintenanceState = {
   closedPrs: Array<{ body: string; number: number; state: string }>;
   completedOid: string | null;
   completedVersion: string | null;
   latestClosedPr: {
     headOid: string;
-    mergeCommitOid: string;
+    mergeCommitOid: string | null;
     merged: boolean;
     number: number;
     version: string;
@@ -120,20 +214,164 @@ export type ApplyMaintenanceOptions = {
 };
 
 export type ReleaseProposalPullRequest = {
-  base?: {
-    ref?: string;
-    repo?: { full_name?: string };
-    sha?: string;
+  base: {
+    ref: string;
+    repo: { full_name: string };
+    sha: string;
   };
-  body?: string | null;
-  head?: {
-    ref?: string;
-    repo?: { full_name?: string };
-    sha?: string;
+  body: string | null;
+  head: {
+    ref: string;
+    repo: { full_name: string };
+    sha: string;
   };
 };
 
-const run = async (command, args, options: RunOptions = {}) => {
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const stringValue = (value: unknown, label: string): string => {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`${label} must be a nonempty string.`);
+  }
+  return value;
+};
+
+const optionalString = (value: unknown, label: string): string | undefined => {
+  if (value === undefined) return undefined;
+  return stringValue(value, label);
+};
+
+const optionalPositiveInteger = (value: unknown, label: string): number | undefined => {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${label} must be a positive integer.`);
+  }
+  return value;
+};
+
+const nullableOid = (value: unknown, label: string): string | null => {
+  if (value === null) return null;
+  validateFullOid(value, label);
+  return value;
+};
+
+const cutTransitionValue = (value: unknown): CutTransition => {
+  if (!isRecord(value)) throw new Error('Cut transition must be an object.');
+  if (
+    value['schema'] !== 1 ||
+    value['kind'] !== 'cut' ||
+    value['repository'] !== PILOT_REPOSITORY
+  ) {
+    throw new Error('Cut transition is outside the accepted schema.');
+  }
+  return {
+    developmentBundleRef: stringValue(
+      value['developmentBundleRef'],
+      'Cut development bundle ref',
+    ),
+    developmentOid: stringValue(value['developmentOid'], 'Cut development OID'),
+    developmentVersion: stringValue(
+      value['developmentVersion'],
+      'Cut development version',
+    ),
+    kind: 'cut',
+    line: stringValue(value['line'], 'Cut release line'),
+    proposalBundleRef: stringValue(value['proposalBundleRef'], 'Cut proposal bundle ref'),
+    proposalOid: stringValue(value['proposalOid'], 'Cut proposal OID'),
+    releaseVersion: stringValue(value['releaseVersion'], 'Cut release version'),
+    repository: PILOT_REPOSITORY,
+    schema: 1,
+    sourceOid: stringValue(value['sourceOid'], 'Cut source OID'),
+  };
+};
+
+const maintenanceActionValue = (value: unknown): MaintenanceAction => {
+  if (!isRecord(value)) throw new Error('Maintenance action must be an object.');
+  const kind = value['kind'];
+  if (
+    kind !== 'create' &&
+    kind !== 'dormant' &&
+    kind !== 'open' &&
+    kind !== 'recreate' &&
+    kind !== 'refresh' &&
+    kind !== 'replace' &&
+    kind !== 'sync'
+  ) {
+    throw new Error(`Unknown maintenance action: ${String(kind)}`);
+  }
+  const base: MaintenanceActionBase = {
+    expectedStagedOid: nullableOid(
+      value['expectedStagedOid'],
+      'Maintenance staged expectation',
+    ),
+    line: stringValue(value['line'], 'Maintenance release line'),
+    previousHighlightsBody: optionalString(
+      value['previousHighlightsBody'],
+      'Maintenance previous highlights',
+    ),
+    releaseOid: stringValue(value['releaseOid'], 'Maintenance release OID'),
+    supersededPr: optionalPositiveInteger(
+      value['supersededPr'],
+      'Maintenance superseded PR',
+    ),
+  };
+  const openPr = optionalPositiveInteger(value['openPr'], 'Maintenance open PR');
+  if (kind === 'dormant') return { ...base, changes: undefined, kind, openPr };
+
+  const changes = value['changes'];
+  if (!Array.isArray(changes)) {
+    throw new Error(`${kind} maintenance action requires a changes array.`);
+  }
+  const proposalOid = stringValue(value['proposalOid'], 'Maintenance proposal OID');
+  const version = stringValue(value['version'], 'Maintenance version');
+  if (kind === 'open') {
+    return { ...base, changes, kind, openPr: undefined, proposalOid, version };
+  }
+  if (kind === 'sync') {
+    if (openPr === undefined) throw new Error('Sync maintenance action requires an open PR.');
+    return { ...base, changes, kind, openPr, proposalOid, version };
+  }
+
+  const bundleRef = stringValue(value['bundleRef'], 'Maintenance bundle ref');
+  if (kind === 'refresh' || kind === 'replace') {
+    if (openPr === undefined) {
+      throw new Error(`${kind} maintenance action requires an open PR.`);
+    }
+    return { ...base, bundleRef, changes, kind, openPr, proposalOid, version };
+  }
+  return { ...base, bundleRef, changes, kind, openPr, proposalOid, version };
+};
+
+const maintenanceTransitionValue = (value: unknown): MaintenanceTransition => {
+  if (
+    !isRecord(value) ||
+    value['schema'] !== 1 ||
+    value['kind'] !== 'maintenance' ||
+    value['repository'] !== PILOT_REPOSITORY ||
+    !Array.isArray(value['actions'])
+  ) {
+    throw new Error('Maintenance transition is outside the accepted schema.');
+  }
+  return {
+    actions: value['actions'].map(maintenanceActionValue),
+    kind: 'maintenance',
+    repository: PILOT_REPOSITORY,
+    schema: 1,
+  };
+};
+
+const stringRecord = (value: unknown, label: string): Record<string, string> | undefined => {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || Object.values(value).some((entry) => typeof entry !== 'string')) {
+    throw new Error(`${label} must map names to versions.`);
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([name, version]) => [name, stringValue(version, `${label}.${name}`)]),
+  );
+};
+
+const run = async (command: string, args: string[], options: RunOptions = {}) => {
   try {
     return await execute(command, args, {
       cwd: options.cwd ?? repositoryRoot,
@@ -141,27 +379,37 @@ const run = async (command, args, options: RunOptions = {}) => {
       maxBuffer: 20 * 1024 * 1024,
     });
   } catch (error) {
-    const failure = error as { stderr?: string; stdout?: string };
-    const output = [failure.stdout, failure.stderr].filter(Boolean).join('\n');
+    const output = isRecord(error)
+      ? [error['stdout'], error['stderr']]
+          .filter((value): value is string => typeof value === 'string' && value.length > 0)
+          .join('\n')
+      : '';
     throw new Error(`${command} ${args.join(' ')} failed${output ? `\n${output}` : ''}`, {
       cause: error,
     });
   }
 };
 
-const git = (args, options: RunOptions = {}) => run('git', args, options);
-const readJson = async (path) => JSON.parse(await readFile(path, 'utf8'));
-const writeJson = async (path, value) =>
+const git = (args: string[], options: RunOptions = {}) => run('git', args, options);
+const readJson = async (path: string): Promise<unknown> => {
+  const value: unknown = JSON.parse(await readFile(path, 'utf8'));
+  return value;
+};
+const writeJson = async (path: string, value: unknown): Promise<void> =>
   writeFile(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 
-const requireOption = (options, name) => {
-  if (!options[name]) {
+const requireOption = <Name extends string>(
+  options: Record<Name, string | undefined>,
+  name: Name,
+): string => {
+  const value = options[name];
+  if (!value) {
     throw new Error(`Missing required option --${name}`);
   }
-  return options[name];
+  return value;
 };
 
-const requireGithubToken = (options: { 'github-token': string }) => {
+const requireGithubToken = (options: { 'github-token': string }): string => {
   const token = options['github-token'];
   if (!token) {
     throw new Error('An authenticated GitHub capability is required.');
@@ -169,7 +417,7 @@ const requireGithubToken = (options: { 'github-token': string }) => {
   return token;
 };
 
-const ensureSeedRepository = async () => {
+const ensureSeedRepository = async (): Promise<void> => {
   const { stdout } = await git(['rev-parse', '--show-toplevel']);
   if (resolve(stdout.trim()) !== resolve(repositoryRoot)) {
     throw new Error(
@@ -182,32 +430,82 @@ const ensureSeedRepository = async () => {
   }
 };
 
-const commitParents = async (oid) => {
+const commitParents = async (oid: string): Promise<string[]> => {
   const { stdout } = await git(['show', '-s', '--format=%P', oid]);
   return stdout.trim().split(/\s+/).filter(Boolean);
 };
 
-const commitMessage = async (oid) => {
+const commitMessage = async (oid: string): Promise<string> => {
   const { stdout } = await git(['show', '-s', '--format=%B', oid]);
   return stdout.trimEnd();
 };
 
-const manifestAt = async <Manifest>(oid, path): Promise<Manifest> => {
+const manifestAt = async (oid: string, path: string): Promise<unknown> => {
   const { stdout } = await git(['show', `${oid}:${path}`]);
-  return JSON.parse(stdout) as Manifest;
+  const value: unknown = JSON.parse(stdout);
+  return value;
 };
 
-const publicPackagesAt = async (oid) => {
-  const root = await manifestAt<RootManifest>(oid, 'package.json');
+const rootManifestValue = (value: unknown): RootManifest => {
+  if (!isRecord(value)) throw new Error('Root package.json must contain one object.');
+  const workspaces = value['workspaces'];
+  if (
+    workspaces !== undefined &&
+    (!Array.isArray(workspaces) || workspaces.some((entry) => typeof entry !== 'string'))
+  ) {
+    throw new Error('Root package.json workspaces must be strings.');
+  }
+  return {
+    ...(typeof value['version'] === 'string' ? { version: value['version'] } : {}),
+    ...(Array.isArray(workspaces)
+      ? { workspaces: workspaces.filter((entry): entry is string => typeof entry === 'string') }
+      : {}),
+  };
+};
+
+const packageManifestValue = (value: unknown, path: string): PublicPackageManifest => {
+  if (!isRecord(value)) throw new Error(`${path} must contain one object.`);
+  const dependencies = stringRecord(value['dependencies'], `${path}.dependencies`);
+  const devDependencies = stringRecord(
+    value['devDependencies'],
+    `${path}.devDependencies`,
+  );
+  const optionalDependencies = stringRecord(
+    value['optionalDependencies'],
+    `${path}.optionalDependencies`,
+  );
+  const peerDependencies = stringRecord(
+    value['peerDependencies'],
+    `${path}.peerDependencies`,
+  );
+  return {
+    ...(dependencies === undefined ? {} : { dependencies }),
+    ...(devDependencies === undefined ? {} : { devDependencies }),
+    ...(typeof value['name'] === 'string' ? { name: value['name'] } : {}),
+    ...(optionalDependencies === undefined ? {} : { optionalDependencies }),
+    ...(peerDependencies === undefined ? {} : { peerDependencies }),
+    ...(typeof value['private'] === 'boolean' ? { private: value['private'] } : {}),
+    ...(typeof value['version'] === 'string' ? { version: value['version'] } : {}),
+  };
+};
+
+const publicPackagesAt = async (
+  oid: string,
+): Promise<{
+  packages: Array<{ manifest: PublicPackageManifest; name: string }>;
+  root: RootManifest;
+}> => {
+  const root = rootManifestValue(await manifestAt(oid, 'package.json'));
   if (JSON.stringify(root.workspaces) !== JSON.stringify(['packages/*'])) {
     throw new Error('The release controller supports only the accepted packages/* seed workspace.');
   }
   const { stdout } = await git(['ls-tree', '-d', '--name-only', `${oid}:packages`]);
   const packages: Array<{ manifest: PublicPackageManifest; name: string }> = [];
   for (const directory of stdout.trim().split('\n').filter(Boolean)) {
-    const manifest = await manifestAt<PublicPackageManifest>(
-      oid,
-      `packages/${directory}/package.json`
+    const manifestPath = `packages/${directory}/package.json`;
+    const manifest = packageManifestValue(
+      await manifestAt(oid, manifestPath),
+      manifestPath,
     );
     if (manifest.private !== true) {
       if (typeof manifest.name !== 'string' || manifest.name.length === 0) {
@@ -219,7 +517,7 @@ const publicPackagesAt = async (oid) => {
   return { packages, root };
 };
 
-const releasePrTemplate = (version) => {
+const releasePrTemplate = (version: string): Promise<string> => {
   const { patch } = parseStableVersion(version);
   const filename =
     patch === 0 ? 'release-pr-initial.md' : 'release-pr-patch.md';
@@ -229,15 +527,18 @@ const releasePrTemplate = (version) => {
   );
 };
 
-const associatedPulls = async (token, oid) => {
-  const pulls: unknown[] = [];
+const associatedPulls = async (token: string, oid: string): Promise<GitPullRequest[]> => {
+  const pulls: GitPullRequest[] = [];
   for (let page = 1; ; page += 1) {
     const query = new URLSearchParams({ page: String(page), per_page: '100' });
     const batch = await githubRequest(
       `/repos/${PILOT_REPOSITORY}/commits/${oid}/pulls?${query}`,
       { token }
     );
-    pulls.push(...batch);
+    if (!Array.isArray(batch)) {
+      throw new Error(`GitHub associated pull requests for ${oid} must be an array.`);
+    }
+    pulls.push(...batch.map(validatedPullRequestResponse));
     if (batch.length < 100) {
       break;
     }
@@ -245,7 +546,9 @@ const associatedPulls = async (token, oid) => {
   return Promise.all(pulls.map((pull) => withPullRequestMergeCommit(token, pull)));
 };
 
-const findReleaseCut = async (line) => {
+const findReleaseCut = async (
+  line: string,
+): Promise<ReturnType<typeof parseDevelopmentCommitMessage>> => {
   const { stdout } = await git(['rev-list', '--first-parent', 'HEAD']);
   const matches: Array<ReturnType<typeof parseDevelopmentCommitMessage>> = [];
   for (const oid of stdout.trim().split('\n').filter(Boolean)) {
@@ -270,10 +573,21 @@ const findReleaseCut = async (line) => {
   if (matches.length !== 1) {
     throw new Error(`Expected one ${line} release-cut record on main, found ${matches.length}.`);
   }
-  return matches[0];
+  const match = matches[0];
+  if (match === undefined) {
+    throw new Error(`Expected one ${line} release-cut record.`);
+  }
+  return match;
 };
 
-const releaseChanges = async (token, { boundaryOid, line, releaseOid }) => {
+const releaseChanges = async (
+  token: string,
+  {
+    boundaryOid,
+    line,
+    releaseOid,
+  }: { boundaryOid: string; line: string; releaseOid: string },
+): Promise<ReleaseChange[]> => {
   const { stdout: ancestry } = await git(['rev-list', '--first-parent', releaseOid]);
   if (!ancestry.trim().split('\n').includes(boundaryOid)) {
     throw new Error(`${boundaryOid} is not on the ${line} first-parent release history.`);
@@ -292,15 +606,18 @@ const releaseChanges = async (token, { boundaryOid, line, releaseOid }) => {
       .map(async (oid) => ({
         associatedPulls: await associatedPulls(token, oid),
         oid,
-        subject: (await commitMessage(oid)).split('\n', 1)[0],
+        subject: (await commitMessage(oid)).split('\n', 1)[0] ?? '',
       }))
   );
   return deriveReleaseChanges({ commits, line });
 };
 
-const migrationRecordsAt = async (oid, line) => {
+const migrationRecordsAt = async (
+  oid: string,
+  line: string,
+): Promise<Array<{ body: string; filename: string; title: string }>> => {
   const directory = migrationRecordDirectory(line);
-  let filenames;
+  let filenames: string[];
   try {
     const { stdout } = await git([
       'ls-tree',
@@ -333,7 +650,12 @@ const renderProposalBody = async ({
   previousBody = '',
   proposalOid,
   contentOid = proposalOid,
-}) => {
+}: {
+  action: ProposalBodyAction;
+  contentOid?: string;
+  previousBody?: string;
+  proposalOid: string;
+}): Promise<string> => {
   const { packages } = await publicPackagesAt(contentOid);
   return renderReleasePrBody({
     changes: action.changes,
@@ -344,18 +666,23 @@ const renderProposalBody = async ({
     previousHighlightsBody: action.previousHighlightsBody ?? previousBody,
     proposalOid,
     releaseOid: action.releaseOid,
-    supersededPr: action.supersededPr,
+    ...(action.supersededPr === undefined ? {} : { supersededPr: action.supersededPr }),
     template: await releasePrTemplate(action.version),
     version: action.version,
   });
 };
 
-const createReleasePr = async (token, action, proposalOid, contentOid = proposalOid) => {
+const createReleasePr = async (
+  token: string,
+  action: ProposalBodyAction,
+  proposalOid: string,
+  contentOid = proposalOid,
+): Promise<GitPullRequest> => {
   const body = await renderProposalBody({ action, contentOid, proposalOid });
   return createDraftReleasePr(token, { ...action, body });
 };
 
-const validateVersionTree = async (oid, version) => {
+const validateVersionTree = async (oid: string, version: string): Promise<void> => {
   const { packages, root } = await publicPackagesAt(oid);
   if (root.version !== version || packages.length === 0) {
     throw new Error(`${oid} does not materialize root version ${version}.`);
@@ -365,12 +692,15 @@ const validateVersionTree = async (oid, version) => {
     if (pkg.manifest.version !== version) {
       throw new Error(`${pkg.name} does not materialize ${version}.`);
     }
-    for (const field of [
+    const dependencyFields: Array<
+      'dependencies' | 'devDependencies' | 'optionalDependencies' | 'peerDependencies'
+    > = [
       'dependencies',
       'devDependencies',
       'optionalDependencies',
       'peerDependencies',
-    ]) {
+    ];
+    for (const field of dependencyFields) {
       for (const [name, dependencyVersion] of Object.entries(pkg.manifest[field] ?? {})) {
         if (publicNames.has(name) && dependencyVersion !== version) {
           throw new Error(`${pkg.name} has a non-lockstep dependency on ${name}.`);
@@ -380,7 +710,15 @@ const validateVersionTree = async (oid, version) => {
   }
 };
 
-const validateProposalCommit = async (oid, expected) => {
+const validateProposalCommit = async (
+  oid: string,
+  expected: {
+    changes?: unknown;
+    line: string;
+    sourceOid: string;
+    version: string;
+  },
+): Promise<void> => {
   assert.deepEqual(await commitParents(oid), [expected.sourceOid]);
   const metadata = parseProposalMessage(await commitMessage(oid));
   assert.equal(metadata.line, expected.line);
@@ -406,7 +744,10 @@ const validateProposalCommit = async (oid, expected) => {
   }
 };
 
-const validateDevelopmentCommit = async (oid, expected) => {
+const validateDevelopmentCommit = async (
+  oid: string,
+  expected: { line: string; sourceOid: string; version: string },
+): Promise<void> => {
   assert.deepEqual(await commitParents(oid), [expected.sourceOid]);
   const message = await commitMessage(oid);
   assert.match(message, new RegExp(`^release: begin ${expected.version.replaceAll('.', '\\.')} development`));
@@ -416,14 +757,14 @@ const validateDevelopmentCommit = async (oid, expected) => {
   await validateVersionTree(oid, expected.version);
 };
 
-const validateFullOid = (oid, label) => {
-  if (!/^[0-9a-f]{40}$/.test(oid ?? '')) {
+function validateFullOid(oid: unknown, label: string): asserts oid is string {
+  if (typeof oid !== 'string' || !/^[0-9a-f]{40}$/.test(oid)) {
     throw new Error(`${label} is not a full commit OID.`);
   }
-};
+}
 
-const uploadCommitObject = async (token, oid) => {
-  const [sourceOid] = await commitParents(oid);
+const uploadCommitObject = async (token: string, oid: string): Promise<string> => {
+  const sourceOid = (await commitParents(oid))[0];
   validateFullOid(sourceOid, 'Uploaded commit parent');
   const changedPaths = (
     await git(['diff-tree', '--no-commit-id', '--name-only', '-r', sourceOid, oid])
@@ -444,26 +785,32 @@ const uploadCommitObject = async (token, oid) => {
   for (const path of changedPaths) {
     const entry = (await git(['ls-tree', oid, '--', path])).stdout.trim();
     const match = /^(\d{6}) (blob) [0-9a-f]{40}\t(.+)$/.exec(entry);
-    if (!match || match[3] !== path) {
+    const mode = match?.[1];
+    const type = match?.[2];
+    if (mode === undefined || type === undefined || match?.[3] !== path) {
       throw new Error(`Prepared commit has an unsupported tree entry: ${entry}`);
     }
     tree.push({
       content: (await git(['show', `${oid}:${path}`])).stdout,
-      mode: match[1],
+      mode,
       path,
-      type: match[2],
+      type,
     });
   }
 
   const sourceTree = (await git(['show', '-s', '--format=%T', sourceOid])).stdout.trim();
   const expectedTree = (await git(['show', '-s', '--format=%T', oid])).stdout.trim();
-  const remoteTree = await githubRequest(`/repos/${PILOT_REPOSITORY}/git/trees`, {
+  const remoteTreeResponse = await githubRequest(`/repos/${PILOT_REPOSITORY}/git/trees`, {
     body: { base_tree: sourceTree, tree },
     method: 'POST',
     token,
   });
-  if (remoteTree.sha !== expectedTree) {
-    throw new Error(`GitHub created tree ${remoteTree.sha}, expected ${expectedTree}.`);
+  if (!isRecord(remoteTreeResponse)) {
+    throw new Error('GitHub created-tree response must be an object.');
+  }
+  const remoteTreeSha = stringValue(remoteTreeResponse['sha'], 'GitHub created tree SHA');
+  if (remoteTreeSha !== expectedTree) {
+    throw new Error(`GitHub created tree ${remoteTreeSha}, expected ${expectedTree}.`);
   }
 
   const identity = (
@@ -472,46 +819,62 @@ const uploadCommitObject = async (token, oid) => {
   if (identity.length !== 6 || identity.some((value) => value.length === 0)) {
     throw new Error(`Prepared commit ${oid} has incomplete author or committer metadata.`);
   }
+  const authorName = stringValue(identity[0], 'Prepared author name');
+  const authorEmail = stringValue(identity[1], 'Prepared author email');
+  const authorDate = stringValue(identity[2], 'Prepared author date');
+  const committerName = stringValue(identity[3], 'Prepared committer name');
+  const committerEmail = stringValue(identity[4], 'Prepared committer email');
+  const committerDate = stringValue(identity[5], 'Prepared committer date');
   const message = await commitMessage(oid);
-  const remoteCommit = await githubRequest(`/repos/${PILOT_REPOSITORY}/git/commits`, {
-    body: {
-      author: { date: identity[2], email: identity[1], name: identity[0] },
-      committer: { date: identity[5], email: identity[4], name: identity[3] },
-      message,
-      parents: [sourceOid],
-      tree: remoteTree.sha,
-    },
-    method: 'POST',
-    token,
-  });
+  const remoteCommit = validatedGitCommitResponse(
+    await githubRequest(`/repos/${PILOT_REPOSITORY}/git/commits`, {
+      body: {
+        author: { date: authorDate, email: authorEmail, name: authorName },
+        committer: {
+          date: committerDate,
+          email: committerEmail,
+          name: committerName,
+        },
+        message,
+        parents: [sourceOid],
+        tree: remoteTreeSha,
+      },
+      method: 'POST',
+      token,
+    }),
+  );
   validateFullOid(remoteCommit.sha, 'Uploaded GitHub commit');
-  const sameIdentity = (remote, name, email, date) =>
-    remote?.name === name &&
+  const sameIdentity = (
+    remote: GitCommit['author'],
+    name: string,
+    email: string,
+    date: string,
+  ): boolean =>
+    remote.name === name &&
     remote.email === email &&
     Number.isFinite(Date.parse(remote.date)) &&
     Date.parse(remote.date) === Date.parse(date);
   if (
     remoteCommit.message !== message ||
     remoteCommit.tree?.sha !== expectedTree ||
-    remoteCommit.parents?.length !== 1 ||
-    remoteCommit.parents[0].sha !== sourceOid ||
-    !sameIdentity(remoteCommit.author, identity[0], identity[1], identity[2]) ||
-    !sameIdentity(remoteCommit.committer, identity[3], identity[4], identity[5])
+    remoteCommit.parents.length !== 1 ||
+    remoteCommit.parents[0]?.sha !== sourceOid ||
+    !sameIdentity(remoteCommit.author, authorName, authorEmail, authorDate) ||
+    !sameIdentity(remoteCommit.committer, committerName, committerEmail, committerDate)
   ) {
     throw new Error(`GitHub did not preserve the prepared commit ${oid}.`);
   }
   return remoteCommit.sha;
 };
 
-const validateCutTransition = async (transition) => {
+const validateCutTransition = async (transition: CutTransition): Promise<void> => {
   parseReleaseLine(transition.line);
   parseStableVersion(transition.releaseVersion);
   validateFullOid(transition.sourceOid, 'Cut source');
   validateFullOid(transition.proposalOid, 'Proposal');
   validateFullOid(transition.developmentOid, 'Development commit');
-  const sourceManifest = await manifestAt<RootManifest>(
-    transition.sourceOid,
-    'package.json'
+  const sourceManifest = rootManifestValue(
+    await manifestAt(transition.sourceOid, 'package.json'),
   );
   if (typeof sourceManifest.version !== 'string') {
     throw new Error('Cut source manifest has no version.');
@@ -595,7 +958,7 @@ const materializeCommit = async ({
   }
 };
 
-const writeBundle = async (path, refs) => {
+const writeBundle = async (path: string, refs: BundleRef[]): Promise<void> => {
   for (const { name, oid } of refs) {
     await git(['update-ref', name, oid, ZERO_OID]);
   }
@@ -606,7 +969,7 @@ const writeBundle = async (path, refs) => {
   }
 };
 
-const importBundle = async (path) => {
+const importBundle = async (path: string): Promise<void> => {
   await git([
     'fetch',
     '--no-tags',
@@ -615,7 +978,7 @@ const importBundle = async (path) => {
   ]);
 };
 
-const importedOid = async (bundleRef) => {
+const importedOid = async (bundleRef: string): Promise<string> => {
   if (!bundleRef.startsWith(ARTIFACT_PREFIX)) {
     throw new Error(`Unexpected bundle ref: ${bundleRef}`);
   }
@@ -623,7 +986,7 @@ const importedOid = async (bundleRef) => {
   return (await git(['rev-parse', imported])).stdout.trim();
 };
 
-const prepareOutput = async (output) => {
+const prepareOutput = async (output: string): Promise<string> => {
   const directory = resolve(output);
   await mkdir(directory, { recursive: true });
   return directory;
@@ -634,10 +997,7 @@ export async function prepareCut(options: PrepareCutOptions): Promise<void> {
   const nextDevelopment = requireOption(options, 'next-development');
   const output = await prepareOutput(requireOption(options, 'output'));
   const sourceOid = (await git(['rev-parse', 'HEAD'])).stdout.trim();
-  const sourceManifest = await manifestAt<RootManifest>(
-    sourceOid,
-    'package.json'
-  );
+  const sourceManifest = rootManifestValue(await manifestAt(sourceOid, 'package.json'));
   if (typeof sourceManifest.version !== 'string') {
     throw new Error('Cut source manifest has no version.');
   }
@@ -704,14 +1064,11 @@ export async function applyCut(options: ApplyCutOptions): Promise<void> {
   await ensureSeedRepository();
   const transitionPath = resolve(requireOption(options, 'transition'));
   const bundlePath = resolve(requireOption(options, 'bundle'));
-  const transition = await readJson(transitionPath);
+  const transition = cutTransitionValue(await readJson(transitionPath));
   const token = requireGithubToken(options);
   if (
-    transition.schema !== 1 ||
-    transition.kind !== 'cut' ||
-    transition.repository !== PILOT_REPOSITORY ||
-    process.env.GITHUB_REPOSITORY !== PILOT_REPOSITORY ||
-    process.env.GITHUB_REF !== 'refs/heads/main'
+    process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
+    process.env['GITHUB_REF'] !== 'refs/heads/main'
   ) {
     throw new Error('Cut transition is outside the trusted pilot context.');
   }
@@ -783,9 +1140,13 @@ export async function applyCut(options: ApplyCutOptions): Promise<void> {
   console.log(`Cut ${transition.line} and opened its draft ${transition.releaseVersion} proposal.`);
 }
 
-const refOid = (ref) => ref.object.sha;
+const refOid = (ref: GitReference): string => ref.object.sha;
 
-const latestCompletedTag = async (token, line, tagRefs) => {
+const latestCompletedTag = async (
+  token: string,
+  line: string,
+  tagRefs: GitReference[],
+): Promise<{ oid: string | null; version: string | null }> => {
   const lineVersion = parseReleaseLine(line);
   const candidates = tagRefs
     .map((ref) => ({
@@ -817,7 +1178,7 @@ const latestCompletedTag = async (token, line, tagRefs) => {
   return { oid: null, version: null };
 };
 
-const loadMaintenanceStates = async (token) => {
+const loadMaintenanceStates = async (token: string): Promise<MaintenanceState[]> => {
   await getRepository(token);
   const [releaseRefs, tagRefs] = await Promise.all([
     listMatchingRefs(token, 'heads/releases/'),
@@ -830,6 +1191,9 @@ const loadMaintenanceStates = async (token) => {
   const states: MaintenanceState[] = [];
   for (const line of lines) {
     const releaseRef = releaseRefs.find((ref) => ref.ref === `refs/heads/releases/${line}`);
+    if (releaseRef === undefined) {
+      throw new Error(`GitHub omitted the discovered releases/${line} ref.`);
+    }
     const releaseOid = refOid(releaseRef);
     const stagedRef = await getRef(token, `heads/staged/${line}`);
     const pulls = await listReleasePulls(token, line);
@@ -860,9 +1224,13 @@ const loadMaintenanceStates = async (token) => {
       const closedProposal = parseProposalMessage(
         (await getGitCommit(token, latestClosed.head.sha)).message
       );
+      const mergeCommitOid = latestClosed.merge_commit_sha;
+      if (latestClosed.merged_at !== null) {
+        validateFullOid(mergeCommitOid, `${line} merged proposal`);
+      }
       latestClosedPr = {
         headOid: latestClosed.head.sha,
-        mergeCommitOid: latestClosed.merge_commit_sha,
+        mergeCommitOid: mergeCommitOid,
         merged: latestClosed.merged_at !== null,
         number: latestClosed.number,
         version: closedProposal.version,
@@ -962,7 +1330,7 @@ export async function prepareMaintenance(
 
     const attempt = randomUUID();
     const proposalOid = await materializeCommit({
-      changes,
+      ...(changes === undefined ? {} : { changes }),
       message: proposalCommitMessage({
         attempt,
         line: plan.line,
@@ -973,7 +1341,7 @@ export async function prepareMaintenance(
       version: plan.version,
     });
     await validateProposalCommit(proposalOid, {
-      changes,
+      ...(changes === undefined ? {} : { changes }),
       line: plan.line,
       sourceOid: state.releaseOid,
       version: plan.version,
@@ -1001,7 +1369,11 @@ export async function prepareMaintenance(
   console.log(`Prepared ${actions.length} release proposal maintenance actions.`);
 }
 
-const assertExpectedRef = async (token, ref, expectedOid) => {
+const assertExpectedRef = async (
+  token: string,
+  ref: string,
+  expectedOid: string | null,
+): Promise<void> => {
   const live = await getRef(token, ref);
   if ((live?.oid ?? null) !== expectedOid) {
     throw new Error(`${ref} changed after maintenance preparation.`);
@@ -1013,21 +1385,23 @@ export async function applyMaintenance(
 ): Promise<void> {
   await ensureSeedRepository();
   const transitionPath = resolve(requireOption(options, 'transition'));
-  const transition = await readJson(transitionPath);
+  const transition = maintenanceTransitionValue(await readJson(transitionPath));
   const bundle = options.bundle ? resolve(options.bundle) : null;
   const token = requireGithubToken(options);
   if (
-    transition.schema !== 1 ||
-    transition.kind !== 'maintenance' ||
-    transition.repository !== PILOT_REPOSITORY ||
-    process.env.GITHUB_REPOSITORY !== PILOT_REPOSITORY ||
-    process.env.GITHUB_REF !== 'refs/heads/main'
+    process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
+    process.env['GITHUB_REF'] !== 'refs/heads/main'
   ) {
     throw new Error('Maintenance transition is outside the trusted pilot context.');
   }
 
   const repository = await getRepository(token);
-  if (transition.actions.some(({ bundleRef }) => bundleRef) && bundle === null) {
+  if (
+    transition.actions.some(
+      (action) => 'bundleRef' in action && action.bundleRef.length > 0,
+    ) &&
+    bundle === null
+  ) {
     throw new Error('Maintenance transition requires its Git object bundle.');
   }
   if (bundle !== null) {
@@ -1091,7 +1465,7 @@ export async function applyMaintenance(
         action.proposalOid !== action.expectedStagedOid ||
         (action.kind === 'open' && openPulls.length !== 0) ||
         (action.kind === 'sync' &&
-          (openPulls.length !== 1 || openPulls[0].number !== action.openPr))
+          (openPulls.length !== 1 || openPulls[0]?.number !== action.openPr))
       ) {
         throw new Error(`${action.line} can no longer use its prepared staged proposal.`);
       }
@@ -1114,9 +1488,13 @@ export async function applyMaintenance(
       if (action.kind === 'open') {
         await createReleasePr(token, action, action.proposalOid);
       } else {
+        const openPull = openPulls[0];
+        if (openPull === undefined) {
+          throw new Error(`${action.line} no longer has its expected open release PR.`);
+        }
         const body = await renderProposalBody({
           action,
-          previousBody: openPulls[0].body,
+          previousBody: openPull.body ?? '',
           proposalOid: action.proposalOid,
         });
         await updatePullRequestBody(token, action.openPr, body);
@@ -1125,7 +1503,7 @@ export async function applyMaintenance(
     }
 
     if (action.kind === 'refresh' || action.kind === 'replace') {
-      if (openPulls.length !== 1 || openPulls[0].number !== action.openPr) {
+      if (openPulls.length !== 1 || openPulls[0]?.number !== action.openPr) {
         throw new Error(`${action.line} no longer has the expected open release PR.`);
       }
     } else if (openPulls.length !== 0) {
@@ -1157,10 +1535,14 @@ export async function applyMaintenance(
     ]);
 
     if (action.kind === 'refresh') {
+      const openPull = openPulls[0];
+      if (openPull === undefined) {
+        throw new Error(`${action.line} no longer has its expected open release PR.`);
+      }
       const body = await renderProposalBody({
         action,
         contentOid: action.proposalOid,
-        previousBody: openPulls[0].body,
+        previousBody: openPull.body ?? '',
         proposalOid: uploadedProposalOid,
       });
       await updatePullRequestBody(token, action.openPr, body);
@@ -1183,10 +1565,10 @@ export async function checkPullRequest(
 ): Promise<void> {
   await ensureSeedRepository();
   if (
-    pull?.base?.repo?.full_name !== PILOT_REPOSITORY ||
-    pull?.head?.repo?.full_name !== PILOT_REPOSITORY ||
-    pull.base.ref !== `releases/${pull.head.ref?.replace('staged/', '')}` ||
-    !pull.head.ref?.startsWith('staged/')
+    pull.base.repo.full_name !== PILOT_REPOSITORY ||
+    pull.head.repo.full_name !== PILOT_REPOSITORY ||
+    pull.base.ref !== `releases/${pull.head.ref.replace('staged/', '')}` ||
+    !pull.head.ref.startsWith('staged/')
   ) {
     throw new Error('This is not a canonical same-repository release proposal PR.');
   }

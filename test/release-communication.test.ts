@@ -16,9 +16,15 @@ import {
   renderReleaseRecord,
 } from '../scripts/shared/release-communication/records.ts';
 
-const oid = (character) => character.repeat(40);
+const oid = (character: string): string => character.repeat(40);
 
-const migration = ({ priority, title = 'Move to the new API' }) => `---
+const migration = ({
+  priority,
+  title = 'Move to the new API',
+}: {
+  priority: string;
+  title?: string;
+}): string => `---
 priority: ${priority}
 ---
 # ${title}
@@ -213,6 +219,7 @@ test('source PR opt-out labels classify release notes and QA independently', () 
       ],
       line: 'v2.1',
     });
+    assert.ok(change);
     assert.equal(change.qaSkip, expected.qaSkip);
     assert.equal(change.releaseNoteSkip, expected.releaseNoteSkip);
   }
@@ -238,7 +245,9 @@ test('migration records accept free-text priorities and compose without renderin
     records.map(({ filename }) => filename),
     ['a-first-filename.md', 'z-last-filename.md', 'later-natural-number.md']
   );
-  assert.equal(Object.hasOwn(records[0], 'priority'), false);
+  const firstRecord = records[0];
+  assert.ok(firstRecord);
+  assert.equal(Object.hasOwn(firstRecord, 'priority'), false);
   assert.doesNotMatch(records.map(({ body }) => body).join('\n'), /priority:/);
 });
 

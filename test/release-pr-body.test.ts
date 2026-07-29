@@ -92,7 +92,7 @@ const authoredHighlights = [
   'New projects reach their first rendered story with fewer steps.',
 ].join('\n');
 
-const writeHighlights = (body, highlights = authoredHighlights) =>
+const writeHighlights = (body: string, highlights = authoredHighlights): string =>
   body.replace(EMPTY_RELEASE_HIGHLIGHTS, highlights);
 
 test('the initial-line template renders all classification combinations and blocks for release highlights', () => {
@@ -391,6 +391,8 @@ test('release history requires unambiguous source metadata and defaults direct c
     line: 'v1.0',
   });
 
+  assert.ok(changes[0]);
+  assert.ok(changes[1]);
   assert.equal(changes[0].qaSkip, true);
   assert.equal(changes[0].releaseNoteSkip, false);
   assert.equal(changes[1].qaSkip, false);
