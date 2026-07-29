@@ -8,7 +8,7 @@
     "noImplicitAny": false,
     "noUncheckedIndexedAccess": false,
     "rewriteRelativeImportExtensions": true,
-    "strict": false,
+    "strict": true,
     "target": "ESNext",
     "types": ["node"],
     "verbatimModuleSyntax": true

@@ -136,7 +136,7 @@ export function parsePatchbackCommitMessage(message) {
     String(message ?? '')
       .split('\n')
       .map((line) => /^([A-Za-z-]+): (.+)$/.exec(line))
-      .filter(Boolean)
+      .filter((match): match is RegExpExecArray => match !== null)
       .map((match) => [match[1], match[2]])
   );
   const migrationPaths = trailers['Patchback-Migration-Records'];

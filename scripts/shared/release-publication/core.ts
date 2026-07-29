@@ -139,12 +139,19 @@ const renderMigrationLinks = (records, version) => {
     : links.join('\n');
 };
 
+type ComposeGitHubReleaseBodyOptions = {
+  highlights: string;
+  migrationRecords?: Array<{ filename: string; title: string }>;
+  releaseRecord: string;
+  version: string;
+};
+
 export function composeGitHubReleaseBody({
   highlights,
   migrationRecords = [],
   releaseRecord,
   version,
-}) {
+}: ComposeGitHubReleaseBodyOptions) {
   validateReleaseHighlights(highlights);
   const migrations = renderMigrationLinks(migrationRecords, version);
   const changes = extractReleaseRecordChanges({ source: releaseRecord, version });

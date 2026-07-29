@@ -24,12 +24,15 @@ loadable through the synchronous Actions bridge.
 1. **Execution:** Node 24 strips erasable TypeScript syntax and executes the
    remaining JavaScript. It does not type-check, apply `tsconfig` aliases, or
    transform unsupported TypeScript constructs.
-2. **Type correctness:** after `npm ci`, CI runs TypeScript with `noEmit`,
-   `erasableSyntaxOnly`, and `verbatimModuleSyntax`.
+2. **Type correctness:** after `npm ci`, CI runs TypeScript strict mode with
+   `noEmit`, `erasableSyntaxOnly`, and `verbatimModuleSyntax`. Implicit-any
+   cleanup remains a visible migration exception; new shared boundaries should
+   still declare their types.
 3. **Dependency boundary:** post-install CI inspects every strict source and
    its runtime edges. A separate pre-install smoke imports the graph while
    repository packages are absent.
 
 If shared logic needs a runtime package, move it to an installed
 `scripts/<feature>/**` directory. If it becomes Actions-specific, move it to
-`scripts/github/**`.
+`scripts/github/**`. Keep any type suppression narrow and explain it where it
+appears.

@@ -10,7 +10,11 @@ export default async function handler({
   env,
 }: GitHubHandlerRuntime): Promise<void> {
   const pullRequest = context.payload.pull_request?.number;
-  if (!Number.isSafeInteger(pullRequest) || pullRequest <= 0) {
+  if (
+    typeof pullRequest !== 'number' ||
+    !Number.isSafeInteger(pullRequest) ||
+    pullRequest <= 0
+  ) {
     throw new Error('Closed release signal has no positive pull request number.');
   }
   await writeFile(

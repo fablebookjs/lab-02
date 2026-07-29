@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import test from 'node:test';
@@ -21,6 +21,24 @@ const run = (command, args, cwd, env = process.env) =>
   execute(command, args, { cwd, env, maxBuffer: 20 * 1024 * 1024 });
 
 const git = (args, cwd) => run('git', args, cwd);
+const invokeController = (operation, input, cwd, env = process.env) =>
+  run(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      [
+        "const controller = await import('./scripts/github/release-proposal/controller.ts');",
+        'await controller[process.env.TEST_OPERATION](JSON.parse(process.env.TEST_INPUT));',
+      ].join('\n'),
+    ],
+    cwd,
+    {
+      ...env,
+      TEST_INPUT: JSON.stringify(input),
+      TEST_OPERATION: operation,
+    },
+  );
 
 const copySeed = async (destination) => {
   await cp(repositoryRoot, destination, {
@@ -51,17 +69,10 @@ test('prepare-cut creates two validated children and no repository refs', async 
     await git(['commit', '-m', 'seed'], repository);
     const sourceOid = (await git(['rev-parse', 'HEAD'], repository)).stdout.trim();
 
-    await run(
-      process.execPath,
-      [
-        'scripts/github/release-proposal/controller.ts',
-        'prepare-cut',
-        '--next-development',
-        'minor',
-        '--output',
-        artifact,
-      ],
-      repository
+    await invokeController(
+      'prepareCut',
+      { 'next-development': 'minor', output: artifact },
+      repository,
     );
 
     const transition = JSON.parse(await readFile(join(artifact, 'transition.json'), 'utf8'));
@@ -110,7 +121,6 @@ test('prepare-cut creates two validated children and no repository refs', async 
     assert.equal((await git(['rev-parse', 'main'], repository)).stdout.trim(), sourceOid);
     assert.equal((await git(['branch', '--list'], repository)).stdout.trim(), '* main');
 
-    const eventPath = join(temporaryRoot, 'pull-request.json');
     const pullRequest = {
       pull_request: {
         body: `${RELEASE_HIGHLIGHTS_START}
@@ -128,33 +138,20 @@ ${RELEASE_HIGHLIGHTS_END}`,
         },
       },
     };
-    await writeFile(eventPath, JSON.stringify(pullRequest), 'utf8');
-    await run(process.execPath, ['scripts/github/release-proposal/controller.ts', 'check-pr'], repository, {
-      ...process.env,
-      GITHUB_EVENT_PATH: eventPath,
-    });
+    await invokeController('checkPullRequest', pullRequest.pull_request, repository);
     pullRequest.pull_request.body = `${RELEASE_HIGHLIGHTS_START}
 ${EMPTY_RELEASE_HIGHLIGHTS}
 ${RELEASE_HIGHLIGHTS_END}`;
-    await writeFile(eventPath, JSON.stringify(pullRequest), 'utf8');
     await assert.rejects(
-      () =>
-        run(process.execPath, ['scripts/github/release-proposal/controller.ts', 'check-pr'], repository, {
-          ...process.env,
-          GITHUB_EVENT_PATH: eventPath,
-        }),
-      /blocking empty placeholder/
+      () => invokeController('checkPullRequest', pullRequest.pull_request, repository),
+      /blocking empty placeholder/,
     );
     pullRequest.pull_request.body = `${RELEASE_HIGHLIGHTS_START}
 **Worth upgrading:** The release proposal is ready for user evaluation.
 ${RELEASE_HIGHLIGHTS_END}`;
     pullRequest.pull_request.base.sha = transition.developmentOid;
-    await writeFile(eventPath, JSON.stringify(pullRequest), 'utf8');
     await assert.rejects(() =>
-      run(process.execPath, ['scripts/github/release-proposal/controller.ts', 'check-pr'], repository, {
-        ...process.env,
-        GITHUB_EVENT_PATH: eventPath,
-      })
+      invokeController('checkPullRequest', pullRequest.pull_request, repository),
     );
 
     await git(['bundle', 'verify', join(artifact, 'objects.bundle')], repository);

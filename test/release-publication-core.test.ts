@@ -77,7 +77,22 @@ const authorityFixture = () => ({
   },
 });
 
-const registryDocument = (overrides = {}) => ({
+type RegistryDocument = {
+  'dist-tags': Record<string, string>;
+  name: string;
+  versions: Record<
+    string,
+    {
+      dist: { integrity: string };
+      name: string;
+      version: string;
+    }
+  >;
+};
+
+const registryDocument = (
+  overrides: Partial<RegistryDocument> = {},
+): RegistryDocument => ({
   'dist-tags': { 'v-1.0': '1.0.0', latest: '0.9.0' },
   name: '@fablebook/lab-02-core',
   versions: {

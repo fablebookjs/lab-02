@@ -218,6 +218,20 @@ const renderTemplate = (template, view) => {
   return rendered;
 };
 
+type RenderReleasePrBodyOptions = {
+  changes: unknown[];
+  line: string;
+  migrationRecords?: Array<{ filename: string; title: string }>;
+  packageNames: string[];
+  previousBody?: string;
+  previousHighlightsBody?: string;
+  proposalOid: string;
+  releaseOid: string;
+  supersededPr?: number;
+  template: string;
+  version: string;
+};
+
 export function renderReleasePrBody({
   changes,
   line,
@@ -230,7 +244,7 @@ export function renderReleasePrBody({
   supersededPr,
   template,
   version,
-}) {
+}: RenderReleasePrBodyOptions) {
   const parsedLine = parseReleaseLine(line);
   const parsedVersion = parseStableVersion(version);
   if (parsedLine.major !== parsedVersion.major || parsedLine.minor !== parsedVersion.minor) {

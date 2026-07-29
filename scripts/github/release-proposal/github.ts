@@ -71,7 +71,7 @@ export async function getRef(token, ref) {
 }
 
 export async function listMatchingRefs(token, prefix) {
-  const refs = [];
+  const refs: any[] = [];
   for (let page = 1; ; page += 1) {
     const query = new URLSearchParams({ page: String(page), per_page: '100' });
     const batch = await githubRequest(
@@ -100,7 +100,7 @@ export async function resolveRefObject(token, object) {
 }
 
 export async function listReleasePulls(token, line) {
-  const pulls = [];
+  const pulls: any[] = [];
   for (let page = 1; ; page += 1) {
     const query = new URLSearchParams({
       base: `releases/${line}`,

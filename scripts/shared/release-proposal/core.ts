@@ -200,15 +200,6 @@ export function planProposalMaintenance(lines) {
         );
       }
       if (state.staged.sourceOid === state.releaseOid) {
-        if (state.staged.releaseRecordCurrent === false) {
-          return {
-            kind: 'refresh',
-            line: state.line,
-            openPr: state.openPr,
-            reason: 'staged proposal is missing its generated release record',
-            version: state.staged.version,
-          };
-        }
         if (state.openPr.bodyCurrent === false) {
           return {
             kind: 'sync',
@@ -234,7 +225,6 @@ export function planProposalMaintenance(lines) {
         state.staged !== null &&
         state.staged.oid !== state.latestClosedPr.headOid &&
         state.staged.sourceOid === state.releaseOid &&
-        state.staged.releaseRecordCurrent !== false &&
         state.staged.version === expectedVersion
       ) {
         return {
@@ -278,14 +268,6 @@ export function planProposalMaintenance(lines) {
         );
       }
       if (state.staged.sourceOid === state.releaseOid) {
-        if (state.staged.releaseRecordCurrent === false) {
-          return {
-            kind: 'create',
-            line: state.line,
-            reason: 'staged proposal is missing its generated release record',
-            version: expectedVersion,
-          };
-        }
         return {
           kind: 'open',
           line: state.line,

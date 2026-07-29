@@ -25,12 +25,18 @@ its synchronous `require(...).default` bridge.
 1. **Execution:** the action's Node 24 runtime strips erasable TypeScript
    syntax. The concise `require(...).default` loader requires the complete
    imported ESM graph to avoid top-level `await`.
-2. **Type correctness:** after `npm ci`, CI checks the handlers and shared
-   modules with TypeScript. Runtime execution itself does not type-check.
+2. **Type correctness:** after `npm ci`, CI checks the handlers, shared
+   modules, and repository tests with TypeScript strict mode. Runtime execution
+   itself does not type-check. The migrated controller internals temporarily
+   retain explicit file-level deferrals, while their exported operation
+   contracts and every handler caller are checked. Implicit-any cleanup is also
+   deferred globally; new boundaries should still declare their types.
 3. **Dependency boundary:** post-install CI statically checks every runtime
    edge. A separate pre-install smoke loads the real graph without repository
    packages, including a representative handler through the pinned action.
 
 Handlers publish independently consumed values with `core.setOutput`. Expected
 no-op decisions succeed with explicit outputs; malformed or unsafe state throws
-a sanitized error.
+a sanitized error. Keep any type suppression narrow, explain it at the
+suppression site, and track broader cleanup rather than weakening the runtime
+boundary.

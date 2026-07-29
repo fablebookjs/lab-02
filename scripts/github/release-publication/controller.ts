@@ -1,9 +1,9 @@
+// @ts-nocheck -- The exported operation contracts are strict; typing the migrated controller internals is deferred.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 import { listPublicPackages } from '../../shared/workspace/packages.ts';
@@ -42,7 +42,53 @@ type RunOptions = {
   env?: NodeJS.ProcessEnv;
 };
 
-type StringOptions = Record<string, string>;
+export type ResolvePublicationOptions = {
+  'github-token': string;
+  output: string;
+  signal: string;
+};
+
+export type PublicationResolution =
+  | { publish: false }
+  | {
+      publish: true;
+      snapshot: string;
+      version: string;
+    };
+
+export type PreparePublicationOptions = {
+  authority: string;
+  output: string;
+  snapshot: string;
+};
+
+export type PublishPackagesOptions = {
+  'github-token': string;
+  manifest: string;
+  snapshot: string;
+  tarballs: string;
+};
+
+export type FinalizeReleaseOptions = {
+  'github-token': string;
+  manifest: string;
+  snapshot: string;
+};
+
+export type ResolvePromotionOptions = {
+  'github-token': string;
+  version: string;
+};
+
+export type PromotionResolution = {
+  snapshot: string;
+};
+
+export type PromoteLatestOptions = {
+  'github-token': string;
+  snapshot: string;
+  version: string;
+};
 
 const run = async (command, args, options: RunOptions = {}) => {
   try {
@@ -63,19 +109,6 @@ const readJson = async (path) => JSON.parse(await readFile(path, 'utf8'));
 const writeJson = async (path, value) =>
   writeFile(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 
-const parseOptions = (values) => {
-  const options: StringOptions = {};
-  for (let index = 0; index < values.length; index += 2) {
-    const name = values[index];
-    const value = values[index + 1];
-    if (!name?.startsWith('--') || value === undefined) {
-      throw new Error(`Invalid argument list: ${values.join(' ')}`);
-    }
-    options[name.slice(2)] = value;
-  }
-  return options;
-};
-
 const requireOption = (options, name) => {
   if (!options[name]) {
     throw new Error(`Missing required option --${name}`);
@@ -83,20 +116,12 @@ const requireOption = (options, name) => {
   return options[name];
 };
 
-const requireGithubToken = (options) => {
-  const token = options['github-token'] ?? process.env.GH_TOKEN;
+const requireGithubToken = (options: { 'github-token': string }) => {
+  const token = options['github-token'];
   if (!token) {
     throw new Error('An authenticated GitHub capability is required.');
   }
   return token;
-};
-
-const writeLegacyOutputs = async (options, outputs) => {
-  if (!options['github-output']) return;
-  const body = Object.entries(outputs)
-    .map(([name, value]) => `${name}=${String(value)}\n`)
-    .join('');
-  await appendFile(resolve(options['github-output']), body, 'utf8');
 };
 
 const validateOid = (oid, label) => {
@@ -207,7 +232,9 @@ const canonicalReleasePull = (pull) => {
   );
 };
 
-export async function resolvePublication(options) {
+export async function resolvePublication(
+  options: ResolvePublicationOptions,
+): Promise<PublicationResolution> {
   ensureTrustedMain();
   const signal = await readJson(resolve(requireOption(options, 'signal')));
   const output = resolve(requireOption(options, 'output'));
@@ -218,8 +245,7 @@ export async function resolvePublication(options) {
   const token = requireGithubToken(options);
   const pull = await getPullRequest(token, signal.pullRequest);
   if (!canonicalReleasePull(pull) || pull.merged_at === null) {
-    const outputs = { publish: false };
-    await writeLegacyOutputs(options, outputs);
+    const outputs: PublicationResolution = { publish: false };
     console.log(`Pull request ${signal.pullRequest} does not authorize publication.`);
     return outputs;
   }
@@ -235,12 +261,11 @@ export async function resolvePublication(options) {
     repository: PILOT_REPOSITORY,
     schema: 1,
   });
-  const outputs = {
+  const outputs: PublicationResolution = {
     publish: true,
     snapshot: authority.snapshotOid,
     version: authority.version,
   };
-  await writeLegacyOutputs(options, outputs);
   console.log(`Resolved ${authority.version} at ${authority.snapshotOid}.`);
   return outputs;
 }
@@ -298,7 +323,9 @@ const comparePackageSet = (manifest, packages) => {
   );
 };
 
-export async function preparePublication(options) {
+export async function preparePublication(
+  options: PreparePublicationOptions,
+): Promise<void> {
   const authorityDocument = await readJson(resolve(requireOption(options, 'authority')));
   const snapshot = resolve(requireOption(options, 'snapshot'));
   const output = resolve(requireOption(options, 'output'));
@@ -426,7 +453,7 @@ const observeExactPublication = async (manifest, pkg) =>
     version: manifest.version,
   });
 
-export async function publishPackages(options) {
+export async function publishPackages(options: PublishPackagesOptions): Promise<void> {
   ensureTrustedMain();
   assertOidcPublishEnvironment({
     nodeAuthToken: process.env.NODE_AUTH_TOKEN,
@@ -596,7 +623,7 @@ const releaseCompletionState = async (token, manifest) => {
   return true;
 };
 
-export async function finalizeRelease(options) {
+export async function finalizeRelease(options: FinalizeReleaseOptions): Promise<void> {
   ensureTrustedMain();
   const { manifest, snapshot } = await loadPublication(options);
   const token = requireGithubToken(options);
@@ -662,13 +689,14 @@ const validateCompletedRelease = async (token, version) => {
   return tagObject.object.sha;
 };
 
-export async function resolvePromotion(options) {
+export async function resolvePromotion(
+  options: ResolvePromotionOptions,
+): Promise<PromotionResolution> {
   ensureTrustedMain();
   const version = requireOption(options, 'version');
   parseStableVersion(version);
   const snapshotOid = await validateCompletedRelease(requireGithubToken(options), version);
-  const outputs = { snapshot: snapshotOid };
-  await writeLegacyOutputs(options, outputs);
+  const outputs: PromotionResolution = { snapshot: snapshotOid };
   console.log(`Resolved completed v${version} at ${snapshotOid}.`);
   return outputs;
 }
@@ -678,7 +706,7 @@ const observePromotion = async (version, pkg) => {
   return promotionDisposition({ document, name: pkg.name, version });
 };
 
-export async function promoteLatest(options) {
+export async function promoteLatest(options: PromoteLatestOptions): Promise<void> {
   ensureTrustedMain();
   const version = requireOption(options, 'version');
   parseStableVersion(version);
@@ -721,41 +749,3 @@ export async function promoteLatest(options) {
   }
   console.log(`Promoted the complete ${version} package set to latest.`);
 }
-
-export async function main(argumentValues = process.argv.slice(2)) {
-  const [command, ...optionValues] = argumentValues;
-  const options = parseOptions(optionValues);
-
-  switch (command) {
-    case 'resolve':
-      await resolvePublication(options);
-      break;
-    case 'prepare':
-      await preparePublication(options);
-      break;
-    case 'publish':
-      await publishPackages(options);
-      break;
-    case 'finalize':
-      await finalizeRelease(options);
-      break;
-    case 'resolve-promotion':
-      await resolvePromotion(options);
-      break;
-    case 'promote':
-      await promoteLatest(options);
-      break;
-    default:
-      throw new Error(
-        'Usage: controller.ts <resolve|prepare|publish|finalize|resolve-promotion|promote> [options]'
-      );
-  }
-}
-
-const isMain =
-  process.argv[1] !== undefined && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
-
-if (isMain) void main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});

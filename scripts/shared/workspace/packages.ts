@@ -1,6 +1,6 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 export const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -85,22 +85,3 @@ export async function listPublicPackages(root = repositoryRoot) {
 
   return packages.sort((left, right) => left.name.localeCompare(right.name));
 }
-
-const isMain =
-  process.argv[1] !== undefined && pathToFileURL(process.argv[1]).href === import.meta.url;
-
-async function main(): Promise<void> {
-  const packages = await listPublicPackages();
-  console.log(
-    JSON.stringify(
-      packages.map(({ location, name, version }) => ({ location, name, version })),
-      null,
-      2
-    )
-  );
-}
-
-if (isMain) void main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});

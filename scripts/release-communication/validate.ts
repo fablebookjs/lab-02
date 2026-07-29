@@ -14,14 +14,14 @@ let entries;
 try {
   entries = await readdir(root, { withFileTypes: true });
 } catch (error) {
-  if (error.code === 'ENOENT') {
+  if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
     entries = [];
   } else {
     throw error;
   }
 }
 
-const lines = [];
+const lines: string[] = [];
 for (const entry of entries) {
   if (entry.isFile() && entry.name === 'TEMPLATE.md') {
     composeMigrationRecords([

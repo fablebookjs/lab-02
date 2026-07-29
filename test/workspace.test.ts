@@ -37,14 +37,19 @@ const workflowFiles = [
   'release-proposal-signal.yml',
   'repair-release-proposals.yml',
 ];
-const workflows = new Map(
+const workflows = new Map<string, string>(
   await Promise.all(
     workflowFiles.map(async (filename) => [
       filename,
       await readFile(join(repositoryRoot, '.github/workflows', filename), 'utf8'),
-    ])
+    ] as const),
   )
 );
+const workflow = (filename: string): string => {
+  const source = workflows.get(filename);
+  assert.ok(source, `${filename} was not loaded`);
+  return source;
+};
 
 test('the complete public workspace set is discovered in stable order', () => {
   assert.deepEqual(
@@ -59,6 +64,7 @@ test('all public packages and internal dependencies use the lockstep version', (
   }
 
   const addon = packages.find(({ name }) => name === '@fablebook/lab-02-addon');
+  assert.ok(addon);
   assert.equal(
     addon.manifest.dependencies['@fablebook/lab-02-core'],
     rootManifest.version,
@@ -89,7 +95,7 @@ test('the trusted PR description check delegates to the zero-install handler', (
 test('workflow names group the Actions overview by maintainer-facing purpose', () => {
   assert.deepEqual(
     workflowFiles.map((filename) => {
-      const source = workflows.get(filename);
+      const source = workflow(filename);
       const match = /^name: '(.+)'$/m.exec(source);
       assert.ok(match, `${filename} must declare a quoted workflow name`);
       return match[1];
@@ -110,8 +116,8 @@ test('workflow names group the Actions overview by maintainer-facing purpose', (
 });
 
 test('manual proposal repair is separate from automatic proposal maintenance', () => {
-  const automaticMaintenance = workflows.get('maintain-release-proposal.yml');
-  const manualRepair = workflows.get('repair-release-proposals.yml');
+  const automaticMaintenance = workflow('maintain-release-proposal.yml');
+  const manualRepair = workflow('repair-release-proposals.yml');
 
   assert.match(automaticMaintenance, /^  workflow_call:$/m);
   assert.doesNotMatch(automaticMaintenance, /^  workflow_dispatch:$/m);
@@ -131,7 +137,7 @@ test('release controllers follow the renamed credentialless signal workflow', ()
     'maintain-release-proposal.yml',
     'publish-stable-release.yml',
   ]) {
-    assert.match(workflows.get(filename), /- 'Release: Trigger proposal maintenance'/);
+    assert.match(workflow(filename), /- 'Release: Trigger proposal maintenance'/);
   }
 });
 

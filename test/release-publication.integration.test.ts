@@ -9,9 +9,27 @@ import { promisify } from 'node:util';
 import { repositoryRoot } from '../scripts/shared/workspace/packages.ts';
 
 const execute = promisify(execFile);
-const run = (command, args, cwd) =>
-  execute(command, args, { cwd, env: process.env, maxBuffer: 20 * 1024 * 1024 });
+const run = (command, args, cwd, env = process.env) =>
+  execute(command, args, { cwd, env, maxBuffer: 20 * 1024 * 1024 });
 const git = (args, cwd) => run('git', args, cwd);
+const invokeController = (operation, input, cwd) =>
+  run(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      [
+        "const controller = await import('./scripts/github/release-publication/controller.ts');",
+        'await controller[process.env.TEST_OPERATION](JSON.parse(process.env.TEST_INPUT));',
+      ].join('\n'),
+    ],
+    cwd,
+    {
+      ...process.env,
+      TEST_INPUT: JSON.stringify(input),
+      TEST_OPERATION: operation,
+    },
+  );
 
 const copySeed = async (destination) => {
   await cp(repositoryRoot, destination, {
@@ -62,19 +80,10 @@ test('the authorized stable snapshot packs the complete lockstep package set', a
       'utf8'
     );
 
-    await run(
-      process.execPath,
-      [
-        'scripts/github/release-publication/controller.ts',
-        'prepare',
-        '--authority',
-        authorityPath,
-        '--snapshot',
-        repository,
-        '--output',
-        output,
-      ],
-      repository
+    await invokeController(
+      'preparePublication',
+      { authority: authorityPath, output, snapshot: repository },
+      repository,
     );
 
     const manifest = JSON.parse(await readFile(join(output, 'publication.json'), 'utf8'));
