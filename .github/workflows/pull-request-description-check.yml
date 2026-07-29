@@ -9,80 +9,23 @@ on:
       - reopened
       - synchronize
 
-permissions: {}
+permissions:
+  contents: read
 
 jobs:
   description:
     name: PR description has no unchecked tasks
     runs-on: ubuntu-latest
     steps:
+      - name: Check out only the trusted main controller
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          path: controller
+          persist-credentials: false
+          ref: main
       - name: Reject unchecked Markdown tasks
-        env:
-          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          node --input-type=module <<'NODE'
-          const body = process.env.PR_BODY ?? '';
-          const errors = [];
-          if (/^\s*[-*+]\s+\[ \](?:\s|$)/m.test(body)) {
-            errors.push('Resolve every unchecked Markdown task in the pull request description.');
-          }
-
-          const line = /^releases\/(v[0-9]+\.[0-9]+)$/.exec(process.env.PR_BASE_REF ?? '');
-          const canonicalReleasePr =
-            process.env.PR_HEAD_REPOSITORY === process.env.REPOSITORY &&
-            line !== null &&
-            process.env.PR_HEAD_REF === `staged/${line[1]}`;
-          if (canonicalReleasePr) {
-            const identities = [
-              ...body.matchAll(
-                /<!-- fablebook:proposal=[0-9a-f]{40} source=[0-9a-f]{40} version=([^ ]+) -->/g
-              ),
-            ];
-            const version = identities.length === 1
-              ? /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(
-                  identities[0][1]
-                )
-              : null;
-            if (version === null) {
-              errors.push('Use one generated release proposal identity.');
-            }
-            const startMarker = '<!-- fablebook:release-highlights:start -->';
-            const endMarker = '<!-- fablebook:release-highlights:end -->';
-            const emptyMarker = '<!-- fablebook:release-highlights=empty -->';
-            const starts = body.split(startMarker).length - 1;
-            const ends = body.split(endMarker).length - 1;
-            const start = body.indexOf(startMarker) + startMarker.length;
-            const end = body.indexOf(endMarker, start);
-            const highlights =
-              starts === 1 && ends === 1 && end >= start
-                ? body.slice(start, end).trim()
-                : '';
-            const visibleHighlights = highlights
-              .replace(/<!--[\s\S]*?-->/g, '')
-              .trim();
-            if (
-              version !== null &&
-              Number.parseInt(version[3], 10) === 0 &&
-              (
-                starts !== 1 ||
-                ends !== 1 ||
-                highlights.includes(emptyMarker) ||
-                visibleHighlights.length === 0
-              )
-            ) {
-              errors.push(
-                'Replace the marked Release highlights placeholder with user-facing highlights.'
-              );
-            }
-          }
-
-          if (errors.length > 0) {
-            console.error(errors.join('\n'));
-            process.exit(1);
-          }
-          console.log('The pull request description has no unchecked Markdown tasks.');
-          NODE
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          script: |
+            const handler = require('./controller/scripts/github/pull-request/check-description.ts').default
+            return handler({ github, context, core, env: process.env })

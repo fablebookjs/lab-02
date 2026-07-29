@@ -19,11 +19,36 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - name: Use Node.js 22
+      - name: Use Node.js 24
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22
+          node-version: 24
           package-manager-cache: false
+      - name: Load the zero-install graph before dependencies exist
+        run: npm run smoke:zero-install
+      - name: Exercise a representative Actions handler before dependencies exist
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          script: |
+            const handler = require('./scripts/github/pull-request/check-description.ts').default
+            return handler({
+              github,
+              context: {
+                payload: {
+                  pull_request: {
+                    base: { ref: 'main' },
+                    body: 'CI zero-install smoke',
+                    head: {
+                      ref: 'ci-zero-install-smoke',
+                      repo: { full_name: `${context.repo.owner}/${context.repo.repo}` },
+                    },
+                  },
+                },
+                repo: context.repo,
+              },
+              core,
+              env: process.env,
+            })
       - name: Install, compile, test, and exercise packed packages
         run: |
           npm ci --ignore-scripts --no-audit --no-fund

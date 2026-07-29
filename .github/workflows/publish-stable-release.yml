@@ -37,7 +37,7 @@ jobs:
           node-version: 24
           package-manager-cache: false
       - name: Download the inert release pull request identity
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           github-token: ${{ github.token }}
           name: release-pr-${{ github.event.workflow_run.id }}
@@ -46,12 +46,13 @@ jobs:
       - name: Resolve the exact authorized snapshot from GitHub
         id: resolve
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: >-
-          node controller/scripts/release-publication.mjs resolve
-          --signal "${{ runner.temp }}/release-signal/release-pr.json"
-          --output "${{ runner.temp }}/release-publication"
-          --github-output "$GITHUB_OUTPUT"
+          OUTPUT: ${{ runner.temp }}/release-publication
+          SIGNAL: ${{ runner.temp }}/release-signal/release-pr.json
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          script: |
+            const handler = require('./controller/scripts/github/release-publication/resolve.ts').default
+            return handler({ github, context, core, env: process.env })
       - name: Pin the publication packer
         if: steps.resolve.outputs.publish == 'true'
         run: npm install --global npm@12.0.1
@@ -71,11 +72,15 @@ jobs:
           npm run check
       - name: Pack the complete package set without publication authority
         if: steps.resolve.outputs.publish == 'true'
-        run: >-
-          node controller/scripts/release-publication.mjs prepare
-          --authority "${{ runner.temp }}/release-publication/authority.json"
-          --snapshot "$GITHUB_WORKSPACE/snapshot"
-          --output "${{ runner.temp }}/release-publication"
+        env:
+          AUTHORITY: ${{ runner.temp }}/release-publication/authority.json
+          OUTPUT: ${{ runner.temp }}/release-publication
+          SNAPSHOT: ${{ github.workspace }}/snapshot
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          script: |
+            const handler = require('./controller/scripts/github/release-publication/prepare.ts').default
+            return handler({ github, context, core, env: process.env })
       - name: Transfer the inert publication manifest and tarballs
         if: steps.resolve.outputs.publish == 'true'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -119,18 +124,20 @@ jobs:
       - name: Pin the npm trusted-publishing client
         run: npm install --global npm@12.0.1
       - name: Download the prepared package set
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: stable-publication-${{ github.run_id }}
           path: ${{ runner.temp }}/release-publication
       - name: Query first and publish only missing exact packages
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: >-
-          node controller/scripts/release-publication.mjs publish
-          --manifest "${{ runner.temp }}/release-publication/publication.json"
-          --tarballs "${{ runner.temp }}/release-publication/tarballs"
-          --snapshot "$GITHUB_WORKSPACE/snapshot"
+          MANIFEST: ${{ runner.temp }}/release-publication/publication.json
+          SNAPSHOT: ${{ github.workspace }}/snapshot
+          TARBALLS: ${{ runner.temp }}/release-publication/tarballs
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          script: |
+            const handler = require('./controller/scripts/github/release-publication/publish.ts').default
+            return handler({ github, context, core, env: process.env })
 
   finalize:
     needs:
@@ -163,7 +170,7 @@ jobs:
           node-version: 24
           package-manager-cache: false
       - name: Download the completed publication manifest
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: stable-publication-${{ github.run_id }}
           path: ${{ runner.temp }}/release-publication
@@ -171,14 +178,17 @@ jobs:
         id: release-app
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
-          app-id: ${{ vars.RELEASE_APP_ID }}
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           permission-contents: write
           permission-pull-requests: read
       - name: Verify publication and complete the immutable release
         env:
-          GH_TOKEN: ${{ steps.release-app.outputs.token }}
-        run: >-
-          node controller/scripts/release-publication.mjs finalize
-          --manifest "${{ runner.temp }}/release-publication/publication.json"
-          --snapshot "$GITHUB_WORKSPACE/snapshot"
+          MANIFEST: ${{ runner.temp }}/release-publication/publication.json
+          SNAPSHOT: ${{ github.workspace }}/snapshot
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          github-token: ${{ steps.release-app.outputs.token }}
+          script: |
+            const handler = require('./controller/scripts/github/release-publication/finalize.ts').default
+            return handler({ github, context, core, env: process.env })
