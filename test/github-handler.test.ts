@@ -46,6 +46,19 @@ test('a canonical patch proposal does not require release highlights', async () 
   );
 });
 
+test('a canonical release proposal without generated identity fails closed', async () => {
+  await assert.rejects(
+    checkDescription(
+      runtime({
+        base: { ref: 'releases/v2.1' },
+        body: 'No generated proposal identity.',
+        head: { ref: 'staged/v2.1', repo: { full_name: 'fablebookjs/lab-02' } },
+      }),
+    ),
+    /Use one generated release proposal identity/,
+  );
+});
+
 test('unsafe pull request descriptions fail closed', async () => {
   await assert.rejects(
     checkDescription(
