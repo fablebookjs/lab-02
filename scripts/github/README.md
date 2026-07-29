@@ -27,10 +27,8 @@ its synchronous `require(...).default` bridge.
    imported ESM graph to avoid top-level `await`.
 2. **Type correctness:** after `npm ci`, CI checks the handlers, shared
    modules, and repository tests with TypeScript strict mode. Runtime execution
-   itself does not type-check. The migrated controller internals temporarily
-   retain explicit file-level deferrals, while their exported operation
-   contracts and every handler caller are checked. Implicit-any cleanup is also
-   deferred globally; new boundaries should still declare their types.
+   itself does not type-check. Implicit-any cleanup is temporarily deferred
+   globally; new boundaries should still declare their types.
 3. **Dependency boundary:** post-install CI statically checks every runtime
    edge. A separate pre-install smoke loads the real graph without repository
    packages, including a representative handler through the pinned action.

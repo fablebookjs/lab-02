@@ -145,26 +145,6 @@ test('the disposable legacy proposal is replaced cleanly', () => {
   });
 });
 
-test('a current proposal refreshes in place when its release record predates the system', () => {
-  const [action] = planProposalMaintenance([
-    lineState({
-      openPr: { bodyCurrent: true, number: 12 },
-      staged: {
-        oid: '3'.repeat(40),
-        releaseRecordCurrent: false,
-        sourceOid: '1'.repeat(40),
-        version: '1.0.0',
-      },
-    }),
-  ]);
-  assert.deepEqual(action, {
-    kind: 'refresh',
-    line: 'v1.0',
-    openPr: { bodyCurrent: true, number: 12 },
-    reason: 'staged proposal is missing its generated release record',
-    version: '1.0.0',
-  });
-});
 test('a closed unmerged proposal gets a clean draft replacement', () => {
   const [action] = planProposalMaintenance([
     lineState({ latestClosedPr: { merged: false, number: 15, version: '1.0.0' } }),

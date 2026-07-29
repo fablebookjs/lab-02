@@ -1,4 +1,3 @@
-// @ts-nocheck -- The exported operation contracts are strict; typing the migrated controller internals is deferred.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -62,6 +61,42 @@ type RunOptions = {
   env?: NodeJS.ProcessEnv;
 };
 
+type RootManifest = {
+  version?: string;
+  workspaces?: string[];
+};
+
+type PublicPackageManifest = {
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  name?: string;
+  optionalDependencies?: Record<string, string>;
+  peerDependencies?: Record<string, string>;
+  private?: boolean;
+  version?: string;
+};
+
+type MaintenanceState = {
+  closedPrs: Array<{ body: string; number: number; state: string }>;
+  completedOid: string | null;
+  completedVersion: string | null;
+  latestClosedPr: {
+    headOid: string;
+    mergeCommitOid: string;
+    merged: boolean;
+    number: number;
+    version: string;
+  } | null;
+  line: string;
+  openPr: {
+    bodyCurrent: boolean;
+    number: number;
+    replaceRequired: boolean;
+  } | null;
+  releaseOid: string;
+  staged: (ReturnType<typeof parseProposalMessage> & { oid: string }) | null;
+};
+
 export type PrepareCutOptions = {
   'next-development': string;
   output: string;
@@ -106,7 +141,8 @@ const run = async (command, args, options: RunOptions = {}) => {
       maxBuffer: 20 * 1024 * 1024,
     });
   } catch (error) {
-    const output = [error.stdout, error.stderr].filter(Boolean).join('\n');
+    const failure = error as { stderr?: string; stdout?: string };
+    const output = [failure.stdout, failure.stderr].filter(Boolean).join('\n');
     throw new Error(`${command} ${args.join(' ')} failed${output ? `\n${output}` : ''}`, {
       cause: error,
     });
@@ -156,21 +192,27 @@ const commitMessage = async (oid) => {
   return stdout.trimEnd();
 };
 
-const manifestAt = async (oid, path) => {
+const manifestAt = async <Manifest>(oid, path): Promise<Manifest> => {
   const { stdout } = await git(['show', `${oid}:${path}`]);
-  return JSON.parse(stdout);
+  return JSON.parse(stdout) as Manifest;
 };
 
 const publicPackagesAt = async (oid) => {
-  const root = await manifestAt(oid, 'package.json');
+  const root = await manifestAt<RootManifest>(oid, 'package.json');
   if (JSON.stringify(root.workspaces) !== JSON.stringify(['packages/*'])) {
     throw new Error('The release controller supports only the accepted packages/* seed workspace.');
   }
   const { stdout } = await git(['ls-tree', '-d', '--name-only', `${oid}:packages`]);
-  const packages = [];
+  const packages: Array<{ manifest: PublicPackageManifest; name: string }> = [];
   for (const directory of stdout.trim().split('\n').filter(Boolean)) {
-    const manifest = await manifestAt(oid, `packages/${directory}/package.json`);
+    const manifest = await manifestAt<PublicPackageManifest>(
+      oid,
+      `packages/${directory}/package.json`
+    );
     if (manifest.private !== true) {
+      if (typeof manifest.name !== 'string' || manifest.name.length === 0) {
+        throw new Error(`packages/${directory}/package.json has no package name.`);
+      }
       packages.push({ manifest, name: manifest.name });
     }
   }
@@ -188,7 +230,7 @@ const releasePrTemplate = (version) => {
 };
 
 const associatedPulls = async (token, oid) => {
-  const pulls = [];
+  const pulls: unknown[] = [];
   for (let page = 1; ; page += 1) {
     const query = new URLSearchParams({ page: String(page), per_page: '100' });
     const batch = await githubRequest(
@@ -205,7 +247,7 @@ const associatedPulls = async (token, oid) => {
 
 const findReleaseCut = async (line) => {
   const { stdout } = await git(['rev-list', '--first-parent', 'HEAD']);
-  const matches = [];
+  const matches: Array<ReturnType<typeof parseDevelopmentCommitMessage>> = [];
   for (const oid of stdout.trim().split('\n').filter(Boolean)) {
     try {
       const cut = parseDevelopmentCommitMessage(await commitMessage(oid));
@@ -217,7 +259,10 @@ const findReleaseCut = async (line) => {
         matches.push(cut);
       }
     } catch (error) {
-      if (!error.message.includes('missing required release-cut trailers')) {
+      if (
+        !(error instanceof Error) ||
+        !error.message.includes('missing required release-cut trailers')
+      ) {
         throw error;
       }
     }
@@ -390,7 +435,12 @@ const uploadCommitObject = async (token, oid) => {
     throw new Error(`Prepared commit ${oid} has no tree changes.`);
   }
 
-  const tree = [];
+  const tree: Array<{
+    content: string;
+    mode: string;
+    path: string;
+    type: string;
+  }> = [];
   for (const path of changedPaths) {
     const entry = (await git(['ls-tree', oid, '--', path])).stdout.trim();
     const match = /^(\d{6}) (blob) [0-9a-f]{40}\t(.+)$/.exec(entry);
@@ -459,7 +509,13 @@ const validateCutTransition = async (transition) => {
   validateFullOid(transition.sourceOid, 'Cut source');
   validateFullOid(transition.proposalOid, 'Proposal');
   validateFullOid(transition.developmentOid, 'Development commit');
-  const sourceManifest = await manifestAt(transition.sourceOid, 'package.json');
+  const sourceManifest = await manifestAt<RootManifest>(
+    transition.sourceOid,
+    'package.json'
+  );
+  if (typeof sourceManifest.version !== 'string') {
+    throw new Error('Cut source manifest has no version.');
+  }
   const minor = deriveCutVersions(sourceManifest.version, 'minor');
   const major = deriveCutVersions(sourceManifest.version, 'major');
   const matches = [minor, major].some(
@@ -492,7 +548,7 @@ const materializeCommit = async ({
     added = true;
     await materializeVersion(worktree, version);
     await git(['add', 'package.json', 'package-lock.json', 'packages'], { cwd: worktree });
-    let recordPath = null;
+    let recordPath: string | null = null;
     if (changes !== undefined) {
       recordPath = releaseRecordPath(version);
       await mkdir(join(worktree, 'releases'), { recursive: true });
@@ -578,7 +634,13 @@ export async function prepareCut(options: PrepareCutOptions): Promise<void> {
   const nextDevelopment = requireOption(options, 'next-development');
   const output = await prepareOutput(requireOption(options, 'output'));
   const sourceOid = (await git(['rev-parse', 'HEAD'])).stdout.trim();
-  const sourceManifest = await manifestAt(sourceOid, 'package.json');
+  const sourceManifest = await manifestAt<RootManifest>(
+    sourceOid,
+    'package.json'
+  );
+  if (typeof sourceManifest.version !== 'string') {
+    throw new Error('Cut source manifest has no version.');
+  }
   const versions = deriveCutVersions(sourceManifest.version, nextDevelopment);
   const attempt = randomUUID();
 
@@ -765,7 +827,7 @@ const loadMaintenanceStates = async (token) => {
     .map((ref) => ref.ref.replace('refs/heads/releases/', ''))
     .sort(compareReleaseLines);
 
-  const states = [];
+  const states: MaintenanceState[] = [];
   for (const line of lines) {
     const releaseRef = releaseRefs.find((ref) => ref.ref === `refs/heads/releases/${line}`);
     const releaseOid = refOid(releaseRef);
@@ -783,36 +845,35 @@ const loadMaintenanceStates = async (token) => {
       : null;
     const completed = await latestCompletedTag(token, line, tagRefs);
 
-    let staged = null;
+    let staged: MaintenanceState['staged'] = null;
     if (stagedRef !== null) {
       await git(['fetch', '--no-tags', 'origin', `+refs/heads/staged/${line}:refs/remotes/origin/staged/${line}`]);
       const metadata = parseProposalMessage(await commitMessage(stagedRef.oid));
       if (metadata.line !== line) {
         throw new Error(`staged/${line} contains proposal metadata for ${metadata.line}.`);
       }
-      let releaseRecordCurrent = false;
-      try {
-        const record = (
-          await git(['show', `${stagedRef.oid}:${releaseRecordPath(metadata.version)}`])
-        ).stdout;
-        releaseRecordCurrent = record.startsWith(
-          `# v${metadata.version} changes\n`
-        );
-      } catch {
-        // Existing proposals created before release records are refreshed in place.
-      }
-      staged = { ...metadata, oid: stagedRef.oid, releaseRecordCurrent };
+      staged = { ...metadata, oid: stagedRef.oid };
     }
 
-    const closedProposal =
-      latestClosed === null
-        ? null
-        : parseProposalMessage((await getGitCommit(token, latestClosed.head.sha)).message);
+    let latestClosedPr: MaintenanceState['latestClosedPr'] = null;
+    if (latestClosed !== null) {
+      const closedProposal = parseProposalMessage(
+        (await getGitCommit(token, latestClosed.head.sha)).message
+      );
+      latestClosedPr = {
+        headOid: latestClosed.head.sha,
+        mergeCommitOid: latestClosed.merge_commit_sha,
+        merged: latestClosed.merged_at !== null,
+        number: latestClosed.number,
+        version: closedProposal.version,
+      };
+    }
     const openPull = openPulls[0] ?? null;
     const bodyIdentity = extractReleasePrIdentity(openPull?.body);
     const bodyCurrent =
       staged !== null &&
-      bodyIdentity?.proposalOid === staged.oid &&
+      bodyIdentity !== null &&
+      bodyIdentity.proposalOid === staged.oid &&
       bodyIdentity.releaseOid === releaseOid &&
       bodyIdentity.version === staged.version;
 
@@ -822,16 +883,7 @@ const loadMaintenanceStates = async (token) => {
         .map(({ body, number, state }) => ({ body: body ?? '', number, state })),
       completedOid: completed.oid,
       completedVersion: completed.version,
-      latestClosedPr:
-        latestClosed === null
-          ? null
-          : {
-              headOid: latestClosed.head.sha,
-              mergeCommitOid: latestClosed.merge_commit_sha,
-              merged: latestClosed.merged_at !== null,
-              number: latestClosed.number,
-              version: closedProposal.version,
-            },
+      latestClosedPr,
       line,
       openPr: openPull
         ? {
@@ -857,14 +909,17 @@ export async function prepareMaintenance(
   const token = requireGithubToken(options);
   const states = await loadMaintenanceStates(token);
   const planned = planProposalMaintenance(states);
-  const actions = [];
-  const bundleRefs = [];
+  const actions: unknown[] = [];
+  const bundleRefs: Array<{ name: string; oid: string }> = [];
 
   for (const plan of planned) {
     if (plan.kind === 'none') {
       continue;
     }
     const state = states.find(({ line }) => line === plan.line);
+    if (state === undefined) {
+      throw new Error(`Maintenance plan references unknown release line ${plan.line}.`);
+    }
     let changes;
     if (plan.kind !== 'dormant') {
       await git([
@@ -1147,7 +1202,8 @@ export async function checkPullRequest(
   });
   const bodyIdentity = extractReleasePrIdentity(pull.body);
   if (
-    bodyIdentity?.proposalOid !== pull.head.sha ||
+    bodyIdentity === null ||
+    bodyIdentity.proposalOid !== pull.head.sha ||
     bodyIdentity.releaseOid !== pull.base.sha ||
     bodyIdentity.version !== metadata.version
   ) {
