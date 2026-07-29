@@ -165,19 +165,25 @@ export function validateReleaseCommunication(communication, version) {
   if (communication.kind !== expectedKind) {
     throw new Error(`${version} has contradictory ${communication.kind} communication.`);
   }
-  if (expectedKind === 'initial' && typeof communication.whyUpgrade !== 'string') {
-    throw new Error(`${version} initial communication requires Why upgrade content.`);
+  if (
+    expectedKind === 'initial' &&
+    typeof communication.releaseHighlights !== 'string'
+  ) {
+    throw new Error(`${version} initial communication requires release highlights.`);
   }
-  const whyUpgrade =
+  const releaseHighlights =
     expectedKind === 'initial'
       ? requireReleaseHighlights(
-          `${RELEASE_HIGHLIGHTS_START}\n${communication.whyUpgrade}\n${RELEASE_HIGHLIGHTS_END}`
+          `${RELEASE_HIGHLIGHTS_START}\n${communication.releaseHighlights}\n${RELEASE_HIGHLIGHTS_END}`
         )
       : null;
-  if (expectedKind !== 'initial' && communication.whyUpgrade !== null) {
-    throw new Error(`${version} patch communication cannot contain Why upgrade content.`);
+  if (
+    expectedKind !== 'initial' &&
+    communication.releaseHighlights !== null
+  ) {
+    throw new Error(`${version} patch communication cannot contain release highlights.`);
   }
-  return { changes, kind: expectedKind, whyUpgrade };
+  return { changes, kind: expectedKind, releaseHighlights };
 }
 
 export function deriveReleaseCommunication({ authority, body }) {
@@ -215,7 +221,7 @@ export function deriveReleaseCommunication({ authority, body }) {
           : publicChanges.length === 0
             ? 'maintenance'
             : 'patch',
-      whyUpgrade: rendered.whyUpgrade,
+      releaseHighlights: rendered.releaseHighlights,
     },
     authority.version
   );
@@ -279,7 +285,7 @@ export function composeGitHubReleaseBody({
       renderedChanges.length === 0
         ? ''
         : `\n\n## Noteworthy changes\n\n${renderedChanges}`;
-    return `${title}\n\n## Why upgrade\n\n${normalized.whyUpgrade}${noteworthyChanges}${migrationSection}\n`;
+    return `${title}\n\n## Release highlights\n\n${normalized.releaseHighlights}${noteworthyChanges}${migrationSection}\n`;
   }
   if (normalized.kind === 'patch') {
     return `${title}\n\n## What's changed\n\n${renderedChanges}${migrationSection}\n`;

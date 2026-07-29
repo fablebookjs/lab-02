@@ -83,7 +83,7 @@ remain in place. Its body is rendered from the plain Markdown files in
 [`.github/release-templates`](.github/release-templates), which use
 dependency-free named placeholders and keep the maintainer procedure
 reviewable without embedding prose in controller code. Initial `X.Y.0`
-proposals include a required **Why upgrade** block; patch proposals omit it.
+proposals include required **Release highlights**; patch proposals omit them.
 
 The generated change checklist links each release-line merge or direct commit.
 For a canonical merged PR, `release-note:skip` excludes the change from public
@@ -124,9 +124,9 @@ remains visible as one linked commit subject. Ambiguous or malformed PR
 metadata stops generation rather than guessing. The record is generated data
 and contains no curated highlights.
 
-Curated **Why upgrade** copy lives only in an initial release PR's marked block.
-Maintainers replace its unchecked placeholder with short user-facing reasons
-to upgrade. An in-place refresh preserves that content, and a clean replacement
+Curated **Release highlights** live only in an initial release PR's marked
+block. Maintainers replace the unchecked placeholder with concise user-facing
+highlights. An in-place refresh preserves that content, and a clean replacement
 selects the highest-numbered closed predecessor for the same version and
 preserves it. Missing, malformed, or still-placeholder content falls back to
 the blocking empty placeholder. The trusted required PR-description check
@@ -166,7 +166,7 @@ contradiction. No product code runs in that job. After the complete set reads
 back successfully, a separate `release-github` job uses the repository-scoped
 App to create or verify annotated `vX.Y.Z` and its non-draft GitHub Release.
 The publication controller renders three intentionally small shapes directly:
-initial releases combine **Why upgrade** with noteworthy public changes,
+initial releases combine **Release highlights** with noteworthy public changes,
 ordinary patches show only their public changes, and a patch whose complete
 source metadata marks every change `release-note:skip` uses a short maintenance
 message. Ordered, tag-pinned migration-record links form an independent

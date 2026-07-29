@@ -25,7 +25,7 @@ export const RELEASE_HIGHLIGHTS_END = '<!-- fablebook:release-highlights:end -->
 export const RELEASE_HIGHLIGHTS_EMPTY_MARKER =
   '<!-- fablebook:release-highlights=empty -->';
 export const EMPTY_RELEASE_HIGHLIGHTS =
-  `- [ ] Replace this placeholder with the main reasons to upgrade. ${RELEASE_HIGHLIGHTS_EMPTY_MARKER}`;
+  `- [ ] Replace this placeholder with the user-facing release highlights. ${RELEASE_HIGHLIGHTS_EMPTY_MARKER}`;
 
 const fullOid = (value, label) => {
   if (!fullOidPattern.test(value ?? '')) {
@@ -82,23 +82,23 @@ export function extractReleaseHighlights(body) {
   const starts = source.split(RELEASE_HIGHLIGHTS_START).length - 1;
   const ends = source.split(RELEASE_HIGHLIGHTS_END).length - 1;
   if (starts !== 1 || ends !== 1) {
-    throw new Error('Release PR body must contain exactly one marked Why upgrade block.');
+    throw new Error('Release PR body must contain exactly one marked release-highlights block.');
   }
   const start = source.indexOf(RELEASE_HIGHLIGHTS_START) + RELEASE_HIGHLIGHTS_START.length;
   const end = source.indexOf(RELEASE_HIGHLIGHTS_END, start);
   if (end < start) {
-    throw new Error('Release PR Why upgrade markers are out of order.');
+    throw new Error('Release PR highlights markers are out of order.');
   }
   const highlights = source.slice(start, end).trim();
   if (highlights.length === 0) {
-    throw new Error('Release PR Why upgrade content is empty.');
+    throw new Error('Release PR highlights are empty.');
   }
   return highlights;
 }
 
 export function validateReleaseHighlights(highlights) {
   if (typeof highlights !== 'string' || highlights.trim() !== highlights) {
-    throw new Error('Why upgrade content must be trimmed Markdown text.');
+    throw new Error('Release highlights must be trimmed Markdown text.');
   }
   const visibleHighlights = highlights
     .replace(/<!--[\s\S]*?-->/g, '')
@@ -107,7 +107,7 @@ export function validateReleaseHighlights(highlights) {
     highlights.includes(RELEASE_HIGHLIGHTS_EMPTY_MARKER) ||
     visibleHighlights.length === 0
   ) {
-    throw new Error('Why upgrade content must replace the blocking empty placeholder.');
+    throw new Error('Release highlights must replace the blocking empty placeholder.');
   }
   return highlights;
 }
@@ -127,7 +127,7 @@ export function recoverReleaseHighlights(body) {
 export function selectLatestMatchingReleasePrBody({ pulls, version }) {
   parseStableVersion(version);
   if (!Array.isArray(pulls)) {
-    throw new Error('Why upgrade predecessors must be an array.');
+    throw new Error('Release highlight predecessors must be an array.');
   }
   return (
     [...pulls]
@@ -296,7 +296,7 @@ export function validateReleasePrBody({
   if (kind !== expectedKind) {
     throw new Error(`Release PR body uses ${kind} communication for ${version}.`);
   }
-  const whyUpgrade =
+  const releaseHighlights =
     kind === 'initial'
       ? requireReleaseHighlights(body)
       : null;
@@ -305,7 +305,7 @@ export function validateReleasePrBody({
     (String(body).includes(RELEASE_HIGHLIGHTS_START) ||
       String(body).includes(RELEASE_HIGHLIGHTS_END))
   ) {
-    throw new Error('Patch release PR must not contain a Why upgrade block.');
+    throw new Error('Patch release PR must not contain a Release highlights block.');
   }
   const checks = extractReleasePrCheckboxes(body);
   for (const key of ['source-metadata-current', 'release-docs-reviewed']) {
@@ -319,7 +319,7 @@ export function validateReleasePrBody({
   return {
     changes: extractReleasePrChanges(body),
     kind,
-    whyUpgrade,
+    releaseHighlights,
   };
 }
 
@@ -404,7 +404,7 @@ export function renderReleasePrBody({
     version,
   };
   if (kind === 'initial') {
-    view.why_upgrade = [
+    view.release_highlights = [
       RELEASE_HIGHLIGHTS_START,
       recoverReleaseHighlights(previousHighlightsBody),
       RELEASE_HIGHLIGHTS_END,

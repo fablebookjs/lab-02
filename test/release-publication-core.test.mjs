@@ -76,7 +76,7 @@ const communicationChanges = changes.map(
 const initialCommunication = {
   changes: communicationChanges,
   kind: 'initial',
-  whyUpgrade: highlights,
+  releaseHighlights: highlights,
 };
 const migration = ({ priority, title }) => `---
 priority: ${priority}
@@ -221,7 +221,7 @@ test('release communication remains bound to the authorized reviewed proposal', 
   );
 });
 
-test('the initial GitHub Release renders curated reasons, public changes, and optional migrations', () => {
+test('the initial GitHub Release renders curated highlights, public changes, and optional migrations', () => {
   const migrationRecords = composeMigrationRecords([
     {
       filename: 'cleanup-old-usage.md',
@@ -245,7 +245,7 @@ test('the initial GitHub Release renders curated reasons, public changes, and op
     body,
     `# Lab-02 1.0.0
 
-## Why upgrade
+## Release highlights
 
 ${highlights}
 
@@ -269,7 +269,7 @@ test('ordinary and maintenance patches render distinct succinct outputs', () => 
   const patchCommunication = {
     changes: communicationChanges,
     kind: 'patch',
-    whyUpgrade: null,
+    releaseHighlights: null,
   };
   const patchBody = composeGitHubReleaseBody({
     communication: patchCommunication,
@@ -289,7 +289,7 @@ test('ordinary and maintenance patches render distinct succinct outputs', () => 
 - [Repair browser cleanup](https://github.com/fablebookjs/lab-02/pull/42)
 `
   );
-  assert.doesNotMatch(patchBody, /Migrations|Why upgrade/);
+  assert.doesNotMatch(patchBody, /Migrations|Release highlights/);
 
   const maintenanceChanges = changes.map((change) => ({
     ...change,
@@ -307,7 +307,7 @@ test('ordinary and maintenance patches render distinct succinct outputs', () => 
         })
       ),
       kind: 'maintenance',
-      whyUpgrade: null,
+      releaseHighlights: null,
     },
     releaseRecord: renderReleaseRecord({
       changes: maintenanceChanges,
@@ -355,7 +355,7 @@ test('historical release records remain readable while contradictions fail close
     communication: {
       changes: historicalChanges,
       kind: 'patch',
-      whyUpgrade: null,
+      releaseHighlights: null,
     },
     releaseRecord,
     version: '2.0.3',
@@ -400,7 +400,7 @@ test('migration links and communication schemas fail closed', () => {
       {
         changes: communicationChanges,
         kind: 'maintenance',
-        whyUpgrade: null,
+        releaseHighlights: null,
       },
       '1.0.1'
     )

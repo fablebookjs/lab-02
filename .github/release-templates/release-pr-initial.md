@@ -14,14 +14,14 @@
 | Release source | [`{{release_short_oid}}`]({{release_commit_url}}) | Proposal commit | [`{{proposal_short_oid}}`]({{proposal_commit_url}}) |
 | QA | Required checklist below | Packages | {{package_count}} published together |
 
-## Why upgrade
+## Release highlights
 
 <!--
-Write the short, user-facing reasons to upgrade. This marked block is preserved
+Write the short, user-facing release highlights. This marked block is preserved
 when the same initial-line release proposal is refreshed or replaced.
 -->
 
-{{why_upgrade}}
+{{release_highlights}}
 
 ## Included changes and manual QA
 
@@ -68,6 +68,6 @@ Perform the relevant manual QA for every unchecked item against this exact propo
 
 <!--
 Automation re-renders this template whenever it generates the proposal. It
-preserves same-version Why upgrade text and compatible per-change QA state.
+preserves same-version release highlights and compatible per-change QA state.
 The metadata-freshness and communication-review checks always reset.
 -->

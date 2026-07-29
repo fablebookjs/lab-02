@@ -75,7 +75,7 @@ jobs:
               )
             ) {
               errors.push(
-                'Replace the marked Why upgrade placeholder with user-facing reasons to upgrade.'
+                'Replace the marked Release highlights placeholder with user-facing highlights.'
               );
             }
           }

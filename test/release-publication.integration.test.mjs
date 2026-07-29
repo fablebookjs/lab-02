@@ -52,7 +52,7 @@ test('the authorized stable snapshot packs the complete lockstep package set', a
           releaseCommunication: {
             changes: [],
             kind: 'initial',
-            whyUpgrade: '**Worth upgrading:** Exercise the complete release flow.',
+            releaseHighlights: '**Worth upgrading:** Exercise the complete release flow.',
           },
           repository: 'fablebookjs/lab-02',
           schema: 2,
@@ -88,7 +88,7 @@ test('the authorized stable snapshot packs the complete lockstep package set', a
     assert.deepEqual(manifest.releaseCommunication, {
       changes: [],
       kind: 'initial',
-      whyUpgrade: '**Worth upgrading:** Exercise the complete release flow.',
+      releaseHighlights: '**Worth upgrading:** Exercise the complete release flow.',
     });
     assert.deepEqual(
       manifest.packages.map(({ name }) => name),

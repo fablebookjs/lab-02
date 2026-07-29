@@ -93,7 +93,7 @@ const authoredHighlights = [
 const writeHighlights = (body, highlights = authoredHighlights) =>
   body.replace(EMPTY_RELEASE_HIGHLIGHTS, highlights);
 
-test('the initial-line template renders all classification combinations and blocks for Why upgrade', () => {
+test('the initial-line template renders all classification combinations and blocks for release highlights', () => {
   const body = render();
   assert.match(body, /<!-- fablebook:release-pr=v7 -->/);
   assert.match(body, /<!-- fablebook:release-kind=initial -->/);
@@ -102,7 +102,7 @@ test('the initial-line template renders all classification combinations and bloc
     releaseOid,
     version: '1.0.0',
   });
-  assert.match(body, /## Why upgrade/);
+  assert.match(body, /## Release highlights/);
   assert.equal(extractReleaseHighlights(body), EMPTY_RELEASE_HIGHLIGHTS);
   assert.match(body, new RegExp(RELEASE_HIGHLIGHTS_EMPTY_MARKER));
   assert.throws(() => requireReleaseHighlights(body), /blocking empty placeholder/);
@@ -156,10 +156,10 @@ test('the initial-line template renders all classification combinations and bloc
   assert.match(body, /fablebook:check=release-docs-reviewed/);
 });
 
-test('the patch template omits Why upgrade and renders migrations only when present', () => {
+test('the patch template omits release highlights and renders migrations only when present', () => {
   const withoutMigrations = render({ version: '1.0.1' });
   assert.match(withoutMigrations, /<!-- fablebook:release-kind=patch -->/);
-  assert.doesNotMatch(withoutMigrations, /## Why upgrade/);
+  assert.doesNotMatch(withoutMigrations, /## Release highlights/);
   assert.doesNotMatch(withoutMigrations, /## Migrations/);
   assert.deepEqual(
     validateReleasePrBody({ body: withoutMigrations, version: '1.0.1' }).kind,
@@ -251,7 +251,7 @@ test('regeneration preserves compatible QA while resetting generated review atte
   assert.equal(requireReleaseHighlights(refreshed), authoredHighlights);
 });
 
-test('clean replacement preserves same-version Why upgrade but no QA state', () => {
+test('clean replacement preserves same-version release highlights but no QA state', () => {
   const predecessor = writeHighlights(render()).replaceAll('- [ ]', '- [x]');
   const recreated = render({
     previousHighlightsBody: predecessor,
@@ -288,7 +288,7 @@ test('replacement chooses the highest-numbered closed predecessor for the same v
   );
 });
 
-test('failed Why upgrade extraction falls back to the blocking placeholder', () => {
+test('failed release-highlight extraction falls back to the blocking placeholder', () => {
   const valid = writeHighlights(render());
   for (const body of [
     '',

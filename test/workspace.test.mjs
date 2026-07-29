@@ -76,7 +76,7 @@ test('the core label API accepts locale options', () => {
   assert.equal(normalizeLabel(' I ', { locale: 'tr' }), 'ı');
 });
 
-test('the trusted PR description check requires Why upgrade for initial releases only', () => {
+test('the trusted PR description check requires release highlights for initial releases only', () => {
   assert.match(pullRequestDescriptionWorkflow, /pull_request_target:/);
   assert.match(pullRequestDescriptionWorkflow, /PR_HEAD_REPOSITORY:/);
   assert.match(pullRequestDescriptionWorkflow, /staged\/\$\{line\[1\]\}/);
