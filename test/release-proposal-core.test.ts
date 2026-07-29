@@ -404,14 +404,20 @@ test('pull request lists may omit the merge commit without weakening its type', 
       repo: { full_name: 'fablebookjs/lab-02' },
       sha: '2'.repeat(40),
     },
+    labels: [{ name: 'qa:skip' }],
     merged_at: null,
     number: 5,
     state: 'open',
+    title: 'Release 1.0.0',
   };
-  assert.equal(validatedPullRequestResponse(response).merge_commit_sha, null);
+  assert.deepEqual(validatedPullRequestResponse(response), {
+    ...response,
+    merge_commit_sha: null,
+  });
   assert.throws(() =>
     validatedPullRequestResponse({ ...response, merge_commit_sha: 42 })
   );
+  assert.throws(() => validatedPullRequestResponse({ ...response, labels: undefined }));
 });
 
 test('GitHub mutations accept only main and canonical release ref names', () => {

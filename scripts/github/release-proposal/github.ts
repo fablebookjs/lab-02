@@ -22,10 +22,12 @@ export type GitPullRequest = {
   base: { ref: string; repo: { full_name: string }; sha: string };
   body: string | null;
   head: { ref: string; repo: { full_name: string }; sha: string };
+  labels: Array<{ name: string }>;
   merge_commit_sha: string | null;
   merged_at: string | null;
   number: number;
   state: string;
+  title: string;
 };
 
 export type GitCommit = {
@@ -142,6 +144,18 @@ const branchValue = (
   };
 };
 
+const labelsValue = (value: unknown): Array<{ name: string }> => {
+  if (!Array.isArray(value)) {
+    throw new Error('GitHub pull request labels must be an array.');
+  }
+  return value.map((entry, index) => {
+    const label = objectValue(entry, `GitHub pull request label ${index}`);
+    return {
+      name: stringValue(label['name'], `GitHub pull request label ${index}.name`),
+    };
+  });
+};
+
 export const validatedPullRequestResponse = (value: unknown): GitPullRequest => {
   const pull = objectValue(value, 'GitHub pull request');
   const body = pull['body'];
@@ -160,10 +174,12 @@ export const validatedPullRequestResponse = (value: unknown): GitPullRequest => 
     base: branchValue(pull['base'], 'GitHub pull request base'),
     body,
     head: branchValue(pull['head'], 'GitHub pull request head'),
+    labels: labelsValue(pull['labels']),
     merge_commit_sha: mergeCommitSha,
     merged_at: mergedAt,
     number: numberValue(pull['number'], 'GitHub pull request number'),
     state: stringValue(pull['state'], 'GitHub pull request state'),
+    title: stringValue(pull['title'], 'GitHub pull request title'),
   };
 };
 
