@@ -19,7 +19,7 @@ import {
 } from '../scripts/shared/patchback/core.ts';
 import { renderReleaseRecord } from '../scripts/shared/release-communication/records.ts';
 
-const containsUncheckedMarkdownTask = (body) =>
+const containsUncheckedMarkdownTask = (body: unknown): boolean =>
   /^\s*[-*+]\s+\[ \](?:\s|$)/m.test(String(body ?? ''));
 
 const baseMainOid = '0'.repeat(40);
@@ -227,7 +227,7 @@ test('scope preserves first-parent order and accounts for every product entry sh
 });
 
 test('ambiguous PR metadata never drops a commit from scope', () => {
-  const pull = (number) => ({
+  const pull = (number: number) => ({
     base: { ref: 'releases/v10.4', repo: { full_name: 'fablebookjs/lab-02' } },
     head: { repo: { full_name: 'fablebookjs/lab-02' } },
     merge_commit_sha: directOid,
@@ -248,6 +248,7 @@ test('ambiguous PR metadata never drops a commit from scope', () => {
     line: 'v10.4',
     snapshotOid,
   });
+  assert.ok(item);
   assert.equal(item.kind, 'direct-commit');
   assert.equal(item.oid, directOid);
 });
@@ -266,6 +267,7 @@ test('the generated queue is unchecked while the examples and empty path are mer
     line: 'v10.4',
     snapshotOid,
   });
+  assert.ok(item);
   const body = renderPatchbackBody({
     boundaryLabel: 'completed v10.4.0 snapshot',
     boundaryOid,
@@ -273,7 +275,6 @@ test('the generated queue is unchecked while the examples and empty path are mer
     line: 'v10.4',
     migrationRecords: [
       {
-        content: migrationSource,
         path: migrationPath,
         title: 'Adopt the new API',
       },

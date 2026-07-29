@@ -25,14 +25,21 @@ loadable through the synchronous Actions bridge.
    remaining JavaScript. It does not type-check, apply `tsconfig` aliases, or
    transform unsupported TypeScript constructs.
 2. **Type correctness:** after `npm ci`, CI runs TypeScript strict mode with
-   `noEmit`, `erasableSyntaxOnly`, and `verbatimModuleSyntax`. Implicit-any
-   cleanup remains a visible migration exception; new shared boundaries should
-   still declare their types.
+   `noEmit`, `erasableSyntaxOnly`, and `verbatimModuleSyntax`, plus the
+   additional unsafe-access and control-flow checks in `tsconfig.scripts.json`.
+   The runtime strips types completely, so only the installed CI check proves
+   that the graph is type-correct.
 3. **Dependency boundary:** post-install CI inspects every strict source and
    its runtime edges. A separate pre-install smoke imports the graph while
    repository packages are absent.
 
+JSON, environment, file, subprocess, and API data enters the graph as
+`unknown` and is narrowed to the small domain shape each consumer needs.
+Declaration-only package imports provide authoritative platform types without
+creating runtime dependencies.
+
 If shared logic needs a runtime package, move it to an installed
 `scripts/<feature>/**` directory. If it becomes Actions-specific, move it to
-`scripts/github/**`. Keep any type suppression narrow and explain it where it
-appears.
+`scripts/github/**`. `any`, assertions, and compiler suppressions require a
+nearby `type-escape:` explanation and are mechanically inventoried; broad
+`@ts-ignore` and `@ts-nocheck` directives are forbidden.

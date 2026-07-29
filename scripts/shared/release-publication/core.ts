@@ -20,7 +20,56 @@ export const NPM_REGISTRY = 'https://registry.npmjs.org/';
 export const PILOT_REPOSITORY = 'fablebookjs/lab-02';
 export const SETUP_NODE_AUTH_PLACEHOLDER = 'XXXXX-XXXXX-XXXXX-XXXXX';
 
-export function assertOidcPublishEnvironment({ nodeAuthToken, npmToken }) {
+export type ReleaseAuthority = {
+  channel: string;
+  line: string;
+  proposalOid: string;
+  pullRequest: number;
+  snapshotOid: string;
+  sourceOid: string;
+  version: string;
+};
+
+export type CommunicationChange = {
+  key: string;
+  qaSkip: boolean;
+  releaseNoteSkip: boolean;
+  title: string;
+  url: string;
+};
+
+export type ReleaseCommunication = {
+  changes: CommunicationChange[];
+  kind: 'initial' | 'maintenance' | 'patch';
+  releaseHighlights: string | null;
+};
+
+type GitCommit = {
+  message?: string;
+  parents?: Array<{ sha: string }>;
+  sha: string;
+  tree?: { sha: string };
+};
+
+type ReleasePull = {
+  base: { ref: string; repo: { full_name: string }; sha: string };
+  head: { ref: string; repo: { full_name: string }; sha: string };
+  merge_commit_sha: string | null;
+  merged_at: unknown;
+  number: number;
+  state: string;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+export function assertOidcPublishEnvironment({
+  nodeAuthToken,
+  npmToken,
+}: {
+  nodeAuthToken: string | undefined;
+  npmToken: string | undefined;
+}): void {
   if (
     npmToken ||
     (nodeAuthToken && nodeAuthToken !== SETUP_NODE_AUTH_PLACEHOLDER)
@@ -29,14 +78,14 @@ export function assertOidcPublishEnvironment({ nodeAuthToken, npmToken }) {
   }
 }
 
-const fullOid = (value, label) => {
-  if (!/^[0-9a-f]{40}$/.test(value ?? '')) {
+const fullOid = (value: unknown, label: string): string => {
+  if (typeof value !== 'string' || !/^[0-9a-f]{40}$/.test(value)) {
     throw new Error(`${label} is not a full commit OID.`);
   }
   return value;
 };
 
-const stableVersionOnLine = (version, line) => {
+const stableVersionOnLine = (version: string, line: string) => {
   const parsedVersion = parseStableVersion(version);
   const parsedLine = parseReleaseLine(line);
   if (parsedVersion.major !== parsedLine.major || parsedVersion.minor !== parsedLine.minor) {
@@ -45,12 +94,20 @@ const stableVersionOnLine = (version, line) => {
   return parsedVersion;
 };
 
-export function lineChannel(line) {
+export function lineChannel(line: string): string {
   const { major, minor } = parseReleaseLine(line);
   return `v-${major}.${minor}`;
 }
 
-export function deriveReleaseAuthority({ headCommit, mergeCommit, pull }) {
+export function deriveReleaseAuthority({
+  headCommit,
+  mergeCommit,
+  pull,
+}: {
+  headCommit: GitCommit;
+  mergeCommit: GitCommit;
+  pull: ReleasePull;
+}): ReleaseAuthority {
   if (!Number.isSafeInteger(pull?.number) || pull.number <= 0) {
     throw new Error('Release authority requires a positive pull request number.');
   }
@@ -76,6 +133,9 @@ export function deriveReleaseAuthority({ headCommit, mergeCommit, pull }) {
     throw new Error('GitHub commit observations do not match the release pull request.');
   }
 
+  if (typeof headCommit.message !== 'string') {
+    throw new Error('Release proposal commit has no commit message.');
+  }
   const proposal = parseProposalMessage(headCommit.message);
   stableVersionOnLine(proposal.version, line);
   if (proposal.line !== line || proposal.sourceOid !== sourceOid) {
@@ -103,7 +163,13 @@ export function deriveReleaseAuthority({ headCommit, mergeCommit, pull }) {
   };
 }
 
-export function deriveReleaseHighlights({ authority, body }) {
+export function deriveReleaseHighlights({
+  authority,
+  body,
+}: {
+  authority: ReleaseAuthority;
+  body: unknown;
+}): string {
   const identity = extractReleasePrIdentity(body);
   if (
     identity === null ||
@@ -116,81 +182,97 @@ export function deriveReleaseHighlights({ authority, body }) {
   return requireReleaseHighlights(body);
 }
 
-const normalizeCommunicationChanges = (changes) => {
+const normalizeCommunicationChanges = (changes: unknown): CommunicationChange[] => {
   if (!Array.isArray(changes)) {
     throw new Error('Release communication changes must be an array.');
   }
   const identities = new Set();
   return changes.map((change) => {
-    if (
-      !/^(?:pr:[1-9]\d*|commit:[0-9a-f]{40})$/.test(change?.key ?? '') ||
-      identities.has(change.key) ||
-      typeof change.qaSkip !== 'boolean' ||
-      typeof change.releaseNoteSkip !== 'boolean' ||
-      cleanReleaseTitle(change.title, '') !== change.title
-    ) {
-      throw new Error(`Invalid release communication change: ${change?.key}`);
+    if (!isRecord(change)) {
+      throw new Error('Release communication changes must contain objects.');
     }
-    const url = change.key.startsWith('pr:')
-      ? `https://github.com/${PILOT_REPOSITORY}/pull/${change.key.slice(3)}`
-      : `https://github.com/${PILOT_REPOSITORY}/commit/${change.key.slice(7)}`;
+    const key = change['key'];
     if (
-      change.url !== url ||
-      (change.key.startsWith('commit:') &&
-        (change.qaSkip || change.releaseNoteSkip))
+      typeof key !== 'string' ||
+      !/^(?:pr:[1-9]\d*|commit:[0-9a-f]{40})$/.test(key) ||
+      identities.has(key) ||
+      typeof change['qaSkip'] !== 'boolean' ||
+      typeof change['releaseNoteSkip'] !== 'boolean' ||
+      typeof change['title'] !== 'string' ||
+      cleanReleaseTitle(change['title'], '') !== change['title']
     ) {
-      throw new Error(`Contradictory release communication change: ${change.key}`);
+      throw new Error(`Invalid release communication change: ${String(key)}`);
     }
-    identities.add(change.key);
+    const url = key.startsWith('pr:')
+      ? `https://github.com/${PILOT_REPOSITORY}/pull/${key.slice(3)}`
+      : `https://github.com/${PILOT_REPOSITORY}/commit/${key.slice(7)}`;
+    if (
+      change['url'] !== url ||
+      (key.startsWith('commit:') &&
+        (change['qaSkip'] || change['releaseNoteSkip']))
+    ) {
+      throw new Error(`Contradictory release communication change: ${key}`);
+    }
+    identities.add(key);
     return {
-      key: change.key,
-      qaSkip: change.qaSkip,
-      releaseNoteSkip: change.releaseNoteSkip,
-      title: change.title,
+      key,
+      qaSkip: change['qaSkip'],
+      releaseNoteSkip: change['releaseNoteSkip'],
+      title: change['title'],
       url,
     };
   });
 };
 
-export function validateReleaseCommunication(communication, version) {
+export function validateReleaseCommunication(
+  communication: unknown,
+  version: string,
+): ReleaseCommunication {
   const { patch } = parseStableVersion(version);
   if (
     communication === null ||
     typeof communication !== 'object' ||
     Array.isArray(communication) ||
-    !['initial', 'maintenance', 'patch'].includes(communication.kind)
+    !isRecord(communication) ||
+    !['initial', 'maintenance', 'patch'].includes(String(communication['kind']))
   ) {
     throw new Error('Release communication is outside the accepted schema.');
   }
-  const changes = normalizeCommunicationChanges(communication.changes);
+  const changes = normalizeCommunicationChanges(communication['changes']);
   const publicChanges = changes.filter(({ releaseNoteSkip }) => !releaseNoteSkip);
   const expectedKind =
     patch === 0 ? 'initial' : publicChanges.length === 0 ? 'maintenance' : 'patch';
-  if (communication.kind !== expectedKind) {
-    throw new Error(`${version} has contradictory ${communication.kind} communication.`);
+  if (communication['kind'] !== expectedKind) {
+    throw new Error(`${version} has contradictory ${String(communication['kind'])} communication.`);
   }
   if (
     expectedKind === 'initial' &&
-    typeof communication.releaseHighlights !== 'string'
+    typeof communication['releaseHighlights'] !== 'string'
   ) {
     throw new Error(`${version} initial communication requires release highlights.`);
   }
   const releaseHighlights =
     expectedKind === 'initial'
       ? requireReleaseHighlights(
-          `${RELEASE_HIGHLIGHTS_START}\n${communication.releaseHighlights}\n${RELEASE_HIGHLIGHTS_END}`
+          `${RELEASE_HIGHLIGHTS_START}\n${communication['releaseHighlights']}\n${RELEASE_HIGHLIGHTS_END}`
         )
       : null;
   if (
     expectedKind !== 'initial' &&
-    communication.releaseHighlights !== null
+    communication['releaseHighlights'] !== null
   ) {
     throw new Error(`${version} patch communication cannot contain release highlights.`);
   }
   return { changes, kind: expectedKind, releaseHighlights };
 }
 
-export function deriveReleaseCommunication({ authority, body }) {
+export function deriveReleaseCommunication({
+  authority,
+  body,
+}: {
+  authority: ReleaseAuthority;
+  body: unknown;
+}): ReleaseCommunication {
   const identity = extractReleasePrIdentity(body);
   if (
     identity === null ||
@@ -231,7 +313,10 @@ export function deriveReleaseCommunication({ authority, body }) {
   );
 }
 
-const renderMigrationSection = (records, version) => {
+const renderMigrationSection = (
+  records: Array<{ filename: string; title: string }>,
+  version: string,
+): string => {
   const { major, minor } = parseStableVersion(version);
   if (!Array.isArray(records)) {
     throw new Error('GitHub Release migration records must be an array.');
@@ -304,36 +389,70 @@ export function composeGitHubReleaseBody({
   return `${title}\n\nThis maintenance release contains no user-facing changes worth mentioning.${migrationSection}\n`;
 }
 
-const packageVersion = (document, name, version) => {
+const packageVersion = (
+  document: unknown,
+  name: string,
+  version: string,
+): Record<string, unknown> | null => {
   if (document === null) {
     return null;
   }
-  if (document.name !== name || typeof document.versions !== 'object') {
+  if (
+    !isRecord(document) ||
+    document['name'] !== name ||
+    !isRecord(document['versions'])
+  ) {
     throw new Error(`npm returned contradictory metadata for ${name}.`);
   }
-  const published = document.versions[version] ?? null;
-  if (published !== null && (published.name !== name || published.version !== version)) {
+  const published = document['versions'][version] ?? null;
+  if (
+    published !== null &&
+    (!isRecord(published) ||
+      published['name'] !== name ||
+      published['version'] !== version)
+  ) {
     throw new Error(`npm returned contradictory metadata for ${name}@${version}.`);
   }
   return published;
 };
 
-export function publicationDisposition({ channel, document, integrity, name, version }) {
+type PublicationInput = {
+  channel: string;
+  document: unknown;
+  integrity: string;
+  name: string;
+  version: string;
+};
+
+export function publicationDisposition({
+  channel,
+  document,
+  integrity,
+  name,
+  version,
+}: PublicationInput): 'publish' | 'skip' {
   stableVersionOnLine(version, channel.replace(/^v-/, 'v'));
   const exact = exactPublication({ document, integrity, name, version });
   if (!exact) {
-    if (document?.['dist-tags']?.[channel] === version) {
+    const tags = isRecord(document) ? document['dist-tags'] : undefined;
+    if (isRecord(tags) && tags[channel] === version) {
       throw new Error(`${name} has ${channel} at an absent version ${version}.`);
     }
     return 'publish';
   }
-  if (document['dist-tags']?.[channel] !== version) {
+  const tags = isRecord(document) ? document['dist-tags'] : undefined;
+  if (!isRecord(tags) || tags[channel] !== version) {
     throw new Error(`${name}@${version} exists but ${channel} points elsewhere.`);
   }
   return 'skip';
 }
 
-export function exactPublication({ document, integrity, name, version }) {
+export function exactPublication({
+  document,
+  integrity,
+  name,
+  version,
+}: Omit<PublicationInput, 'channel'>): boolean {
   parseStableVersion(version);
   if (!/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(integrity ?? '')) {
     throw new Error(`Prepared integrity is invalid for ${name}@${version}.`);
@@ -342,17 +461,28 @@ export function exactPublication({ document, integrity, name, version }) {
   if (published === null) {
     return false;
   }
-  if (published.dist?.integrity !== integrity) {
+  const dist = published['dist'];
+  if (!isRecord(dist) || dist['integrity'] !== integrity) {
     throw new Error(`${name}@${version} exists with different package contents.`);
   }
   return true;
 }
 
-export function promotionDisposition({ document, name, version }) {
+export function promotionDisposition({
+  document,
+  name,
+  version,
+}: {
+  document: unknown;
+  name: string;
+  version: string;
+}): 'skip' | 'update' {
   parseStableVersion(version);
   const published = packageVersion(document, name, version);
-  if (published === null || typeof published.dist?.integrity !== 'string') {
+  const dist = published?.['dist'];
+  if (published === null || !isRecord(dist) || typeof dist['integrity'] !== 'string') {
     throw new Error(`${name}@${version} is not a complete published package.`);
   }
-  return document['dist-tags']?.latest === version ? 'skip' : 'update';
+  const tags = isRecord(document) ? document['dist-tags'] : undefined;
+  return isRecord(tags) && tags['latest'] === version ? 'skip' : 'update';
 }

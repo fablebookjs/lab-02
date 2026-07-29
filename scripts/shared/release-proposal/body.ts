@@ -5,6 +5,7 @@ import {
   migrationRecordDirectory,
   normalizeReleaseChanges,
 } from '../release-communication/records.ts';
+import type { ReleaseChange } from '../release-communication/records.ts';
 import { renderMarkdownTemplate } from './template.ts';
 
 const REPOSITORY = 'fablebookjs/lab-02';
@@ -28,6 +29,25 @@ type ParsedReleasePrChange = {
   url: string;
 };
 
+type ReleasePrIdentity = {
+  proposalOid: string;
+  releaseOid: string;
+  version: string;
+};
+
+type PredecessorPull = {
+  body: unknown;
+  number: number;
+  state: string;
+};
+
+type RenderedChange = ReleaseChange & {
+  checkmark: string;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
 export const RELEASE_PR_TEMPLATE_MARKER = '<!-- fablebook:release-pr=v7 -->';
 export const RELEASE_HIGHLIGHTS_START = '<!-- fablebook:release-highlights:start -->';
 export const RELEASE_HIGHLIGHTS_END = '<!-- fablebook:release-highlights:end -->';
@@ -36,26 +56,34 @@ export const RELEASE_HIGHLIGHTS_EMPTY_MARKER =
 export const EMPTY_RELEASE_HIGHLIGHTS =
   `- [ ] Replace this placeholder with the user-facing release highlights. ${RELEASE_HIGHLIGHTS_EMPTY_MARKER}`;
 
-const fullOid = (value, label) => {
-  if (!fullOidPattern.test(value ?? '')) {
+const fullOid = (value: unknown, label: string): string => {
+  if (typeof value !== 'string' || !fullOidPattern.test(value)) {
     throw new Error(`${label} is not a full commit OID.`);
   }
   return value;
 };
 
-const positiveInteger = (value, label) => {
-  if (!Number.isSafeInteger(value) || value <= 0) {
+const positiveInteger = (value: unknown, label: string): number => {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
     throw new Error(`${label} is not one positive integer.`);
   }
   return value;
 };
 
-const canonicalChangeUrl = (key) =>
+const canonicalChangeUrl = (key: string): string =>
   key.startsWith('pr:')
     ? `${repositoryUrl}/pull/${key.slice(3)}`
     : `${repositoryUrl}/commit/${key.slice(7)}`;
 
-const extractProposalIdentity = (body) => {
+const capture = (match: RegExpMatchArray, index: number): string => {
+  const value = match[index];
+  if (value === undefined) {
+    throw new Error(`Generated release metadata omitted capture ${index}.`);
+  }
+  return value;
+};
+
+const extractProposalIdentity = (body: unknown): ReleasePrIdentity | null => {
   const matches = [...String(body ?? '').matchAll(proposalIdentityPattern)];
   if (matches.length === 0) {
     return null;
@@ -63,30 +91,39 @@ const extractProposalIdentity = (body) => {
   if (matches.length !== 1) {
     throw new Error('Release PR body repeats its proposal identity marker.');
   }
-  parseStableVersion(matches[0][3]);
+  const match = matches[0];
+  if (match === undefined) {
+    throw new Error('Release PR body has no proposal identity.');
+  }
+  const version = capture(match, 3);
+  parseStableVersion(version);
   return {
-    proposalOid: matches[0][1],
-    releaseOid: matches[0][2],
-    version: matches[0][3],
+    proposalOid: capture(match, 1),
+    releaseOid: capture(match, 2),
+    version,
   };
 };
 
-const extractReleaseKind = (body) => {
+const extractReleaseKind = (body: unknown): 'initial' | 'patch' => {
   const matches = [...String(body ?? '').matchAll(releaseKindPattern)];
   if (matches.length !== 1) {
     throw new Error('Release PR body must contain one release-kind marker.');
   }
-  return matches[0][1];
+  const kind = matches[0]?.[1];
+  if (kind !== 'initial' && kind !== 'patch') {
+    throw new Error('Release PR body has an invalid release-kind marker.');
+  }
+  return kind;
 };
 
-export function extractReleasePrIdentity(body) {
+export function extractReleasePrIdentity(body: unknown): ReleasePrIdentity | null {
   if (!String(body ?? '').includes(RELEASE_PR_TEMPLATE_MARKER)) {
     return null;
   }
   return extractProposalIdentity(body);
 }
 
-export function extractReleaseHighlights(body) {
+export function extractReleaseHighlights(body: unknown): string {
   const source = String(body ?? '');
   const starts = source.split(RELEASE_HIGHLIGHTS_START).length - 1;
   const ends = source.split(RELEASE_HIGHLIGHTS_END).length - 1;
@@ -105,7 +142,7 @@ export function extractReleaseHighlights(body) {
   return highlights;
 }
 
-export function validateReleaseHighlights(highlights) {
+export function validateReleaseHighlights(highlights: unknown): string {
   if (typeof highlights !== 'string' || highlights.trim() !== highlights) {
     throw new Error('Release highlights must be trimmed Markdown text.');
   }
@@ -121,11 +158,11 @@ export function validateReleaseHighlights(highlights) {
   return highlights;
 }
 
-export function requireReleaseHighlights(body) {
+export function requireReleaseHighlights(body: unknown): string {
   return validateReleaseHighlights(extractReleaseHighlights(body));
 }
 
-export function recoverReleaseHighlights(body) {
+export function recoverReleaseHighlights(body: unknown): string {
   try {
     return requireReleaseHighlights(body);
   } catch {
@@ -133,19 +170,28 @@ export function recoverReleaseHighlights(body) {
   }
 }
 
-export function selectLatestMatchingReleasePrBody({ pulls, version }) {
+export function selectLatestMatchingReleasePrBody({
+  pulls,
+  version,
+}: {
+  pulls: unknown;
+  version: string;
+}): string {
   parseStableVersion(version);
   if (!Array.isArray(pulls)) {
     throw new Error('Release highlight predecessors must be an array.');
   }
-  return (
+  return String(
     [...pulls]
-      .filter(
-        (pull) =>
-          Number.isSafeInteger(pull?.number) &&
-          pull.number > 0 &&
-          pull.state === 'closed'
-      )
+      .filter((pull): pull is PredecessorPull => {
+        if (!isRecord(pull)) return false;
+        return (
+          typeof pull['number'] === 'number' &&
+          Number.isSafeInteger(pull['number']) &&
+          pull['number'] > 0 &&
+          pull['state'] === 'closed'
+        );
+      })
       .sort((left, right) => right.number - left.number)
       .find((pull) => {
         try {
@@ -153,16 +199,22 @@ export function selectLatestMatchingReleasePrBody({ pulls, version }) {
         } catch {
           return false;
         }
-      })?.body ?? ''
+      })?.body ?? '',
   );
 }
 
-export function extractReleasePrChanges(body) {
+export function extractReleasePrChanges(body: unknown): ParsedReleasePrChange[] {
   const source = String(body ?? '');
   const changes: ParsedReleasePrChange[] = [];
   const identities = new Set<string>();
   for (const match of source.matchAll(changeTaskPattern)) {
-    const [, mark, title, url, description, key, releaseNote, qa] = match;
+    const mark = capture(match, 1);
+    const title = capture(match, 2);
+    const url = capture(match, 3);
+    const description = capture(match, 4);
+    const key = capture(match, 5);
+    const releaseNote = capture(match, 6);
+    const qa = capture(match, 7);
     if (
       identities.has(key) ||
       url !== canonicalChangeUrl(key) ||
@@ -194,10 +246,11 @@ export function extractReleasePrChanges(body) {
   return changes;
 }
 
-export function extractReleasePrCheckboxes(body) {
+export function extractReleasePrCheckboxes(body: unknown): Map<string, boolean> {
   const states = new Map<string, boolean>();
   for (const match of String(body ?? '').matchAll(checkTaskPattern)) {
-    const [, mark, key] = match;
+    const mark = capture(match, 1);
+    const key = capture(match, 2);
     const identity = `check:${key}`;
     if (states.has(identity)) {
       throw new Error(`Release PR body repeats checkbox identity ${identity}.`);
@@ -214,7 +267,7 @@ export function extractReleasePrCheckboxes(body) {
   return states;
 }
 
-const validateChanges = (changes, previousBody) => {
+const validateChanges = (changes: unknown, previousBody: unknown): RenderedChange[] => {
   const previous = new Map(
     extractReleasePrChanges(previousBody).map((change) => [change.key, change])
   );
@@ -232,7 +285,7 @@ const validateChanges = (changes, previousBody) => {
 
 export const deriveReleasePrChanges = deriveReleaseChanges;
 
-const smokeCommands = (packageNames, channel) => {
+const smokeCommands = (packageNames: string[], channel: string): string => {
   const installs = packageNames.map((name) => `${name}@${channel}`).join(' ');
   const packages = packageNames.join(' ');
   return [
@@ -245,7 +298,7 @@ const smokeCommands = (packageNames, channel) => {
   ].join('\n');
 };
 
-const renderChanges = (changes) =>
+const renderChanges = (changes: RenderedChange[]): string =>
   changes.length === 0
     ? '_No release-line changes have been added since this release boundary._'
     : changes
@@ -266,7 +319,11 @@ const renderChanges = (changes) =>
         })
         .join('\n');
 
-const renderMigrationSection = (records, line, releaseOid) => {
+const renderMigrationSection = (
+  records: Array<{ filename: string; title: string }>,
+  line: string,
+  releaseOid: string,
+): string => {
   if (!Array.isArray(records)) {
     throw new Error('Release PR migration records must be an array.');
   }
@@ -294,7 +351,15 @@ export function validateReleasePrBody({
   body,
   requireAttestations = false,
   version,
-}) {
+}: {
+  body: unknown;
+  requireAttestations?: boolean;
+  version: string;
+}): {
+  changes: ParsedReleasePrChange[];
+  kind: 'initial' | 'patch';
+  releaseHighlights: string | null;
+} {
   const parsed = parseStableVersion(version);
   const expectedKind = parsed.patch === 0 ? 'initial' : 'patch';
   const identity = extractReleasePrIdentity(body);
@@ -427,7 +492,7 @@ export function renderReleasePrBody({
     version,
   };
   if (kind === 'initial') {
-    view.release_highlights = [
+    view['release_highlights'] = [
       RELEASE_HIGHLIGHTS_START,
       recoverReleaseHighlights(previousHighlightsBody),
       RELEASE_HIGHLIGHTS_END,

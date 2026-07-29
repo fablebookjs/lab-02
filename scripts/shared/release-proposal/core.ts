@@ -5,44 +5,126 @@ const developmentPattern =
 const stablePattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const linePattern = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
-const integers = (match, indexes) => indexes.map((index) => Number.parseInt(match[index], 10));
+export type DevelopmentVersion = {
+  major: number;
+  minor: number;
+  prerelease: 'alpha' | 'beta' | 'rc';
+  prereleaseNumber: number;
+};
 
-export function parseDevelopmentVersion(version) {
+export type StableVersion = {
+  major: number;
+  minor: number;
+  patch: number;
+};
+
+export type ReleaseLine = {
+  major: number;
+  minor: number;
+};
+
+type ProposalCommit = {
+  attempt: string;
+  line: string;
+  sourceOid: string;
+  version: string;
+};
+
+type DevelopmentCommit = {
+  line: string;
+  sourceOid: string;
+  version: string;
+};
+
+export type ProposalState = {
+  completedOid: string | null;
+  completedVersion: string | null;
+  latestClosedPr: {
+    headOid: string;
+    mergeCommitOid: string | null;
+    merged: boolean;
+    number: number;
+    version: string;
+  } | null;
+  line: string;
+  openPr: {
+    bodyCurrent: boolean;
+    number: number;
+    replaceRequired: boolean;
+  } | null;
+  releaseOid: string;
+  staged: {
+    oid: string;
+    sourceOid: string;
+    version: string;
+  } | null;
+};
+
+const integer = (match: RegExpExecArray, index: number): number => {
+  const value = match[index];
+  if (value === undefined) {
+    throw new Error(`Version pattern omitted capture ${index}.`);
+  }
+  return Number.parseInt(value, 10);
+};
+
+const capture = (match: RegExpExecArray, index: number): string => {
+  const value = match[index];
+  if (value === undefined) {
+    throw new Error(`Version pattern omitted capture ${index}.`);
+  }
+  return value;
+};
+
+export function parseDevelopmentVersion(version: string): DevelopmentVersion {
   const match = developmentPattern.exec(version);
   if (!match) {
     throw new Error(
       `Development version must be X.Y.0-alpha.N, X.Y.0-beta.N, or X.Y.0-rc.N: ${version}`
     );
   }
-  const [major, minor, prereleaseNumber] = integers(match, [1, 2, 4]);
-  return { major, minor, prerelease: match[3], prereleaseNumber };
+  const prerelease = capture(match, 3);
+  if (prerelease !== 'alpha' && prerelease !== 'beta' && prerelease !== 'rc') {
+    throw new Error(`Unsupported prerelease kind: ${prerelease}`);
+  }
+  return {
+    major: integer(match, 1),
+    minor: integer(match, 2),
+    prerelease,
+    prereleaseNumber: integer(match, 4),
+  };
 }
 
-export function parseStableVersion(version) {
+export function parseStableVersion(version: string): StableVersion {
   const match = stablePattern.exec(version);
   if (!match) {
     throw new Error(`Release version must be stable SemVer: ${version}`);
   }
-  const [major, minor, patch] = integers(match, [1, 2, 3]);
-  return { major, minor, patch };
+  return {
+    major: integer(match, 1),
+    minor: integer(match, 2),
+    patch: integer(match, 3),
+  };
 }
 
-export function parseReleaseLine(line) {
+export function parseReleaseLine(line: string): ReleaseLine {
   const match = linePattern.exec(line);
   if (!match) {
     throw new Error(`Release line must be vX.Y: ${line}`);
   }
-  const [major, minor] = integers(match, [1, 2]);
-  return { major, minor };
+  return { major: integer(match, 1), minor: integer(match, 2) };
 }
 
-export function compareReleaseLines(left, right) {
+export function compareReleaseLines(left: string, right: string): number {
   const a = parseReleaseLine(left);
   const b = parseReleaseLine(right);
   return a.major - b.major || a.minor - b.minor;
 }
 
-export function deriveCutVersions(developmentVersion, nextDevelopment) {
+export function deriveCutVersions(
+  developmentVersion: string,
+  nextDevelopment: string,
+): { developmentVersion: string; line: string; releaseVersion: string } {
   if (nextDevelopment !== 'minor' && nextDevelopment !== 'major') {
     throw new Error(`Next development line must be minor or major: ${nextDevelopment}`);
   }
@@ -58,7 +140,7 @@ export function deriveCutVersions(developmentVersion, nextDevelopment) {
   return { developmentVersion: development, line, releaseVersion };
 }
 
-export function nextReleaseVersion(line, completedVersion) {
+export function nextReleaseVersion(line: string, completedVersion: string | null): string {
   const parsedLine = parseReleaseLine(line);
   if (completedVersion === null) {
     return `${parsedLine.major}.${parsedLine.minor}.0`;
@@ -71,13 +153,18 @@ export function nextReleaseVersion(line, completedVersion) {
   return `${completed.major}.${completed.minor}.${completed.patch + 1}`;
 }
 
-const compareStableVersions = (left, right) => {
+const compareStableVersions = (left: string, right: string): number => {
   const a = parseStableVersion(left);
   const b = parseStableVersion(right);
   return a.major - b.major || a.minor - b.minor || a.patch - b.patch;
 };
 
-export function proposalCommitMessage({ attempt, line, sourceOid, version }) {
+export function proposalCommitMessage({
+  attempt,
+  line,
+  sourceOid,
+  version,
+}: ProposalCommit): string {
   return [
     `release: propose v${version}`,
     '',
@@ -88,7 +175,11 @@ export function proposalCommitMessage({ attempt, line, sourceOid, version }) {
   ].join('\n');
 }
 
-export function developmentCommitMessage({ line, sourceOid, version }) {
+export function developmentCommitMessage({
+  line,
+  sourceOid,
+  version,
+}: DevelopmentCommit): string {
   return [
     `release: begin ${version} development`,
     '',
@@ -98,23 +189,33 @@ export function developmentCommitMessage({ line, sourceOid, version }) {
   ].join('\n');
 }
 
-export function parseDevelopmentCommitMessage(message) {
+const trailersFrom = (message: string): Record<string, string> => {
   const trailers = Object.fromEntries(
     message
       .split('\n')
       .map((line) => /^([A-Za-z-]+): (.+)$/.exec(line))
-      .filter(Boolean)
-      .map((match) => [match[1], match[2]])
+      .filter((match): match is RegExpExecArray => match !== null)
+      .map((match) => [capture(match, 1), capture(match, 2)])
   );
+  return trailers;
+};
+
+const requiredTrailer = (trailers: Record<string, string>, name: string): string => {
+  const value = trailers[name];
+  if (value === undefined) {
+    throw new Error(`Commit is missing required ${name} trailer.`);
+  }
+  return value;
+};
+
+export function parseDevelopmentCommitMessage(message: string): DevelopmentCommit {
+  const trailers = trailersFrom(message);
   const metadata = {
-    line: trailers['Release-Cut-Line'],
-    sourceOid: trailers['Release-Cut-Source'],
-    version: trailers['Development-Version'],
+    line: requiredTrailer(trailers, 'Release-Cut-Line'),
+    sourceOid: requiredTrailer(trailers, 'Release-Cut-Source'),
+    version: requiredTrailer(trailers, 'Development-Version'),
   };
 
-  if (Object.values(metadata).some((value) => value === undefined)) {
-    throw new Error('Development commit is missing required release-cut trailers.');
-  }
   parseReleaseLine(metadata.line);
   parseDevelopmentVersion(metadata.version);
   if (!/^[0-9a-f]{40}$/.test(metadata.sourceOid)) {
@@ -123,24 +224,15 @@ export function parseDevelopmentCommitMessage(message) {
   return metadata;
 }
 
-export function parseProposalMessage(message) {
-  const trailers = Object.fromEntries(
-    message
-      .split('\n')
-      .map((line) => /^([A-Za-z-]+): (.+)$/.exec(line))
-      .filter(Boolean)
-      .map((match) => [match[1], match[2]])
-  );
+export function parseProposalMessage(message: string): ProposalCommit {
+  const trailers = trailersFrom(message);
   const metadata = {
-    attempt: trailers['Proposal-Attempt'],
-    line: trailers['Release-Line'],
-    sourceOid: trailers['Release-Source'],
-    version: trailers['Release-Version'],
+    attempt: requiredTrailer(trailers, 'Proposal-Attempt'),
+    line: requiredTrailer(trailers, 'Release-Line'),
+    sourceOid: requiredTrailer(trailers, 'Release-Source'),
+    version: requiredTrailer(trailers, 'Release-Version'),
   };
 
-  if (Object.values(metadata).some((value) => value === undefined)) {
-    throw new Error('Proposal commit is missing required release trailers.');
-  }
   const line = parseReleaseLine(metadata.line);
   const version = parseStableVersion(metadata.version);
   if (line.major !== version.major || line.minor !== version.minor) {
@@ -152,7 +244,7 @@ export function parseProposalMessage(message) {
   return metadata;
 }
 
-export function planProposalMaintenance(lines) {
+export function planProposalMaintenance(lines: readonly ProposalState[]) {
   if (!Array.isArray(lines) || lines.length === 0) {
     return [];
   }

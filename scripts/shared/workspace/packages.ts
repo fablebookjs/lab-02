@@ -13,8 +13,7 @@ type PackageManifest = {
   };
   version?: string;
   workspaces?: string[] | { packages?: string[] };
-  [key: string]: any;
-};
+} & Record<string, unknown>;
 
 export type PublicPackage = {
   directory: string;
@@ -25,8 +24,13 @@ export type PublicPackage = {
   version: string;
 };
 
-const readJson = async (path): Promise<PackageManifest> =>
-  JSON.parse(await readFile(path, 'utf8'));
+const readJson = async (path: string): Promise<PackageManifest> => {
+  const value: unknown = JSON.parse(await readFile(path, 'utf8'));
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${path} must contain one JSON object.`);
+  }
+  return { ...value };
+};
 
 const workspacePatterns = (rootManifest: PackageManifest): string[] => {
   const value = rootManifest.workspaces;
@@ -36,10 +40,13 @@ const workspacePatterns = (rootManifest: PackageManifest): string[] => {
     throw new Error('The root package.json must define at least one workspace pattern.');
   }
 
-  return patterns as string[];
+  if (patterns.some((pattern) => typeof pattern !== 'string')) {
+    throw new Error('Every workspace pattern must be a string.');
+  }
+  return patterns;
 };
 
-const expandSingleLevelPattern = async (root, pattern) => {
+const expandSingleLevelPattern = async (root: string, pattern: string): Promise<string[]> => {
   if (typeof pattern !== 'string' || !pattern.endsWith('/*') || pattern.slice(0, -2).includes('*')) {
     throw new Error(`Unsupported workspace pattern: ${String(pattern)}`);
   }

@@ -31,14 +31,15 @@ export function descriptionErrors(input: PullRequestDescription): string[] {
     ),
   ];
   const version =
-    identities.length === 1
+    identities.length === 1 && identities[0] !== undefined && identities[0][1] !== undefined
       ? /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(identities[0][1])
       : null;
   if (version === null) {
     errors.push('Use one generated release proposal identity.');
     return errors;
   }
-  if (Number.parseInt(version[3], 10) !== 0) return errors;
+  const patch = version[3];
+  if (patch === undefined || Number.parseInt(patch, 10) !== 0) return errors;
 
   const starts = input.body.split(RELEASE_HIGHLIGHTS_START).length - 1;
   const ends = input.body.split(RELEASE_HIGHLIGHTS_END).length - 1;

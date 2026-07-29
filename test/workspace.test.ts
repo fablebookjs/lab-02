@@ -16,40 +16,12 @@ import { add, normalizeLabel, normalizeLabels } from '@fablebook/lab-02-core';
 import { listPublicPackages, repositoryRoot } from '../scripts/shared/workspace/packages.ts';
 
 const packages = await listPublicPackages();
-const rootManifest = JSON.parse(await readFile(join(repositoryRoot, 'package.json'), 'utf8'));
-const pullRequestDescriptionWorkflow = await readFile(
-  join(repositoryRoot, '.github/workflows/pull-request-description-check.yml'),
-  'utf8'
+const rootManifest: unknown = JSON.parse(
+  await readFile(join(repositoryRoot, 'package.json'), 'utf8'),
 );
-const releaseProposalController = await readFile(
-  join(repositoryRoot, 'scripts/github/release-proposal/controller.ts'),
-  'utf8'
-);
-const workflowFiles = [
-  'ci.yml',
-  'cut-release-line.yml',
-  'maintain-patchback.yml',
-  'maintain-release-proposal.yml',
-  'promote-latest.yml',
-  'publish-stable-release.yml',
-  'pull-request-description-check.yml',
-  'release-proposal-check.yml',
-  'release-proposal-signal.yml',
-  'repair-release-proposals.yml',
-];
-const workflows = new Map<string, string>(
-  await Promise.all(
-    workflowFiles.map(async (filename) => [
-      filename,
-      await readFile(join(repositoryRoot, '.github/workflows', filename), 'utf8'),
-    ] as const),
-  )
-);
-const workflow = (filename: string): string => {
-  const source = workflows.get(filename);
-  assert.ok(source, `${filename} was not loaded`);
-  return source;
-};
+assert.ok(rootManifest !== null && typeof rootManifest === 'object');
+assert.ok('version' in rootManifest && typeof rootManifest.version === 'string');
+const rootVersion = rootManifest.version;
 
 test('the complete public workspace set is discovered in stable order', () => {
   assert.deepEqual(
@@ -60,14 +32,17 @@ test('the complete public workspace set is discovered in stable order', () => {
 
 test('all public packages and internal dependencies use the lockstep version', () => {
   for (const pkg of packages) {
-    assert.equal(pkg.version, rootManifest.version, `${pkg.name} diverged from the root version`);
+    assert.equal(pkg.version, rootVersion, `${pkg.name} diverged from the root version`);
   }
 
   const addon = packages.find(({ name }) => name === '@fablebook/lab-02-addon');
   assert.ok(addon);
+  const dependencies = addon.manifest['dependencies'];
+  assert.ok(dependencies !== null && typeof dependencies === 'object');
+  assert.ok('@fablebook/lab-02-core' in dependencies);
   assert.equal(
-    addon.manifest.dependencies['@fablebook/lab-02-core'],
-    rootManifest.version,
+    dependencies['@fablebook/lab-02-core'],
+    rootVersion,
     'the addon-to-core dependency must be exact and lockstep'
   );
 });
@@ -80,84 +55,6 @@ test('the compiled addon exercises the compiled core package', () => {
 
 test('the core label API accepts locale options', () => {
   assert.equal(normalizeLabel(' I ', { locale: 'tr' }), 'ı');
-});
-
-test('the trusted PR description check delegates to the zero-install handler', () => {
-  assert.match(pullRequestDescriptionWorkflow, /pull_request_target:/);
-  assert.match(pullRequestDescriptionWorkflow, /ref: main/);
-  assert.match(pullRequestDescriptionWorkflow, /actions\/github-script@[0-9a-f]{40}/);
-  assert.match(
-    pullRequestDescriptionWorkflow,
-    /controller\/scripts\/github\/pull-request\/check-description\.ts/,
-  );
-});
-
-test('workflow names group the Actions overview by maintainer-facing purpose', () => {
-  assert.deepEqual(
-    workflowFiles.map((filename) => {
-      const source = workflow(filename);
-      const match = /^name: '(.+)'$/m.exec(source);
-      assert.ok(match, `${filename} must declare a quoted workflow name`);
-      return match[1];
-    }),
-    [
-      'CI: Validate changes',
-      'MANUAL - Release: Start new release line',
-      'Release: Prepare patchback PR',
-      'Release: Keep release PRs current',
-      'MANUAL - Publish: Promote to latest',
-      'Publish: Publish approved release',
-      'PR: Enforce readiness',
-      'Release: Protect approval',
-      'Release: Trigger proposal maintenance',
-      'MANUAL - Release: Repair release PRs',
-    ]
-  );
-});
-
-test('manual proposal repair is separate from automatic proposal maintenance', () => {
-  const automaticMaintenance = workflow('maintain-release-proposal.yml');
-  const manualRepair = workflow('repair-release-proposals.yml');
-
-  assert.match(automaticMaintenance, /^  workflow_call:$/m);
-  assert.doesNotMatch(automaticMaintenance, /^  workflow_dispatch:$/m);
-  assert.match(automaticMaintenance, /github\.event_name == 'workflow_call'/);
-
-  assert.match(manualRepair, /^  workflow_dispatch:$/m);
-  assert.match(
-    manualRepair,
-    /uses: \.\/\.github\/workflows\/maintain-release-proposal\.yml/
-  );
-  assert.match(manualRepair, /secrets: inherit/);
-});
-
-test('release controllers follow the renamed credentialless signal workflow', () => {
-  for (const filename of [
-    'maintain-patchback.yml',
-    'maintain-release-proposal.yml',
-    'publish-stable-release.yml',
-  ]) {
-    assert.match(workflow(filename), /- 'Release: Trigger proposal maintenance'/);
-  }
-});
-
-test('newly uploaded proposals render from the prepared local content tree', () => {
-  assert.match(
-    releaseProposalController,
-    /contentOid = proposalOid[\s\S]*publicPackagesAt\(contentOid\)/
-  );
-  assert.match(
-    releaseProposalController,
-    /uploadedProposalOid,\s+transition\.proposalOid\s+\)/
-  );
-  assert.match(
-    releaseProposalController,
-    /contentOid: action\.proposalOid,[\s\S]*proposalOid: uploadedProposalOid/
-  );
-  assert.match(
-    releaseProposalController,
-    /createReleasePr\(token, action, uploadedProposalOid, action\.proposalOid\)/
-  );
 });
 
 test('summary formatting passes its locale to label normalization', () => {

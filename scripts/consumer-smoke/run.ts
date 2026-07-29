@@ -11,7 +11,34 @@ const execute = promisify(execFile);
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const node = process.execPath;
 
-const run = (command, args, cwd) =>
+type PackedFile = { path: string };
+type PackedArtifact = { filename: string; files: PackedFile[] };
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const packedArtifact = (value: unknown, name: string): PackedArtifact => {
+  if (
+    value === null ||
+    typeof value !== 'object' ||
+    !('filename' in value) ||
+    typeof value.filename !== 'string' ||
+    !('files' in value) ||
+    !Array.isArray(value.files) ||
+    value.files.some(
+      (file) =>
+        file === null ||
+        typeof file !== 'object' ||
+        !('path' in file) ||
+        typeof file.path !== 'string',
+    )
+  ) {
+    throw new Error(`npm pack returned an invalid artifact for ${name}.`);
+  }
+  return { filename: value.filename, files: value.files };
+};
+
+const run = (command: string, args: string[], cwd: string) =>
   execute(command, args, {
     cwd,
     env: process.env,
@@ -36,9 +63,14 @@ try {
       ['pack', '--json', '--pack-destination', packsDirectory, pkg.directory],
       repositoryRoot
     );
-    const packResult = JSON.parse(stdout);
-    const packed = Array.isArray(packResult) ? packResult[0] : packResult[pkg.name];
-    assert.ok(packed, `npm pack returned no artifact for ${pkg.name}`);
+    const packResult: unknown = JSON.parse(stdout);
+    const packedValue =
+      Array.isArray(packResult)
+        ? packResult[0]
+        : isRecord(packResult)
+          ? packResult[pkg.name]
+          : undefined;
+    const packed = packedArtifact(packedValue, pkg.name);
 
     const packedPaths = new Set<string>(packed.files.map(({ path }) => path));
     assert.ok(packedPaths.has('dist/index.js'), `${pkg.name} has no compiled JavaScript`);
@@ -76,13 +108,23 @@ try {
   );
 
   for (const pkg of packages) {
-    const installedManifest = JSON.parse(
+    const installedManifest: unknown = JSON.parse(
       await readFile(
         join(consumerDirectory, 'node_modules', ...pkg.name.split('/'), 'package.json'),
         'utf8',
       )
     );
-    assert.equal(installedManifest.version, pkg.version, `${pkg.name} installed at the wrong version`);
+    assert.ok(
+      installedManifest !== null &&
+        typeof installedManifest === 'object' &&
+        'version' in installedManifest,
+      `${pkg.name} installed with an invalid manifest`,
+    );
+    assert.equal(
+      installedManifest.version,
+      pkg.version,
+      `${pkg.name} installed at the wrong version`,
+    );
   }
 
   await writeFile(
@@ -99,7 +141,9 @@ assert.equal(formatSummary(' Demo ', [2, 3]), 'demo:5');
   );
   await run(node, ['verify.mjs'], consumerDirectory);
 
-  console.log(`Packed consumer verified ${packages.length} packages at ${packages[0].version}.`);
+  const firstPackage = packages[0];
+  assert.ok(firstPackage, 'At least one public package is required.');
+  console.log(`Packed consumer verified ${packages.length} packages at ${firstPackage.version}.`);
 } finally {
   await rm(temporaryRoot, { force: true, recursive: true });
 }

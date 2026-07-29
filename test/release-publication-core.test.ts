@@ -78,7 +78,13 @@ const initialCommunication = {
   kind: 'initial',
   releaseHighlights: highlights,
 };
-const migration = ({ priority, title }) => `---
+const migration = ({
+  priority,
+  title,
+}: {
+  priority: string;
+  title: string;
+}): string => `---
 priority: ${priority}
 ---
 # ${title}
@@ -445,7 +451,9 @@ test('stable publication publishes missing versions and skips only exact complet
   );
 
   const wrongIntegrity = registryDocument();
-  wrongIntegrity.versions['1.0.0'].dist.integrity =
+  const published = wrongIntegrity.versions['1.0.0'];
+  assert.ok(published);
+  published.dist.integrity =
     `sha512-${Buffer.alloc(64, 8).toString('base64')}`;
   assert.throws(() =>
     publicationDisposition({ ...input, document: wrongIntegrity })
@@ -470,7 +478,7 @@ test('stable publication publishes missing versions and skips only exact complet
 
 test('latest promotion is restartable and permits an intentional lower target', () => {
   const document = registryDocument();
-  document['dist-tags'].latest = '2.0.0';
+  document['dist-tags']['latest'] = '2.0.0';
   assert.equal(
     promotionDisposition({
       document,
@@ -479,7 +487,7 @@ test('latest promotion is restartable and permits an intentional lower target', 
     }),
     'update'
   );
-  document['dist-tags'].latest = '1.0.0';
+  document['dist-tags']['latest'] = '1.0.0';
   assert.equal(
     promotionDisposition({
       document,

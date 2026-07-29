@@ -1,4 +1,5 @@
 import { readdir, readFile } from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
 import { join } from 'node:path';
 
 import { repositoryRoot } from '../shared/workspace/packages.ts';
@@ -10,11 +11,16 @@ import {
 import { parseReleaseLine } from '../shared/release-proposal/core.ts';
 
 const root = join(repositoryRoot, 'migration-notes');
-let entries;
+let entries: Dirent[];
 try {
   entries = await readdir(root, { withFileTypes: true });
 } catch (error) {
-  if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+  if (
+    error !== null &&
+    typeof error === 'object' &&
+    'code' in error &&
+    error.code === 'ENOENT'
+  ) {
     entries = [];
   } else {
     throw error;

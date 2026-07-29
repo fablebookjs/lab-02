@@ -1,11 +1,20 @@
 import type * as core from '@actions/core';
-import type { context, getOctokit } from '@actions/github';
+import type { getOctokit } from '@actions/github';
 
 export type GitHubClient = ReturnType<typeof getOctokit>;
 
+export type GitHubContext = {
+  eventName: string;
+  payload: unknown;
+  repo: {
+    owner: string;
+    repo: string;
+  };
+};
+
 export type GitHubHandlerRuntime = {
   core: typeof core;
-  context: typeof context;
+  context: GitHubContext;
   env: Readonly<NodeJS.ProcessEnv>;
   github: GitHubClient;
 };
@@ -22,7 +31,7 @@ export function requireEnvironment(
 }
 
 export async function authenticatedToken(github: GitHubClient): Promise<string> {
-  const authentication = (await github.auth()) as unknown;
+  const authentication: unknown = await github.auth();
   if (
     typeof authentication !== 'object' ||
     authentication === null ||

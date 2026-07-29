@@ -6,7 +6,7 @@ import {
   validateMaterializedVersion,
 } from '../shared/version/materialize.ts';
 
-const run = (command, args) =>
+const run = (command: string, args: string[]): Promise<void> =>
   new Promise<void>((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: repositoryRoot,

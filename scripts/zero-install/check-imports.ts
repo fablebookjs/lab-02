@@ -179,16 +179,22 @@ export function checkZeroInstallImports(
       );
     }
 
+    const sourceText = readFileSync(source.logical, 'utf8');
     const sourceFile = ts.createSourceFile(
       source.logical,
-      readFileSync(source.logical, 'utf8'),
+      sourceText,
       ts.ScriptTarget.Latest,
       true,
       ts.ScriptKind.TS,
     );
-    const parseDiagnostics = (
-      sourceFile as ts.SourceFile & { parseDiagnostics?: readonly ts.DiagnosticWithLocation[] }
-    ).parseDiagnostics;
+    const parseDiagnostics = ts.transpileModule(sourceText, {
+      compilerOptions: {
+        module: ts.ModuleKind.NodeNext,
+        target: ts.ScriptTarget.Latest,
+      },
+      fileName: source.logical,
+      reportDiagnostics: true,
+    }).diagnostics;
     for (const parseDiagnostic of parseDiagnostics ?? []) {
       const start = parseDiagnostic.start ?? 0;
       const location = sourceFile.getLineAndCharacterOfPosition(start);

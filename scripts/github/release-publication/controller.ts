@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
-import { promisify } from 'node:util';
 
 import {
   listPublicPackages,
@@ -22,6 +20,10 @@ import {
   publicationDisposition,
   validateReleaseCommunication,
 } from '../../shared/release-publication/core.ts';
+import type {
+  ReleaseAuthority,
+  ReleaseCommunication,
+} from '../../shared/release-publication/core.ts';
 import {
   loadMigrationRecords,
   releaseRecordPath,
@@ -33,15 +35,46 @@ import {
   getRef,
   getReleaseByTag,
   githubRequest,
+  isCanonicalReleasePull,
+  validatedGitCommitResponse,
+  validatedReleaseResponse,
 } from '../release-proposal/github.ts';
-
-const execute = promisify(execFile);
+import type { GitHubRelease, GitPullRequest } from '../release-proposal/github.ts';
+import {
+  readJson,
+  requireGithubToken,
+  requireOption,
+  run,
+  writeJson,
+} from '../controller-support.ts';
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const PACKAGE_PREFIX = '@fablebook/lab-02-';
 
-type RunOptions = {
-  cwd?: string;
-  env?: NodeJS.ProcessEnv;
+type PublicationPackage = {
+  filename: string;
+  integrity: string;
+  location: string;
+  name: string;
+};
+
+type PublicationManifest = ReleaseAuthority & {
+  packages: PublicationPackage[];
+  releaseCommunication: ReleaseCommunication;
+  repository: typeof PILOT_REPOSITORY;
+  schema: 2;
+};
+
+type ReleaseAuthorityDocument = ReleaseAuthority & {
+  releaseCommunication: ReleaseCommunication;
+};
+
+type AnnotatedTag = {
+  object: {
+    sha: string;
+    type: 'commit';
+  };
+  sha: string;
+  tag: string;
 };
 
 export type ResolvePublicationOptions = {
@@ -92,71 +125,57 @@ export type PromoteLatestOptions = {
   version: string;
 };
 
-const run = async (command, args, options: RunOptions = {}) => {
-  try {
-    return await execute(command, args, {
-      cwd: options.cwd,
-      env: options.env ?? process.env,
-      maxBuffer: 20 * 1024 * 1024,
-    });
-  } catch (error) {
-    const failure = error as { stderr?: string; stdout?: string };
-    const output = [failure.stdout, failure.stderr].filter(Boolean).join('\n');
-    throw new Error(`${command} ${args.join(' ')} failed${output ? `\n${output}` : ''}`, {
-      cause: error,
-    });
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const stringValue = (value: unknown, label: string): string => {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`${label} must be a nonempty string.`);
   }
+  return value;
 };
 
-const readJson = async (path) => JSON.parse(await readFile(path, 'utf8'));
-const writeJson = async (path, value) =>
-  writeFile(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-
-const requireOption = (options, name) => {
-  if (!options[name]) {
-    throw new Error(`Missing required option --${name}`);
+const positiveInteger = (value: unknown, label: string): number => {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${label} must be a positive integer.`);
   }
-  return options[name];
+  return value;
 };
 
-const requireGithubToken = (options: { 'github-token': string }) => {
-  const token = options['github-token'];
-  if (!token) {
-    throw new Error('An authenticated GitHub capability is required.');
-  }
-  return token;
-};
-
-const validateOid = (oid, label) => {
-  if (!/^[0-9a-f]{40}$/.test(oid ?? '')) {
+const validateOid = (oid: unknown, label: string): string => {
+  if (typeof oid !== 'string' || !/^[0-9a-f]{40}$/.test(oid)) {
     throw new Error(`${label} is not a full commit OID.`);
   }
+  return oid;
 };
 
-const ensureTrustedMain = () => {
+const ensureTrustedMain = (): void => {
   if (
-    process.env.GITHUB_REPOSITORY !== PILOT_REPOSITORY ||
-    process.env.GITHUB_REF !== 'refs/heads/main'
+    process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
+    process.env['GITHUB_REF'] !== 'refs/heads/main'
   ) {
     throw new Error('Publication authority is restricted to trusted main in the pilot repository.');
   }
 };
 
-const gitHead = async (root) =>
+const gitHead = async (root: string): Promise<string> =>
   (await run('git', ['rev-parse', 'HEAD'], { cwd: root })).stdout.trim();
 
-const validateSnapshot = async (root, expectedOid) => {
+const validateSnapshot = async (root: string, expectedOid: string): Promise<void> => {
   validateOid(expectedOid, 'Expected snapshot');
   if ((await gitHead(root)) !== expectedOid) {
     throw new Error('The checked-out snapshot does not match release authority.');
   }
 };
 
-const validatePackageSet = async (root, version) => {
+const validatePackageSet = async (
+  root: string,
+  version: string,
+): Promise<PublicPackage[]> => {
   parseStableVersion(version);
   const rootManifest = await readJson(join(root, 'package.json'));
   const packages = await listPublicPackages(root);
-  if (rootManifest.version !== version || packages.length === 0) {
+  if (!isRecord(rootManifest) || rootManifest['version'] !== version || packages.length === 0) {
     throw new Error(`The snapshot is not a complete ${version} package set.`);
   }
   const publicNames = new Set(packages.map(({ name }) => name));
@@ -170,13 +189,20 @@ const validatePackageSet = async (root, version) => {
     ) {
       throw new Error(`${pkg.name} does not identify the pilot repository and workspace path.`);
     }
-    for (const field of [
+    const dependencyFields: Array<
+      'dependencies' | 'devDependencies' | 'optionalDependencies' | 'peerDependencies'
+    > = [
       'dependencies',
       'devDependencies',
       'optionalDependencies',
       'peerDependencies',
-    ]) {
-      for (const [name, dependencyVersion] of Object.entries(pkg.manifest[field] ?? {})) {
+    ];
+    for (const field of dependencyFields) {
+      const dependencies = pkg.manifest[field];
+      if (dependencies !== undefined && !isRecord(dependencies)) {
+        throw new Error(`${pkg.name} has malformed ${field}.`);
+      }
+      for (const [name, dependencyVersion] of Object.entries(dependencies ?? {})) {
         if (publicNames.has(name) && dependencyVersion !== version) {
           throw new Error(`${pkg.name} has a non-lockstep dependency on ${name}.`);
         }
@@ -186,8 +212,51 @@ const validatePackageSet = async (root, version) => {
   return packages;
 };
 
-const compareAuthority = (actual, expected) => {
-  for (const field of [
+const authorityValue = (
+  input: Record<string, unknown>,
+  label: string,
+): ReleaseAuthority => {
+  const line = stringValue(input['line'], `${label} line`);
+  const version = stringValue(input['version'], `${label} version`);
+  parseStableVersion(version);
+  const channel = stringValue(input['channel'], `${label} channel`);
+  if (channel !== lineChannel(line)) {
+    throw new Error(`${label} channel does not match its release line.`);
+  }
+  return {
+    channel,
+    line,
+    proposalOid: validateOid(input['proposalOid'], `${label} proposal`),
+    pullRequest: positiveInteger(input['pullRequest'], `${label} pull request`),
+    snapshotOid: validateOid(input['snapshotOid'], `${label} snapshot`),
+    sourceOid: validateOid(input['sourceOid'], `${label} source`),
+    version,
+  };
+};
+
+const authorityDocumentValue = (input: unknown): ReleaseAuthorityDocument => {
+  if (
+    !isRecord(input) ||
+    input['schema'] !== 2 ||
+    input['repository'] !== PILOT_REPOSITORY
+  ) {
+    throw new Error('Release authority document is outside the pilot schema.');
+  }
+  const authority = authorityValue(input, 'Release authority');
+  return {
+    ...authority,
+    releaseCommunication: validateReleaseCommunication(
+      input['releaseCommunication'],
+      authority.version,
+    ),
+  };
+};
+
+const compareAuthority = (
+  actual: ReleaseAuthority,
+  expected: ReleaseAuthority,
+): void => {
+  const fields: Array<keyof ReleaseAuthority> = [
     'channel',
     'line',
     'proposalOid',
@@ -195,27 +264,45 @@ const compareAuthority = (actual, expected) => {
     'snapshotOid',
     'sourceOid',
     'version',
-  ]) {
+  ];
+  for (const field of fields) {
     if (actual[field] !== expected[field]) {
       throw new Error(`Release authority changed at ${field}.`);
     }
   }
 };
 
-const readLiveAuthority = async (token, pullRequest) => {
+const readLiveAuthority = async (
+  token: string,
+  pullRequest: number,
+): Promise<ReleaseAuthority> => {
   const pull = await getPullRequest(token, pullRequest);
+  const mergeCommitOid = pull.merge_commit_sha;
+  if (mergeCommitOid === null) {
+    throw new Error('Merged release pull request has no merge commit OID.');
+  }
   const [headCommit, mergeCommit] = await Promise.all([
     getGitCommit(token, pull.head.sha),
-    getGitCommit(token, pull.merge_commit_sha),
+    getGitCommit(token, mergeCommitOid),
   ]);
   return deriveReleaseAuthority({ headCommit, mergeCommit, pull });
 };
 
-const readLiveRelease = async (token, pullRequest) => {
+const readLiveRelease = async (
+  token: string,
+  pullRequest: number,
+): Promise<{
+  authority: ReleaseAuthority;
+  releaseCommunication: ReleaseCommunication;
+}> => {
   const pull = await getPullRequest(token, pullRequest);
+  const mergeCommitOid = pull.merge_commit_sha;
+  if (mergeCommitOid === null) {
+    throw new Error('Merged release pull request has no merge commit OID.');
+  }
   const [headCommit, mergeCommit] = await Promise.all([
     getGitCommit(token, pull.head.sha),
-    getGitCommit(token, pull.merge_commit_sha),
+    getGitCommit(token, mergeCommitOid),
   ]);
   const authority = deriveReleaseAuthority({ headCommit, mergeCommit, pull });
   return {
@@ -227,39 +314,26 @@ const readLiveRelease = async (token, pullRequest) => {
   };
 };
 
-const canonicalReleasePull = (pull) => {
-  const line = pull?.base?.ref?.replace(/^releases\//, '');
-  return (
-    line &&
-    pull.base.ref === `releases/${line}` &&
-    pull.head?.ref === `staged/${line}` &&
-    pull.base.repo?.full_name === PILOT_REPOSITORY &&
-    pull.head.repo?.full_name === PILOT_REPOSITORY
-  );
-};
-
 export async function resolvePublication(
   options: ResolvePublicationOptions,
 ): Promise<PublicationResolution> {
   ensureTrustedMain();
   const signal = await readJson(resolve(requireOption(options, 'signal')));
   const output = resolve(requireOption(options, 'output'));
-  if (!Number.isSafeInteger(signal.pullRequest) || signal.pullRequest <= 0) {
+  if (!isRecord(signal)) {
     throw new Error('Release signal does not contain one positive pull request number.');
   }
+  const pullRequest = positiveInteger(signal['pullRequest'], 'Release signal pull request');
 
   const token = requireGithubToken(options);
-  const pull = await getPullRequest(token, signal.pullRequest);
-  if (!canonicalReleasePull(pull) || pull.merged_at === null) {
+  const pull = await getPullRequest(token, pullRequest);
+  if (!isCanonicalReleasePull(pull) || pull.merged_at === null) {
     const outputs: PublicationResolution = { publish: false };
-    console.log(`Pull request ${signal.pullRequest} does not authorize publication.`);
+    console.log(`Pull request ${pullRequest} does not authorize publication.`);
     return outputs;
   }
 
-  const { authority, releaseCommunication } = await readLiveRelease(
-    token,
-    signal.pullRequest
-  );
+  const { authority, releaseCommunication } = await readLiveRelease(token, pullRequest);
   await mkdir(output, { recursive: true });
   await writeJson(join(output, 'authority.json'), {
     ...authority,
@@ -276,29 +350,45 @@ export async function resolvePublication(
   return outputs;
 }
 
-const integrityFor = async (path) => {
+const integrityFor = async (path: string): Promise<string> => {
   const hash = createHash('sha512');
   hash.update(await readFile(path));
   return `sha512-${hash.digest('base64')}`;
 };
 
-const validateManifest = (manifest) => {
+const publicationPackageValue = (value: unknown): PublicationPackage => {
+  if (!isRecord(value)) {
+    throw new Error('Publication package entry must be an object.');
+  }
+  return {
+    filename: stringValue(value['filename'], 'Publication package filename'),
+    integrity: stringValue(value['integrity'], 'Publication package integrity'),
+    location: stringValue(value['location'], 'Publication package location'),
+    name: stringValue(value['name'], 'Publication package name'),
+  };
+};
+
+const validateManifest = (input: unknown): PublicationManifest => {
   if (
-    manifest.schema !== 2 ||
-    manifest.repository !== PILOT_REPOSITORY ||
-    manifest.channel !== lineChannel(manifest.line) ||
-    !Number.isSafeInteger(manifest.pullRequest) ||
-    manifest.pullRequest <= 0 ||
-    !Array.isArray(manifest.packages) ||
-    manifest.packages.length === 0
+    !isRecord(input) ||
+    input['schema'] !== 2 ||
+    input['repository'] !== PILOT_REPOSITORY ||
+    !Array.isArray(input['packages']) ||
+    input['packages'].length === 0
   ) {
     throw new Error('Publication manifest is outside the accepted pilot schema.');
   }
-  parseStableVersion(manifest.version);
-  validateReleaseCommunication(manifest.releaseCommunication, manifest.version);
-  for (const field of ['proposalOid', 'snapshotOid', 'sourceOid']) {
-    validateOid(manifest[field], `Manifest ${field}`);
-  }
+  const authority = authorityValue(input, 'Publication manifest');
+  const manifest: PublicationManifest = {
+    ...authority,
+    packages: input['packages'].map(publicationPackageValue),
+    releaseCommunication: validateReleaseCommunication(
+      input['releaseCommunication'],
+      authority.version,
+    ),
+    repository: PILOT_REPOSITORY,
+    schema: 2,
+  };
   const names = new Set();
   const filenames = new Set();
   const locations = new Set();
@@ -322,7 +412,10 @@ const validateManifest = (manifest) => {
   return manifest;
 };
 
-const comparePackageSet = (manifest, packages) => {
+const comparePackageSet = (
+  manifest: PublicationManifest,
+  packages: PublicPackage[],
+): void => {
   assert.deepEqual(
     manifest.packages.map(({ location, name }) => ({ location, name })),
     packages.map(({ location, name }) => ({ location, name }))
@@ -332,15 +425,11 @@ const comparePackageSet = (manifest, packages) => {
 export async function preparePublication(
   options: PreparePublicationOptions,
 ): Promise<void> {
-  const authorityDocument = await readJson(resolve(requireOption(options, 'authority')));
+  const authority = authorityDocumentValue(
+    await readJson(resolve(requireOption(options, 'authority'))),
+  );
   const snapshot = resolve(requireOption(options, 'snapshot'));
   const output = resolve(requireOption(options, 'output'));
-  if (authorityDocument.schema !== 2 || authorityDocument.repository !== PILOT_REPOSITORY) {
-    throw new Error('Release authority document is outside the pilot schema.');
-  }
-  const authority = { ...authorityDocument };
-  delete authority.repository;
-  delete authority.schema;
   await validateSnapshot(snapshot, authority.snapshotOid);
   const packages = await validatePackageSet(snapshot, authority.version);
   const tarballs = join(output, 'tarballs');
@@ -358,13 +447,32 @@ export async function preparePublication(
       ['pack', '--json', '--ignore-scripts', '--pack-destination', tarballs, pkg.directory],
       { cwd: snapshot }
     );
-    const packResult = JSON.parse(stdout);
-    const packed = Array.isArray(packResult) ? packResult[0] : packResult[pkg.name];
-    const files = new Set<string>(packed?.files?.map(({ path }) => path));
+    const packResult: unknown = JSON.parse(stdout);
+    const packedValue =
+      Array.isArray(packResult)
+        ? packResult[0]
+        : isRecord(packResult)
+          ? packResult[pkg.name]
+          : undefined;
+    if (!isRecord(packedValue) || !Array.isArray(packedValue['files'])) {
+      throw new Error(`npm pack produced no artifact for ${pkg.name}.`);
+    }
+    const files = new Set<string>(
+      packedValue['files'].map((file) => {
+        if (!isRecord(file)) throw new Error('npm pack file entry must be an object.');
+        return stringValue(file['path'], 'npm pack file path');
+      }),
+    );
+    const packed = {
+      filename: stringValue(packedValue['filename'], 'npm pack filename'),
+      integrity: stringValue(packedValue['integrity'], 'npm pack integrity'),
+      name: stringValue(packedValue['name'], 'npm pack name'),
+      version: stringValue(packedValue['version'], 'npm pack version'),
+    };
     if (
-      packed?.name !== pkg.name ||
+      packed.name !== pkg.name ||
       packed.version !== authority.version ||
-      basename(packed.filename ?? '') !== packed.filename ||
+      basename(packed.filename) !== packed.filename ||
       !files.has('dist/index.js') ||
       !files.has('dist/index.d.ts') ||
       [...files].some((path) => path.startsWith('src/'))
@@ -394,7 +502,7 @@ export async function preparePublication(
   console.log(`Prepared ${manifest.packages.length} packages for ${manifest.version}.`);
 }
 
-const registryDocument = async (name) => {
+const registryDocument = async (name: string): Promise<unknown> => {
   const url = new URL(encodeURIComponent(name), NPM_REGISTRY);
   url.searchParams.set('fablebook_read', `${Date.now()}-${Math.random()}`);
   const response = await fetch(url, {
@@ -407,11 +515,15 @@ const registryDocument = async (name) => {
   if (!response.ok) {
     throw new Error(`npm registry read failed for ${name}: HTTP ${response.status}.`);
   }
-  return response.json();
+  const value: unknown = await response.json();
+  return value;
 };
 
-const waitFor = async (observe, attempts = 6) => {
-  let error;
+const waitFor = async <Value>(
+  observe: () => Promise<Value>,
+  attempts = 6,
+): Promise<Value> => {
+  let error: unknown;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
       return await observe();
@@ -422,10 +534,16 @@ const waitFor = async (observe, attempts = 6) => {
       }
     }
   }
-  throw error;
+  throw error instanceof Error ? error : new Error('Observation did not converge.');
 };
 
-const loadPublication = async (options) => {
+const loadPublication = async (
+  options: { manifest: string; snapshot: string },
+): Promise<{
+  manifest: PublicationManifest;
+  packages: PublicPackage[];
+  snapshot: string;
+}> => {
   const manifest = validateManifest(
     await readJson(resolve(requireOption(options, 'manifest')))
   );
@@ -436,7 +554,10 @@ const loadPublication = async (options) => {
   return { manifest, packages, snapshot };
 };
 
-const verifyTarballs = async (manifest, tarballs) => {
+const verifyTarballs = async (
+  manifest: PublicationManifest,
+  tarballs: string,
+): Promise<void> => {
   for (const pkg of manifest.packages) {
     if ((await integrityFor(join(tarballs, pkg.filename))) !== pkg.integrity) {
       throw new Error(`Transferred tarball integrity failed for ${pkg.name}.`);
@@ -444,7 +565,10 @@ const verifyTarballs = async (manifest, tarballs) => {
   }
 };
 
-const observePublication = async (manifest, pkg) => {
+const observePublication = async (
+  manifest: PublicationManifest,
+  pkg: PublicationPackage,
+): Promise<{ disposition: 'publish' | 'skip'; document: unknown }> => {
   const document = await registryDocument(pkg.name);
   const disposition = publicationDisposition({
     channel: manifest.channel,
@@ -456,7 +580,10 @@ const observePublication = async (manifest, pkg) => {
   return { disposition, document };
 };
 
-const observeExactPublication = async (manifest, pkg) =>
+const observeExactPublication = async (
+  manifest: PublicationManifest,
+  pkg: PublicationPackage,
+): Promise<boolean> =>
   exactPublication({
     document: await registryDocument(pkg.name),
     integrity: pkg.integrity,
@@ -467,8 +594,8 @@ const observeExactPublication = async (manifest, pkg) =>
 export async function publishPackages(options: PublishPackagesOptions): Promise<void> {
   ensureTrustedMain();
   assertOidcPublishEnvironment({
-    nodeAuthToken: process.env.NODE_AUTH_TOKEN,
-    npmToken: process.env.NPM_TOKEN,
+    nodeAuthToken: process.env['NODE_AUTH_TOKEN'],
+    npmToken: process.env['NPM_TOKEN'],
   });
   const { manifest } = await loadPublication(options);
   const tarballs = resolve(requireOption(options, 'tarballs'));
@@ -525,7 +652,28 @@ export async function publishPackages(options: PublishPackagesOptions): Promise<
   console.log(`Verified the complete ${manifest.version} package set on ${manifest.channel}.`);
 }
 
-const readAnnotatedTag = async (token, tag) => {
+const annotatedTagValue = (value: unknown): AnnotatedTag => {
+  if (!isRecord(value) || !isRecord(value['object'])) {
+    throw new Error('GitHub annotated tag response must be an object.');
+  }
+  const type = value['object']['type'];
+  if (type !== 'commit') {
+    throw new Error('GitHub annotated tag must target a commit.');
+  }
+  return {
+    object: {
+      sha: validateOid(value['object']['sha'], 'Annotated tag target'),
+      type,
+    },
+    sha: validateOid(value['sha'], 'Annotated tag object'),
+    tag: stringValue(value['tag'], 'Annotated tag name'),
+  };
+};
+
+const readAnnotatedTag = async (
+  token: string,
+  tag: string,
+): Promise<AnnotatedTag | null> => {
   const ref = await getRef(token, `tags/${tag}`);
   if (ref === null) {
     return null;
@@ -533,10 +681,16 @@ const readAnnotatedTag = async (token, tag) => {
   if (ref.type !== 'tag') {
     throw new Error(`${tag} exists but is not an annotated tag.`);
   }
-  return githubRequest(`/repos/${PILOT_REPOSITORY}/git/tags/${ref.oid}`, { token });
+  return annotatedTagValue(
+    await githubRequest(`/repos/${PILOT_REPOSITORY}/git/tags/${ref.oid}`, { token }),
+  );
 };
 
-const assertTagTarget = (tagObject, tag, snapshotOid) => {
+const assertTagTarget = (
+  tagObject: AnnotatedTag,
+  tag: string,
+  snapshotOid: string,
+): void => {
   if (
     tagObject.tag !== tag ||
     tagObject.object?.type !== 'commit' ||
@@ -546,25 +700,30 @@ const assertTagTarget = (tagObject, tag, snapshotOid) => {
   }
 };
 
-const ensureAnnotatedTag = async (token, manifest) => {
+const ensureAnnotatedTag = async (
+  token: string,
+  manifest: PublicationManifest,
+): Promise<string> => {
   const tag = `v${manifest.version}`;
   let tagObject = await readAnnotatedTag(token, tag);
   if (tagObject === null) {
-    tagObject = await githubRequest(`/repos/${PILOT_REPOSITORY}/git/tags`, {
-      body: {
-        message: `Release ${tag}`,
-        object: manifest.snapshotOid,
-        tag,
-        tagger: {
-          date: new Date().toISOString(),
-          email: 'release-app@users.noreply.github.com',
-          name: 'fablebook-release-app[bot]',
+    tagObject = annotatedTagValue(
+      await githubRequest(`/repos/${PILOT_REPOSITORY}/git/tags`, {
+        body: {
+          message: `Release ${tag}`,
+          object: manifest.snapshotOid,
+          tag,
+          tagger: {
+            date: new Date().toISOString(),
+            email: 'release-app@users.noreply.github.com',
+            name: 'fablebook-release-app[bot]',
+          },
+          type: 'commit',
         },
-        type: 'commit',
-      },
-      method: 'POST',
-      token,
-    });
+        method: 'POST',
+        token,
+      }),
+    );
     await githubRequest(`/repos/${PILOT_REPOSITORY}/git/refs`, {
       body: { ref: `refs/tags/${tag}`, sha: tagObject.sha },
       method: 'POST',
@@ -582,21 +741,28 @@ const ensureAnnotatedTag = async (token, manifest) => {
   return tag;
 };
 
-const ensureGitHubRelease = async (token, manifest, tag, body) => {
+const ensureGitHubRelease = async (
+  token: string,
+  manifest: PublicationManifest,
+  tag: string,
+  body: string,
+): Promise<void> => {
   let release = await getReleaseByTag(token, tag);
   if (release === null) {
-    release = await githubRequest(`/repos/${PILOT_REPOSITORY}/releases`, {
-      body: {
-        body,
-        draft: false,
-        name: tag,
-        prerelease: false,
-        tag_name: tag,
-        target_commitish: manifest.snapshotOid,
-      },
-      method: 'POST',
-      token,
-    });
+    release = validatedReleaseResponse(
+      await githubRequest(`/repos/${PILOT_REPOSITORY}/releases`, {
+        body: {
+          body,
+          draft: false,
+          name: tag,
+          prerelease: false,
+          tag_name: tag,
+          target_commitish: manifest.snapshotOid,
+        },
+        method: 'POST',
+        token,
+      }),
+    );
     if (release.body !== body) {
       throw new Error(`GitHub did not preserve the composed ${tag} release body.`);
     }
@@ -610,7 +776,10 @@ const ensureGitHubRelease = async (token, manifest, tag, body) => {
   }
 };
 
-const releaseCompletionState = async (token, manifest) => {
+const releaseCompletionState = async (
+  token: string,
+  manifest: PublicationManifest,
+): Promise<boolean> => {
   const tag = `v${manifest.version}`;
   const tagObject = await readAnnotatedTag(token, tag);
   const release = await getReleaseByTag(token, tag);
@@ -680,13 +849,16 @@ export async function finalizeRelease(options: FinalizeReleaseOptions): Promise<
   console.log(`Completed ${tag} and notified release-proposal maintenance.`);
 }
 
-const validateCompletedRelease = async (token, version) => {
+const validateCompletedRelease = async (
+  token: string,
+  version: string,
+): Promise<string> => {
   const tag = `v${version}`;
   const tagObject = await readAnnotatedTag(token, tag);
   if (tagObject === null) {
     throw new Error(`Completed release tag ${tag} does not exist.`);
   }
-  validateOid(tagObject.object?.sha, `Completed release ${tag} target`);
+  validateOid(tagObject.object.sha, `Completed release ${tag} target`);
   assertTagTarget(tagObject, tag, tagObject.object.sha);
   const release = await getReleaseByTag(token, tag);
   if (
@@ -712,7 +884,10 @@ export async function resolvePromotion(
   return outputs;
 }
 
-const observePromotion = async (version, pkg) => {
+const observePromotion = async (
+  version: string,
+  pkg: PublicPackage,
+): Promise<'skip' | 'update'> => {
   const document = await registryDocument(pkg.name);
   return promotionDisposition({ document, name: pkg.name, version });
 };
@@ -721,7 +896,7 @@ export async function promoteLatest(options: PromoteLatestOptions): Promise<void
   ensureTrustedMain();
   const version = requireOption(options, 'version');
   parseStableVersion(version);
-  if (!process.env.NODE_AUTH_TOKEN) {
+  if (!process.env['NODE_AUTH_TOKEN']) {
     throw new Error('Promotion requires the package-scoped npm promotion credential.');
   }
   const token = requireGithubToken(options);

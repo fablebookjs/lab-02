@@ -8,7 +8,8 @@
   ],
   "scripts": {
     "check": "npm run validate:release-communication && npm run clean && npm run compile && npm run check:scripts && npm test && npm run smoke:packed",
-    "check:scripts": "npm run check:zero-install-imports && npm run typecheck:scripts",
+    "check:scripts": "npm run check:zero-install-imports && npm run check:type-escapes && npm run typecheck:scripts",
+    "check:type-escapes": "node scripts/type-safety/check-escapes.ts",
     "check:zero-install-imports": "node scripts/zero-install/check-imports.ts",
     "clean": "tsc -b --clean",
     "compile": "tsc -b",
@@ -23,6 +24,7 @@
   "devDependencies": {
     "@actions/core": "3.0.1",
     "@actions/github": "9.1.1",
+    "@octokit/openapi-webhooks-types": "12.1.0",
     "@types/node": "24.13.3",
     "typescript": "5.9.3"
   },
