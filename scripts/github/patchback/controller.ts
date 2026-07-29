@@ -24,9 +24,10 @@ import {
   releaseRecordPath,
 } from '../../shared/release-communication/records.ts';
 import {
-  parseDevelopmentCommitMessage,
+  parseDevelopmentCommitMessageIfPresent,
   parseStableVersion,
 } from '../../shared/release-proposal/core.ts';
+import type { DevelopmentCommit } from '../../shared/release-proposal/core.ts';
 import {
   getGitCommit,
   getPullRequest,
@@ -271,29 +272,18 @@ const commitSubject = async (root: string, oid: string): Promise<string> =>
 const findReleaseCut = async (
   root: string,
   line: string,
-): Promise<ReturnType<typeof parseDevelopmentCommitMessage> & { commitOid: string }> => {
+): Promise<DevelopmentCommit & { commitOid: string }> => {
   const { stdout } = await git(['rev-list', '--first-parent', 'HEAD'], root);
-  const matches: Array<
-    ReturnType<typeof parseDevelopmentCommitMessage> & { commitOid: string }
-  > = [];
+  const matches: Array<DevelopmentCommit & { commitOid: string }> = [];
   for (const oid of stdout.trim().split('\n').filter(Boolean)) {
     const message = (await git(['show', '-s', '--format=%B', oid], root)).stdout.trimEnd();
-    try {
-      const cut = parseDevelopmentCommitMessage(message);
-      if (cut.line === line) {
-        const parents = await commitParents(root, oid);
-        if (parents.length !== 1 || parents[0] !== cut.sourceOid) {
-          throw new Error(`Release-cut commit ${oid} is not a child of its recorded source.`);
-        }
-        matches.push({ ...cut, commitOid: oid });
+    const cut = parseDevelopmentCommitMessageIfPresent(message);
+    if (cut?.line === line) {
+      const parents = await commitParents(root, oid);
+      if (parents.length !== 1 || parents[0] !== cut.sourceOid) {
+        throw new Error(`Release-cut commit ${oid} is not a child of its recorded source.`);
       }
-    } catch (error) {
-      if (
-        !(error instanceof Error) ||
-        !error.message.includes('missing required release-cut trailers')
-      ) {
-        throw error;
-      }
+      matches.push({ ...cut, commitOid: oid });
     }
   }
   if (matches.length !== 1) {
