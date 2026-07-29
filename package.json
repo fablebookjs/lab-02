@@ -7,19 +7,26 @@
     "packages/*"
   ],
   "scripts": {
-    "check": "npm run validate:release-communication && npm run clean && npm run compile && npm test && npm run smoke:packed",
+    "check": "npm run validate:release-communication && npm run check:scripts && npm run clean && npm run compile && npm test && npm run smoke:packed",
+    "check:scripts": "npm run check:zero-install-imports && npm run typecheck:scripts",
+    "check:zero-install-imports": "node scripts/zero-install/check-imports.ts",
     "clean": "tsc -b --clean",
     "compile": "tsc -b",
-    "list-packages": "node scripts/list-public-packages.mjs",
-    "set-version": "node scripts/set-version.mjs",
-    "smoke:packed": "node scripts/consumer-smoke.mjs",
-    "test": "node --test test/*.test.mjs",
-    "validate:release-communication": "node scripts/check-release-communication.mjs"
+    "list-packages": "node scripts/workspace/list-packages.ts",
+    "set-version": "node scripts/version/set-version.ts",
+    "smoke:packed": "node scripts/consumer-smoke/run.ts",
+    "smoke:zero-install": "node scripts/zero-install/smoke.ts",
+    "test": "node --test test/*.test.mjs test/*.test.ts",
+    "typecheck:scripts": "tsc -p tsconfig.scripts.json",
+    "validate:release-communication": "node scripts/release-communication/validate.ts"
   },
   "devDependencies": {
-    "typescript": "^7.0.2"
+    "@actions/core": "3.0.1",
+    "@actions/github": "9.1.1",
+    "@types/node": "24.13.3",
+    "typescript": "5.9.3"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   }
 }

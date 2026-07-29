@@ -1,7 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 
-import { parseReleaseLine, parseStableVersion } from './release-proposal-core.mjs';
+import { parseReleaseLine, parseStableVersion } from '../release-proposal/core.ts';
 
 const REPOSITORY = 'fablebookjs/lab-02';
 const repositoryUrl = `https://github.com/${REPOSITORY}`;
@@ -183,7 +183,7 @@ const parseFrontmatter = (source, filename) => {
   if (closing === -1) {
     throw new Error(`${filename} has unterminated frontmatter.`);
   }
-  const metadata = {};
+  const metadata: Record<string, string> = {};
   for (const line of lines.slice(1, closing)) {
     const separator = line.indexOf(':');
     const key = line.slice(0, separator).trim();

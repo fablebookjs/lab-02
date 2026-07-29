@@ -1,13 +1,13 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { repositoryRoot } from './list-public-packages.mjs';
+import { repositoryRoot } from '../shared/workspace/packages.ts';
 import {
   composeMigrationRecords,
   loadMigrationRecords,
   migrationRecordDirectory,
-} from './release-communication.mjs';
-import { parseReleaseLine } from './release-proposal-core.mjs';
+} from '../shared/release-communication/records.ts';
+import { parseReleaseLine } from '../shared/release-proposal/core.ts';
 
 const root = join(repositoryRoot, 'migration-notes');
 let entries;

@@ -1,12 +1,34 @@
 import { readFile, readdir } from 'node:fs/promises';
-import { dirname, join, relative, sep } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-export const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+export const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
-const readJson = async (path) => JSON.parse(await readFile(path, 'utf8'));
+type PackageManifest = {
+  name?: string;
+  private?: boolean;
+  repository?: {
+    directory?: string;
+    url?: string;
+  };
+  version?: string;
+  workspaces?: string[] | { packages?: string[] };
+  [key: string]: any;
+};
 
-const workspacePatterns = (rootManifest) => {
+export type PublicPackage = {
+  directory: string;
+  location: string;
+  manifest: PackageManifest;
+  manifestPath: string;
+  name: string;
+  version: string;
+};
+
+const readJson = async (path): Promise<PackageManifest> =>
+  JSON.parse(await readFile(path, 'utf8'));
+
+const workspacePatterns = (rootManifest: PackageManifest): string[] => {
   const value = rootManifest.workspaces;
   const patterns = Array.isArray(value) ? value : value?.packages;
 
@@ -14,7 +36,7 @@ const workspacePatterns = (rootManifest) => {
     throw new Error('The root package.json must define at least one workspace pattern.');
   }
 
-  return patterns;
+  return patterns as string[];
 };
 
 const expandSingleLevelPattern = async (root, pattern) => {
@@ -37,7 +59,7 @@ export async function listPublicPackages(root = repositoryRoot) {
     )
   ).flat();
 
-  const packages = [];
+  const packages: PublicPackage[] = [];
   for (const directory of directories) {
     const manifestPath = join(directory, 'package.json');
     const manifest = await readJson(manifestPath);
@@ -67,7 +89,7 @@ export async function listPublicPackages(root = repositoryRoot) {
 const isMain =
   process.argv[1] !== undefined && pathToFileURL(process.argv[1]).href === import.meta.url;
 
-if (isMain) {
+async function main(): Promise<void> {
   const packages = await listPublicPackages();
   console.log(
     JSON.stringify(
@@ -77,3 +99,8 @@ if (isMain) {
     )
   );
 }
+
+if (isMain) void main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

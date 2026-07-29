@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
-import { ZERO_OID } from './release-proposal-core.mjs';
-import { RELEASE_PR_TEMPLATE_MARKER } from './release-pr-body.mjs';
+import { ZERO_OID } from '../../shared/release-proposal/core.ts';
+import { RELEASE_PR_TEMPLATE_MARKER } from '../../shared/release-proposal/body.ts';
 
 export const PILOT_REPOSITORY = 'fablebookjs/lab-02';
 
@@ -20,7 +20,16 @@ const responseError = async (response) => {
   return new Error(`GitHub API ${response.status} ${response.url}: ${detail}`);
 };
 
-export async function githubRequest(path, { body, method = 'GET', token } = {}) {
+type GitHubRequestOptions = {
+  body?: unknown;
+  method?: string;
+  token?: string;
+};
+
+export async function githubRequest(
+  path,
+  { body, method = 'GET', token }: GitHubRequestOptions = {},
+) {
   if (!token) {
     throw new Error('GitHub API token is required.');
   }
@@ -246,7 +255,17 @@ export async function updatePullRequestBody(token, number, body) {
   });
 }
 
-export function createRefUpdate({ afterOid, beforeOid, force = false, name }) {
+export function createRefUpdate({
+  afterOid,
+  beforeOid,
+  force = false,
+  name,
+}: {
+  afterOid: string;
+  beforeOid?: string;
+  force?: boolean;
+  name: string;
+}) {
   if (
     name !== 'refs/heads/main' &&
     !/^refs\/heads\/(?:releases|staged)\/v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(name)

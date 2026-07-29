@@ -35,21 +35,18 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           ref: main
-      - name: Use Node.js 22
+      - name: Use Node.js 24
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22
-      - name: Install the locked controller workspace
-        run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Compile and test the trusted controller
-        run: npm run compile && npm test
+          node-version: 24
       - name: Prepare proposal transitions without write authority
         env:
-          GH_TOKEN: ${{ github.token }}
           OUTPUT: ${{ runner.temp }}/release-maintenance
-        run: >-
-          node scripts/release-proposal.mjs prepare-maintenance
-          --output "$OUTPUT"
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          script: |
+            const handler = require('./scripts/github/release-proposal/prepare-maintenance.ts').default
+            return handler({ github, context, core, env: process.env })
       - name: Transfer inert Git objects and their transition manifest
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
@@ -70,12 +67,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           ref: main
-      - name: Use Node.js 22
+      - name: Use Node.js 24
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22
+          node-version: 24
       - name: Download the prepared transitions
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: release-maintenance-${{ github.run_id }}
           path: ${{ runner.temp }}/release-maintenance
@@ -83,20 +80,16 @@ jobs:
         id: release-app
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
-          app-id: ${{ vars.RELEASE_APP_ID }}
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           permission-contents: write
           permission-pull-requests: write
       - name: Apply guarded proposal transitions
         env:
-          GH_TOKEN: ${{ steps.release-app.outputs.token }}
           OUTPUT: ${{ runner.temp }}/release-maintenance
-        run: |
-          arguments=(
-            apply-maintenance
-            --transition "$OUTPUT/transition.json"
-          )
-          if [[ -f "$OUTPUT/objects.bundle" ]]; then
-            arguments+=(--bundle "$OUTPUT/objects.bundle")
-          fi
-          node scripts/release-proposal.mjs "${arguments[@]}"
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          github-token: ${{ steps.release-app.outputs.token }}
+          script: |
+            const handler = require('./scripts/github/release-proposal/apply-maintenance.ts').default
+            return handler({ github, context, core, env: process.env })

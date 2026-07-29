@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { appendFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 import {
@@ -16,16 +17,19 @@ import {
   previousReleaseVersion,
   releaseMergerAssignee,
   renderPatchbackBody,
-} from './patchback-core.mjs';
-import { deriveReleaseAuthority, PILOT_REPOSITORY } from './release-publication-core.mjs';
+} from '../../shared/patchback/core.ts';
+import {
+  deriveReleaseAuthority,
+  PILOT_REPOSITORY,
+} from '../../shared/release-publication/core.ts';
 import {
   migrationRecordDirectory,
   releaseRecordPath,
-} from './release-communication.mjs';
+} from '../../shared/release-communication/records.ts';
 import {
   parseDevelopmentCommitMessage,
   parseStableVersion,
-} from './release-proposal-core.mjs';
+} from '../../shared/release-proposal/core.ts';
 import {
   getGitCommit,
   getPullRequest,
@@ -34,11 +38,18 @@ import {
   githubRequest,
   resolveRefObject,
   withPullRequestMergeCommit,
-} from './release-proposal-github.mjs';
+} from '../release-proposal/github.ts';
 
 const execute = promisify(execFile);
 
-const run = async (command, args, options = {}) => {
+type RunOptions = {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+};
+
+type StringOptions = Record<string, string>;
+
+const run = async (command, args, options: RunOptions = {}) => {
   try {
     return await execute(command, args, {
       cwd: options.cwd,
@@ -59,7 +70,7 @@ const writeJson = async (path, value) =>
   writeFile(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 
 const parseOptions = (values) => {
-  const options = {};
+  const options: StringOptions = {};
   for (let index = 0; index < values.length; index += 2) {
     const name = values[index];
     const value = values[index + 1];
@@ -76,6 +87,22 @@ const requireOption = (options, name) => {
     throw new Error(`Missing required option --${name}`);
   }
   return options[name];
+};
+
+const requireGithubToken = (options) => {
+  const token = options['github-token'] ?? process.env.GH_TOKEN;
+  if (!token) {
+    throw new Error('An authenticated GitHub capability is required.');
+  }
+  return token;
+};
+
+const writeLegacyOutputs = async (options, outputs) => {
+  if (!options['github-output']) return;
+  const body = Object.entries(outputs)
+    .map(([name, value]) => `${name}=${String(value)}\n`)
+    .join('');
+  await appendFile(resolve(options['github-output']), body, 'utf8');
 };
 
 const fullOid = (value, label) => {
@@ -158,21 +185,21 @@ const validateAuthorityDocument = (document) => {
   return authority;
 };
 
-async function resolvePatchback(options) {
+export async function resolvePatchback(options) {
   ensureTrustedMain();
   const signal = await readJson(resolve(requireOption(options, 'signal')));
   const output = resolve(requireOption(options, 'output'));
-  const githubOutput = resolve(requireOption(options, 'github-output'));
   if (!Number.isSafeInteger(signal.pullRequest) || signal.pullRequest <= 0) {
     throw new Error('Release signal does not contain one positive pull request number.');
   }
 
-  const token = process.env.GH_TOKEN;
+  const token = requireGithubToken(options);
   const pull = await getPullRequest(token, signal.pullRequest);
   if (!canonicalReleasePull(pull) || pull.merged_at === null) {
-    await appendFile(githubOutput, 'patchback=false\n', 'utf8');
+    const outputs = { patchback: false };
+    await writeLegacyOutputs(options, outputs);
     console.log(`Pull request ${signal.pullRequest} does not authorize a patchback.`);
-    return;
+    return outputs;
   }
 
   const authority = await readLiveAuthority(token, signal.pullRequest);
@@ -182,12 +209,14 @@ async function resolvePatchback(options) {
     repository: PILOT_REPOSITORY,
     schema: 1,
   });
-  await appendFile(
-    githubOutput,
-    `patchback=true\nsnapshot=${authority.snapshotOid}\nversion=${authority.version}\n`,
-    'utf8'
-  );
+  const outputs = {
+    patchback: true,
+    snapshot: authority.snapshotOid,
+    version: authority.version,
+  };
+  await writeLegacyOutputs(options, outputs);
   console.log(`Resolved patchback authority for ${authority.version}.`);
+  return outputs;
 }
 
 const gitHead = async (root) =>
@@ -414,7 +443,7 @@ const validateManifest = (manifest) => {
   return manifest;
 };
 
-async function preparePatchback(options) {
+export async function preparePatchback(options) {
   ensureTrustedMain();
   const controller = resolve(requireOption(options, 'controller'));
   const snapshot = resolve(requireOption(options, 'snapshot'));
@@ -426,7 +455,7 @@ async function preparePatchback(options) {
     throw new Error('The checked-out snapshot does not match patchback authority.');
   }
 
-  const token = process.env.GH_TOKEN;
+  const token = requireGithubToken(options);
   const parsed = parseStableVersion(authority.version);
   let boundary;
   if (parsed.patch === 0) {
@@ -548,7 +577,7 @@ const treeEntries = async (token, oid) => {
   if (tree.truncated) {
     throw new Error('Patchback coordination tree is too large to verify exactly.');
   }
-  return new Map(
+  return new Map<string, { mode: string; oid: string; type: string }>(
     tree.tree
       .filter((entry) => entry.type === 'blob')
       .map((entry) => [
@@ -733,12 +762,12 @@ const validateExistingPull = (pull, manifest) => {
   }
 };
 
-async function applyPatchback(options) {
+export async function applyPatchback(options) {
   ensureTrustedMain();
   const manifest = validateManifest(
     await readJson(resolve(requireOption(options, 'manifest')))
   );
-  const token = process.env.GH_TOKEN;
+  const token = requireGithubToken(options);
   compareAuthority(
     await readLiveAuthority(token, manifest.authority.pullRequest),
     manifest.authority
@@ -837,9 +866,19 @@ const commands = {
   resolve: resolvePatchback,
 };
 
-const [commandName, ...values] = process.argv.slice(2);
-const command = commands[commandName];
-if (!command) {
-  throw new Error(`Unknown patchback command: ${commandName ?? '(missing)'}`);
+export async function main(argumentValues = process.argv.slice(2)) {
+  const [commandName, ...values] = argumentValues;
+  const command = commands[commandName];
+  if (!command) {
+    throw new Error(`Unknown patchback command: ${commandName ?? '(missing)'}`);
+  }
+  await command(parseOptions(values));
 }
-await command(parseOptions(values));
+
+const isMain =
+  process.argv[1] !== undefined && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
+
+if (isMain) void main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

@@ -13,7 +13,7 @@ import {
 } from '@fablebook/lab-02-addon';
 import { add, normalizeLabel, normalizeLabels } from '@fablebook/lab-02-core';
 
-import { listPublicPackages, repositoryRoot } from '../scripts/list-public-packages.mjs';
+import { listPublicPackages, repositoryRoot } from '../scripts/shared/workspace/packages.ts';
 
 const packages = await listPublicPackages();
 const rootManifest = JSON.parse(await readFile(join(repositoryRoot, 'package.json'), 'utf8'));
@@ -22,7 +22,7 @@ const pullRequestDescriptionWorkflow = await readFile(
   'utf8'
 );
 const releaseProposalController = await readFile(
-  join(repositoryRoot, 'scripts/release-proposal.mjs'),
+  join(repositoryRoot, 'scripts/github/release-proposal/controller.ts'),
   'utf8'
 );
 const workflowFiles = [
@@ -76,12 +76,14 @@ test('the core label API accepts locale options', () => {
   assert.equal(normalizeLabel(' I ', { locale: 'tr' }), 'ı');
 });
 
-test('the trusted PR description check requires highlights on every canonical release line', () => {
+test('the trusted PR description check delegates to the zero-install handler', () => {
   assert.match(pullRequestDescriptionWorkflow, /pull_request_target:/);
-  assert.match(pullRequestDescriptionWorkflow, /PR_HEAD_REPOSITORY:/);
-  assert.match(pullRequestDescriptionWorkflow, /staged\/\$\{line\[1\]\}/);
-  assert.match(pullRequestDescriptionWorkflow, /fablebook:release-highlights:start/);
-  assert.match(pullRequestDescriptionWorkflow, /fablebook:release-highlights=empty/);
+  assert.match(pullRequestDescriptionWorkflow, /ref: main/);
+  assert.match(pullRequestDescriptionWorkflow, /actions\/github-script@[0-9a-f]{40}/);
+  assert.match(
+    pullRequestDescriptionWorkflow,
+    /controller\/scripts\/github\/pull-request\/check-description\.ts/,
+  );
 });
 
 test('workflow names group the Actions overview by maintainer-facing purpose', () => {

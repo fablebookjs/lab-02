@@ -1,10 +1,10 @@
-import { parseReleaseLine, parseStableVersion } from './release-proposal-core.mjs';
+import { parseReleaseLine, parseStableVersion } from './core.ts';
 import {
   cleanReleaseTitle,
   deriveReleaseChanges,
   migrationRecordDirectory,
   normalizeReleaseChanges,
-} from './release-communication.mjs';
+} from '../release-communication/records.ts';
 
 const REPOSITORY = 'fablebookjs/lab-02';
 const repositoryUrl = `https://github.com/${REPOSITORY}`;

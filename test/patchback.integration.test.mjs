@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
-import { derivePatchbackItems } from '../scripts/patchback-core.mjs';
+import { derivePatchbackItems } from '../scripts/shared/patchback/core.ts';
 
 const execute = promisify(execFile);
 const git = (args, cwd) => execute('git', args, { cwd, env: process.env });

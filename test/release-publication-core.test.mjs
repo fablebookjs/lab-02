@@ -11,17 +11,17 @@ import {
   promotionDisposition,
   publicationDisposition,
   SETUP_NODE_AUTH_PLACEHOLDER,
-} from '../scripts/release-publication-core.mjs';
+} from '../scripts/shared/release-publication/core.ts';
 import {
   composeMigrationRecords,
   renderReleaseRecord,
-} from '../scripts/release-communication.mjs';
-import { proposalCommitMessage } from '../scripts/release-proposal-core.mjs';
+} from '../scripts/shared/release-communication/records.ts';
+import { proposalCommitMessage } from '../scripts/shared/release-proposal/core.ts';
 import {
   RELEASE_HIGHLIGHTS_END,
   RELEASE_HIGHLIGHTS_START,
   RELEASE_PR_TEMPLATE_MARKER,
-} from '../scripts/release-pr-body.mjs';
+} from '../scripts/shared/release-proposal/body.ts';
 
 const sourceOid = '1'.repeat(40);
 const proposalOid = '2'.repeat(40);

@@ -13,7 +13,7 @@ import {
   parseMigrationRecord,
   releaseRecordPath,
   renderReleaseRecord,
-} from '../scripts/release-communication.mjs';
+} from '../scripts/shared/release-communication/records.ts';
 
 const oid = (character) => character.repeat(40);
 

@@ -10,11 +10,11 @@ import {
   parseProposalMessage,
   planProposalMaintenance,
   proposalCommitMessage,
-} from '../scripts/release-proposal-core.mjs';
+} from '../scripts/shared/release-proposal/core.ts';
 import {
   createRefUpdate,
   extractPullRequestMergeCommitOid,
-} from '../scripts/release-proposal-github.mjs';
+} from '../scripts/github/release-proposal/github.ts';
 
 const lineState = (overrides = {}) => ({
   completedOid: null,

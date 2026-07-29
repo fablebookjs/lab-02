@@ -6,14 +6,14 @@ import { join, relative, sep } from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
-import { parseProposalMessage } from '../scripts/release-proposal-core.mjs';
-import { renderReleaseRecord } from '../scripts/release-communication.mjs';
+import { parseProposalMessage } from '../scripts/shared/release-proposal/core.ts';
+import { renderReleaseRecord } from '../scripts/shared/release-communication/records.ts';
 import {
   EMPTY_RELEASE_HIGHLIGHTS,
   RELEASE_HIGHLIGHTS_END,
   RELEASE_HIGHLIGHTS_START,
-} from '../scripts/release-pr-body.mjs';
-import { repositoryRoot } from '../scripts/list-public-packages.mjs';
+} from '../scripts/shared/release-proposal/body.ts';
+import { repositoryRoot } from '../scripts/shared/workspace/packages.ts';
 
 const execute = promisify(execFile);
 
@@ -44,7 +44,7 @@ test('prepare-cut creates two validated children and no repository refs', async 
     await git(['config', 'maintenance.auto', 'false'], repository);
     await run(
       process.execPath,
-      ['scripts/set-version.mjs', '1.0.0-alpha.0'],
+      ['scripts/version/set-version.ts', '1.0.0-alpha.0'],
       repository
     );
     await git(['add', '.'], repository);
@@ -54,7 +54,7 @@ test('prepare-cut creates two validated children and no repository refs', async 
     await run(
       process.execPath,
       [
-        'scripts/release-proposal.mjs',
+        'scripts/github/release-proposal/controller.ts',
         'prepare-cut',
         '--next-development',
         'minor',
@@ -129,7 +129,7 @@ ${RELEASE_HIGHLIGHTS_END}`,
       },
     };
     await writeFile(eventPath, JSON.stringify(pullRequest), 'utf8');
-    await run(process.execPath, ['scripts/release-proposal.mjs', 'check-pr'], repository, {
+    await run(process.execPath, ['scripts/github/release-proposal/controller.ts', 'check-pr'], repository, {
       ...process.env,
       GITHUB_EVENT_PATH: eventPath,
     });
@@ -139,7 +139,7 @@ ${RELEASE_HIGHLIGHTS_END}`;
     await writeFile(eventPath, JSON.stringify(pullRequest), 'utf8');
     await assert.rejects(
       () =>
-        run(process.execPath, ['scripts/release-proposal.mjs', 'check-pr'], repository, {
+        run(process.execPath, ['scripts/github/release-proposal/controller.ts', 'check-pr'], repository, {
           ...process.env,
           GITHUB_EVENT_PATH: eventPath,
         }),
@@ -151,7 +151,7 @@ ${RELEASE_HIGHLIGHTS_END}`;
     pullRequest.pull_request.base.sha = transition.developmentOid;
     await writeFile(eventPath, JSON.stringify(pullRequest), 'utf8');
     await assert.rejects(() =>
-      run(process.execPath, ['scripts/release-proposal.mjs', 'check-pr'], repository, {
+      run(process.execPath, ['scripts/github/release-proposal/controller.ts', 'check-pr'], repository, {
         ...process.env,
         GITHUB_EVENT_PATH: eventPath,
       })

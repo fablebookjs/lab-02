@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { repositoryRoot } from '../scripts/list-public-packages.mjs';
+import { repositoryRoot } from '../scripts/shared/workspace/packages.ts';
 import {
   deriveReleasePrChanges,
   EMPTY_RELEASE_HIGHLIGHTS,
@@ -15,7 +15,7 @@ import {
   requireReleaseHighlights,
   renderReleasePrBody,
   selectLatestMatchingReleasePrBody,
-} from '../scripts/release-pr-body.mjs';
+} from '../scripts/shared/release-proposal/body.ts';
 
 const template = await readFile(join(repositoryRoot, '.github/release-pr-template.md'), 'utf8');
 const releaseOid = 'a'.repeat(40);

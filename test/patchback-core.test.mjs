@@ -16,8 +16,8 @@ import {
   previousReleaseVersion,
   releaseMergerAssignee,
   renderPatchbackBody,
-} from '../scripts/patchback-core.mjs';
-import { renderReleaseRecord } from '../scripts/release-communication.mjs';
+} from '../scripts/shared/patchback/core.ts';
+import { renderReleaseRecord } from '../scripts/shared/release-communication/records.ts';
 
 const containsUncheckedMarkdownTask = (body) =>
   /^\s*[-*+]\s+\[ \](?:\s|$)/m.test(String(body ?? ''));

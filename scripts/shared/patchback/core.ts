@@ -1,10 +1,10 @@
-import { parseReleaseLine, parseStableVersion } from './release-proposal-core.mjs';
+import { parseReleaseLine, parseStableVersion } from '../release-proposal/core.ts';
 import {
   composeMigrationRecords,
   extractReleaseRecordChanges,
   migrationRecordDirectory,
   releaseRecordPath,
-} from './release-communication.mjs';
+} from '../release-communication/records.ts';
 
 export const PATCHBACK_REPOSITORY = 'fablebookjs/lab-02';
 export const PATCHBACK_BODY_SCHEMA_VERSION = 3;

@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 import {
@@ -17,7 +18,7 @@ import {
   planProposalMaintenance,
   proposalCommitMessage,
   ZERO_OID,
-} from './release-proposal-core.mjs';
+} from '../../shared/release-proposal/core.ts';
 import {
   closePullRequest,
   createDraftReleasePr,
@@ -35,28 +36,36 @@ import {
   updatePullRequestBody,
   updateRefs,
   withPullRequestMergeCommit,
-} from './release-proposal-github.mjs';
-import { repositoryRoot } from './list-public-packages.mjs';
+} from './github.ts';
+import { repositoryRoot } from '../../shared/workspace/packages.ts';
 import {
   composeMigrationRecords,
   deriveReleaseChanges,
   migrationRecordDirectory,
   releaseRecordPath,
   renderReleaseRecord,
-} from './release-communication.mjs';
+} from '../../shared/release-communication/records.ts';
 import {
   extractReleasePrIdentity,
   requireReleaseHighlights,
   renderReleasePrBody,
   selectLatestMatchingReleasePrBody,
-} from './release-pr-body.mjs';
+} from '../../shared/release-proposal/body.ts';
+import { materializeVersion } from '../../shared/version/materialize.ts';
 
 const execute = promisify(execFile);
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const ARTIFACT_PREFIX = 'refs/release-pilot/artifact/';
 const IMPORT_PREFIX = 'refs/release-pilot/imported/';
 
-const run = async (command, args, options = {}) => {
+type RunOptions = {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+};
+
+type StringOptions = Record<string, string>;
+
+const run = async (command, args, options: RunOptions = {}) => {
   try {
     return await execute(command, args, {
       cwd: options.cwd ?? repositoryRoot,
@@ -71,13 +80,13 @@ const run = async (command, args, options = {}) => {
   }
 };
 
-const git = (args, options) => run('git', args, options);
+const git = (args, options: RunOptions = {}) => run('git', args, options);
 const readJson = async (path) => JSON.parse(await readFile(path, 'utf8'));
 const writeJson = async (path, value) =>
   writeFile(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 
 const parseOptions = (values) => {
-  const options = {};
+  const options: StringOptions = {};
   for (let index = 0; index < values.length; index += 2) {
     const name = values[index];
     const value = values[index + 1];
@@ -94,6 +103,14 @@ const requireOption = (options, name) => {
     throw new Error(`Missing required option --${name}`);
   }
   return options[name];
+};
+
+const requireGithubToken = (options) => {
+  const token = options['github-token'] ?? process.env.GH_TOKEN;
+  if (!token) {
+    throw new Error('An authenticated GitHub capability is required.');
+  }
+  return token;
 };
 
 const ensureSeedRepository = async () => {
@@ -241,9 +258,9 @@ const migrationRecordsAt = async (oid, line) => {
 
 const renderProposalBody = async ({
   action,
-  contentOid = proposalOid,
   previousBody = '',
   proposalOid,
+  contentOid = proposalOid,
 }) => {
   const { packages } = await publicPackagesAt(contentOid);
   return renderReleasePrBody({
@@ -429,14 +446,24 @@ const validateCutTransition = async (transition) => {
   }
 };
 
-const materializeCommit = async ({ changes, message, sourceOid, version }) => {
+const materializeCommit = async ({
+  changes,
+  message,
+  sourceOid,
+  version,
+}: {
+  changes?: unknown[];
+  message: string;
+  sourceOid: string;
+  version: string;
+}) => {
   const temporaryRoot = await mkdtemp(join(tmpdir(), 'fablebook-release-proposal-'));
   const worktree = join(temporaryRoot, 'worktree');
   let added = false;
   try {
     await git(['worktree', 'add', '--detach', worktree, sourceOid]);
     added = true;
-    await run(process.execPath, ['scripts/set-version.mjs', version], { cwd: worktree });
+    await materializeVersion(worktree, version);
     await git(['add', 'package.json', 'package-lock.json', 'packages'], { cwd: worktree });
     let recordPath = null;
     if (changes !== undefined) {
@@ -519,7 +546,7 @@ const prepareOutput = async (output) => {
   return directory;
 };
 
-async function prepareCut(options) {
+export async function prepareCut(options) {
   await ensureSeedRepository();
   const nextDevelopment = requireOption(options, 'next-development');
   const output = await prepareOutput(requireOption(options, 'output'));
@@ -584,12 +611,12 @@ async function prepareCut(options) {
   console.log(`Prepared ${versions.line} from ${sourceOid}.`);
 }
 
-async function applyCut(options) {
+export async function applyCut(options) {
   await ensureSeedRepository();
   const transitionPath = resolve(requireOption(options, 'transition'));
   const bundlePath = resolve(requireOption(options, 'bundle'));
   const transition = await readJson(transitionPath);
-  const token = process.env.GH_TOKEN;
+  const token = requireGithubToken(options);
   if (
     transition.schema !== 1 ||
     transition.kind !== 'cut' ||
@@ -787,10 +814,10 @@ const loadMaintenanceStates = async (token) => {
   return states;
 };
 
-async function prepareMaintenance(options) {
+export async function prepareMaintenance(options) {
   await ensureSeedRepository();
   const output = await prepareOutput(requireOption(options, 'output'));
-  const token = process.env.GH_TOKEN;
+  const token = requireGithubToken(options);
   const states = await loadMaintenanceStates(token);
   const planned = planProposalMaintenance(states);
   const actions = [];
@@ -889,12 +916,12 @@ const assertExpectedRef = async (token, ref, expectedOid) => {
   }
 };
 
-async function applyMaintenance(options) {
+export async function applyMaintenance(options) {
   await ensureSeedRepository();
   const transitionPath = resolve(requireOption(options, 'transition'));
   const transition = await readJson(transitionPath);
   const bundle = options.bundle ? resolve(options.bundle) : null;
-  const token = process.env.GH_TOKEN;
+  const token = requireGithubToken(options);
   if (
     transition.schema !== 1 ||
     transition.kind !== 'maintenance' ||
@@ -1042,14 +1069,8 @@ async function applyMaintenance(options) {
   console.log(`Applied ${transition.actions.length} release proposal maintenance actions.`);
 }
 
-async function checkPullRequest() {
+export async function checkPullRequest(pull) {
   await ensureSeedRepository();
-  const eventPath = process.env.GITHUB_EVENT_PATH;
-  if (!eventPath) {
-    throw new Error('GITHUB_EVENT_PATH is required for the release proposal check.');
-  }
-  const event = await readJson(eventPath);
-  const pull = event.pull_request;
   if (
     pull?.base?.repo?.full_name !== PILOT_REPOSITORY ||
     pull?.head?.repo?.full_name !== PILOT_REPOSITORY ||
@@ -1072,27 +1093,43 @@ async function checkPullRequest() {
   console.log(`Release proposal ${pull.head.sha} is current for ${pull.base.sha}.`);
 }
 
-const [command, ...argumentValues] = process.argv.slice(2);
-const options = parseOptions(argumentValues);
+export async function main(argumentValues = process.argv.slice(2)) {
+  const [command, ...optionValues] = argumentValues;
+  const options = parseOptions(optionValues);
 
-switch (command) {
-  case 'prepare-cut':
-    await prepareCut(options);
-    break;
-  case 'apply-cut':
-    await applyCut(options);
-    break;
-  case 'prepare-maintenance':
-    await prepareMaintenance(options);
-    break;
-  case 'apply-maintenance':
-    await applyMaintenance(options);
-    break;
-  case 'check-pr':
-    await checkPullRequest();
-    break;
-  default:
-    throw new Error(
-      `Usage: ${basename(process.argv[1])} <prepare-cut|apply-cut|prepare-maintenance|apply-maintenance|check-pr> [options]`
-    );
+  switch (command) {
+    case 'prepare-cut':
+      await prepareCut(options);
+      break;
+    case 'apply-cut':
+      await applyCut(options);
+      break;
+    case 'prepare-maintenance':
+      await prepareMaintenance(options);
+      break;
+    case 'apply-maintenance':
+      await applyMaintenance(options);
+      break;
+    case 'check-pr': {
+      const eventPath = process.env.GITHUB_EVENT_PATH;
+      if (!eventPath) {
+        throw new Error('GITHUB_EVENT_PATH is required for the release proposal check.');
+      }
+      const event = await readJson(eventPath);
+      await checkPullRequest(event.pull_request);
+      break;
+    }
+    default:
+      throw new Error(
+        `Usage: ${basename(process.argv[1])} <prepare-cut|apply-cut|prepare-maintenance|apply-maintenance|check-pr> [options]`
+      );
+  }
 }
+
+const isMain =
+  process.argv[1] !== undefined && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
+
+if (isMain) void main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

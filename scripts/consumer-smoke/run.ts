@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
-import { listPublicPackages, repositoryRoot } from './list-public-packages.mjs';
+import { listPublicPackages, repositoryRoot } from '../shared/workspace/packages.ts';
 
 const execute = promisify(execFile);
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -29,7 +29,7 @@ try {
     mkdir(consumerDirectory, { recursive: true }),
   ]);
 
-  const tarballs = new Map();
+  const tarballs = new Map<string, string>();
   for (const pkg of packages) {
     const { stdout } = await run(
       npm,
@@ -40,7 +40,7 @@ try {
     const packed = Array.isArray(packResult) ? packResult[0] : packResult[pkg.name];
     assert.ok(packed, `npm pack returned no artifact for ${pkg.name}`);
 
-    const packedPaths = new Set(packed.files.map(({ path }) => path));
+    const packedPaths = new Set<string>(packed.files.map(({ path }) => path));
     assert.ok(packedPaths.has('dist/index.js'), `${pkg.name} has no compiled JavaScript`);
     assert.ok(packedPaths.has('dist/index.d.ts'), `${pkg.name} has no declarations`);
     assert.ok(
@@ -77,7 +77,10 @@ try {
 
   for (const pkg of packages) {
     const installedManifest = JSON.parse(
-      await readFile(join(consumerDirectory, 'node_modules', ...pkg.name.split('/'), 'package.json'))
+      await readFile(
+        join(consumerDirectory, 'node_modules', ...pkg.name.split('/'), 'package.json'),
+        'utf8',
+      )
     );
     assert.equal(installedManifest.version, pkg.version, `${pkg.name} installed at the wrong version`);
   }

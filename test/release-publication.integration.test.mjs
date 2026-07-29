@@ -6,7 +6,7 @@ import { join, relative, sep } from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
-import { repositoryRoot } from '../scripts/list-public-packages.mjs';
+import { repositoryRoot } from '../scripts/shared/workspace/packages.ts';
 
 const execute = promisify(execFile);
 const run = (command, args, cwd) =>
@@ -36,7 +36,7 @@ test('the authorized stable snapshot packs the complete lockstep package set', a
     await git(['config', 'maintenance.auto', 'false'], repository);
     await git(['add', '.'], repository);
     await git(['commit', '-m', 'seed'], repository);
-    await run(process.execPath, ['scripts/set-version.mjs', '1.0.0'], repository);
+    await run(process.execPath, ['scripts/version/set-version.ts', '1.0.0'], repository);
     await git(['add', 'package.json', 'package-lock.json', 'packages'], repository);
     await git(['commit', '--allow-empty', '-m', 'release: materialize 1.0.0'], repository);
     const snapshotOid = (await git(['rev-parse', 'HEAD'], repository)).stdout.trim();
@@ -65,7 +65,7 @@ test('the authorized stable snapshot packs the complete lockstep package set', a
     await run(
       process.execPath,
       [
-        'scripts/release-publication.mjs',
+        'scripts/github/release-publication/controller.ts',
         'prepare',
         '--authority',
         authorityPath,

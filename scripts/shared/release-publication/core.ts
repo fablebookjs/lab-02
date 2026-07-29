@@ -1,14 +1,18 @@
-import { parseProposalMessage, parseReleaseLine, parseStableVersion } from './release-proposal-core.mjs';
+import {
+  parseProposalMessage,
+  parseReleaseLine,
+  parseStableVersion,
+} from '../release-proposal/core.ts';
 import {
   cleanReleaseTitle,
   extractReleaseRecordChanges,
   migrationRecordDirectory,
-} from './release-communication.mjs';
+} from '../release-communication/records.ts';
 import {
   extractReleasePrIdentity,
   requireReleaseHighlights,
   validateReleaseHighlights,
-} from './release-pr-body.mjs';
+} from '../release-proposal/body.ts';
 
 export const NPM_REGISTRY = 'https://registry.npmjs.org/';
 export const PILOT_REPOSITORY = 'fablebookjs/lab-02';
