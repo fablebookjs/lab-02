@@ -37,6 +37,19 @@ jobs:
             line !== null &&
             process.env.PR_HEAD_REF === `staged/${line[1]}`;
           if (canonicalReleasePr) {
+            const identities = [
+              ...body.matchAll(
+                /<!-- fablebook:proposal=[0-9a-f]{40} source=[0-9a-f]{40} version=([^ ]+) -->/g
+              ),
+            ];
+            const version = identities.length === 1
+              ? /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(
+                  identities[0][1]
+                )
+              : null;
+            if (version === null) {
+              errors.push('Use one generated release proposal identity.');
+            }
             const startMarker = '<!-- fablebook:release-highlights:start -->';
             const endMarker = '<!-- fablebook:release-highlights:end -->';
             const emptyMarker = '<!-- fablebook:release-highlights=empty -->';
@@ -52,13 +65,17 @@ jobs:
               .replace(/<!--[\s\S]*?-->/g, '')
               .trim();
             if (
-              starts !== 1 ||
-              ends !== 1 ||
-              highlights.includes(emptyMarker) ||
-              visibleHighlights.length === 0
+              version !== null &&
+              Number.parseInt(version[3], 10) === 0 &&
+              (
+                starts !== 1 ||
+                ends !== 1 ||
+                highlights.includes(emptyMarker) ||
+                visibleHighlights.length === 0
+              )
             ) {
               errors.push(
-                'Replace the marked release-highlights placeholder with user-facing reasons to upgrade.'
+                'Replace the marked Why upgrade placeholder with user-facing reasons to upgrade.'
               );
             }
           }

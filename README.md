@@ -79,14 +79,28 @@ source S ── proposal P (stable X.Y.0) ──▶ staged/vX.Y
 
 Every newly created or recreated release PR starts as a draft. Refreshing an
 open proposal updates its existing staged branch, so the PR and its discussion
-remain in place. Its body is rendered from
-[`.github/release-pr-template.md`](.github/release-pr-template.md), which uses
-dependency-free named placeholders and keeps the maintainer procedure
-reviewable without embedding prose in controller code. The generated
-included-change checklist links each release-line merge or direct commit. A
-refresh preserves checked items by their hidden PR or commit identity and adds
-new changes unchecked; a clean replacement starts its QA checklist fresh while
-retaining the same version's marked release highlights.
+remain in place. Its body is rendered from the plain Markdown files in
+[`.github/release-templates`](.github/release-templates), which use
+dependency-free named placeholders and keep the maintainer procedure
+reviewable without embedding prose in controller code. Initial `X.Y.0`
+proposals include a required **Why upgrade** block; patch proposals omit it.
+
+The generated change checklist links each release-line merge or direct commit.
+For a canonical merged PR, `release-note:skip` excludes the change from public
+release notes and `qa:skip` generates its manual-QA item pre-checked with an
+explicit “No manual QA required” explanation. Both labels are independent,
+absence means public notes and manual QA are required, and direct commits use
+those conservative defaults. Every generation rereads current titles and
+labels. A required maintainer checkbox confirms that they have not changed
+after generation; if they have, the maintainer closes the proposal so the
+controller creates a clean replacement.
+
+An in-place refresh preserves a checked manual-QA item by its hidden PR or
+commit identity. Title and release-note changes do not reset it. Adding
+`qa:skip` satisfies it automatically, while removing `qa:skip` resets it for
+manual review. The source-metadata confirmation itself always resets. The
+current legacy proposal format is intentionally replaced cleanly once rather
+than migrated.
 
 The release PR is the only required QA workspace. Maintainers discuss findings
 there and open a normal issue only when a finding needs independent long-term
@@ -105,19 +119,18 @@ approvals, and allow release PRs to merge only with a merge commit.
 Each staged stable proposal contains one generated release record at
 `releases/vX.Y.Z.md`. The controller derives its list from the exact
 first-parent release history it already uses for the release PR: one canonical
-merged PR becomes its linked PR title, while a direct merge, direct commit, or
-ambiguous PR association remains visible as one linked commit subject. The
-record is generated data and contains no curated highlights.
+merged PR becomes its linked PR title, while a direct merge or direct commit
+remains visible as one linked commit subject. Ambiguous or malformed PR
+metadata stops generation rather than guessing. The record is generated data
+and contains no curated highlights.
 
-Curated release highlights live only in the release PR's marked block.
-Maintainers replace its unchecked placeholder with the short user-facing
-reasons to upgrade. An in-place refresh preserves that content. A clean
-replacement selects the highest-numbered closed predecessor for the same
-version and preserves its highlights without carrying over its QA approvals.
-Missing, malformed, or still-placeholder content falls back to the blocking
-empty placeholder. The trusted required PR-description check also reads the
-block on every body edit for old and new release lines, so removing its markers
-or merely checking its placeholder cannot authorize a release.
+Curated **Why upgrade** copy lives only in an initial release PR's marked block.
+Maintainers replace its unchecked placeholder with short user-facing reasons
+to upgrade. An in-place refresh preserves that content, and a clean replacement
+selects the highest-numbered closed predecessor for the same version and
+preserves it. Missing, malformed, or still-placeholder content falls back to
+the blocking empty placeholder. The trusted required PR-description check
+enforces this block for `X.Y.0` releases; patches do not carry it.
 
 Migration guidance is authored only when a change needs it. Copy
 [`migration-notes/TEMPLATE.md`](migration-notes/TEMPLATE.md) into the target
@@ -152,11 +165,14 @@ existing version with the same tarball integrity and channel, and stops on a
 contradiction. No product code runs in that job. After the complete set reads
 back successfully, a separate `release-github` job uses the repository-scoped
 App to create or verify annotated `vX.Y.Z` and its non-draft GitHub Release.
-The release body starts with the required highlights captured from the merged
-release PR. An always-present **Migrations** section follows with either the
-ordered, tag-pinned migration-record links or an explicit empty state. The
-collapsed **All changes** block then contains only the change entries from the
-generated `releases/vX.Y.Z.md` record in the authorized snapshot.
+The release body is rendered from the same human-editable template directory:
+initial releases combine **Why upgrade** with noteworthy public changes,
+ordinary patches show only their public changes, and a patch whose complete
+source metadata marks every change `release-note:skip` uses a short maintenance
+message. Ordered, tag-pinned migration-record links form an independent
+optional section in all three shapes and the heading is omitted when empty.
+The generated `releases/vX.Y.Z.md` record still contains every change and is
+used to verify that the authorized communication matches the released snapshot.
 
 **MANUAL - Publish: Promote to latest** is a separate workflow. Its only input
 is a completed stable version such as `1.0.0`. It resolves that version's

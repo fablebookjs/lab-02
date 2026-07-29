@@ -10,8 +10,7 @@ import { parseProposalMessage } from '../scripts/release-proposal-core.mjs';
 import { renderReleaseRecord } from '../scripts/release-communication.mjs';
 import {
   EMPTY_RELEASE_HIGHLIGHTS,
-  RELEASE_HIGHLIGHTS_END,
-  RELEASE_HIGHLIGHTS_START,
+  renderReleasePrBody,
 } from '../scripts/release-pr-body.mjs';
 import { repositoryRoot } from '../scripts/list-public-packages.mjs';
 
@@ -111,11 +110,28 @@ test('prepare-cut creates two validated children and no repository refs', async 
     assert.equal((await git(['branch', '--list'], repository)).stdout.trim(), '* main');
 
     const eventPath = join(temporaryRoot, 'pull-request.json');
+    const releasePrTemplate = await readFile(
+      join(repository, '.github', 'release-templates', 'release-pr-initial.md'),
+      'utf8'
+    );
+    const validReleaseBody = renderReleasePrBody({
+      changes: [],
+      line: transition.line,
+      packageNames: [
+        '@fablebook/lab-02-addon',
+        '@fablebook/lab-02-core',
+      ],
+      proposalOid: transition.proposalOid,
+      releaseOid: transition.sourceOid,
+      template: releasePrTemplate,
+      version: transition.releaseVersion,
+    }).replace(
+      EMPTY_RELEASE_HIGHLIGHTS,
+      '**Worth upgrading:** The release proposal is ready for user evaluation.'
+    );
     const pullRequest = {
       pull_request: {
-        body: `${RELEASE_HIGHLIGHTS_START}
-**Worth upgrading:** The release proposal is ready for user evaluation.
-${RELEASE_HIGHLIGHTS_END}`,
+        body: validReleaseBody,
         base: {
           ref: 'releases/v1.0',
           repo: { full_name: 'fablebookjs/lab-02' },
@@ -133,9 +149,10 @@ ${RELEASE_HIGHLIGHTS_END}`,
       ...process.env,
       GITHUB_EVENT_PATH: eventPath,
     });
-    pullRequest.pull_request.body = `${RELEASE_HIGHLIGHTS_START}
-${EMPTY_RELEASE_HIGHLIGHTS}
-${RELEASE_HIGHLIGHTS_END}`;
+    pullRequest.pull_request.body = validReleaseBody.replace(
+      '**Worth upgrading:** The release proposal is ready for user evaluation.',
+      EMPTY_RELEASE_HIGHLIGHTS
+    );
     await writeFile(eventPath, JSON.stringify(pullRequest), 'utf8');
     await assert.rejects(
       () =>
@@ -145,9 +162,7 @@ ${RELEASE_HIGHLIGHTS_END}`;
         }),
       /blocking empty placeholder/
     );
-    pullRequest.pull_request.body = `${RELEASE_HIGHLIGHTS_START}
-**Worth upgrading:** The release proposal is ready for user evaluation.
-${RELEASE_HIGHLIGHTS_END}`;
+    pullRequest.pull_request.body = validReleaseBody;
     pullRequest.pull_request.base.sha = transition.developmentOid;
     await writeFile(eventPath, JSON.stringify(pullRequest), 'utf8');
     await assert.rejects(() =>

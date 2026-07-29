@@ -10,6 +10,7 @@ import {
   extractReleaseRecordChanges,
   loadMigrationRecords,
   migrationRecordDirectory,
+  parseReleaseRecordChanges,
   parseMigrationRecord,
   releaseRecordPath,
   renderReleaseRecord,
@@ -43,6 +44,7 @@ test('one release-history interpretation renders the durable per-version record'
             },
             merge_commit_sha: oid('a'),
             merged_at: '2026-07-28T12:00:00Z',
+            labels: [],
             number: 41,
             title: 'Add portable stories',
           },
@@ -67,6 +69,22 @@ test('one release-history interpretation renders the durable per-version record'
 - [Add portable stories](https://github.com/fablebookjs/lab-02/pull/41)
 - [fix: correct the release branch directly](https://github.com/fablebookjs/lab-02/commit/${oid('b')})
 `
+  );
+  assert.deepEqual(
+    parseReleaseRecordChanges({
+      source: renderReleaseRecord({ changes, version: '2.1.0' }),
+      version: '2.1.0',
+    }),
+    [
+      {
+        title: 'Add portable stories',
+        url: 'https://github.com/fablebookjs/lab-02/pull/41',
+      },
+      {
+        title: 'fix: correct the release branch directly',
+        url: `https://github.com/fablebookjs/lab-02/commit/${oid('b')}`,
+      },
+    ]
   );
   assert.equal(
     extractReleaseRecordChanges({
@@ -111,28 +129,93 @@ test('an authorized historical release record remains readable for recovery', ()
   );
 });
 
-test('ambiguous PR metadata falls back to the direct commit identity', () => {
+test('ambiguous or malformed PR metadata fails before classification', () => {
   const pull = {
     base: { ref: 'releases/v2.1', repo: { full_name: 'fablebookjs/lab-02' } },
+    labels: [],
     merge_commit_sha: oid('c'),
     merged_at: '2026-07-28T12:00:00Z',
     title: 'Ambiguous title',
   };
-  const [change] = deriveReleaseChanges({
-    commits: [
-      {
-        associatedPulls: [
-          { ...pull, number: 42 },
-          { ...pull, number: 43 },
+  assert.throws(
+    () =>
+      deriveReleaseChanges({
+        commits: [
+          {
+            associatedPulls: [
+              { ...pull, number: 42 },
+              { ...pull, number: 43 },
+            ],
+            oid: oid('c'),
+            subject: 'Merge two histories directly',
+          },
         ],
-        oid: oid('c'),
-        subject: 'Merge two histories directly',
-      },
-    ],
-    line: 'v2.1',
-  });
-  assert.equal(change.key, `commit:${oid('c')}`);
-  assert.equal(change.title, 'Merge two histories directly');
+        line: 'v2.1',
+      }),
+    /ambiguous pull request metadata/
+  );
+  assert.throws(
+    () =>
+      deriveReleaseChanges({
+        commits: [
+          {
+            associatedPulls: [{ ...pull, labels: undefined, number: 42 }],
+            oid: oid('c'),
+            subject: 'Merge one history',
+          },
+        ],
+        line: 'v2.1',
+      }),
+    /malformed release metadata/
+  );
+});
+
+test('source PR opt-out labels classify release notes and QA independently', () => {
+  const combinations = [
+    { labels: [], qaSkip: false, releaseNoteSkip: false },
+    {
+      labels: [{ name: 'release-note:skip' }],
+      qaSkip: false,
+      releaseNoteSkip: true,
+    },
+    {
+      labels: [{ name: 'qa:skip' }],
+      qaSkip: true,
+      releaseNoteSkip: false,
+    },
+    {
+      labels: [{ name: 'qa:skip' }, { name: 'release-note:skip' }],
+      qaSkip: true,
+      releaseNoteSkip: true,
+    },
+  ];
+  for (const [index, expected] of combinations.entries()) {
+    const changeOid = String(index + 1).repeat(40);
+    const [change] = deriveReleaseChanges({
+      commits: [
+        {
+          associatedPulls: [
+            {
+              base: {
+                ref: 'releases/v2.1',
+                repo: { full_name: 'fablebookjs/lab-02' },
+              },
+              labels: expected.labels,
+              merge_commit_sha: changeOid,
+              merged_at: '2026-07-28T12:00:00Z',
+              number: index + 1,
+              title: `Change ${index + 1}`,
+            },
+          ],
+          oid: changeOid,
+          subject: `Merge pull request #${index + 1}`,
+        },
+      ],
+      line: 'v2.1',
+    });
+    assert.equal(change.qaSkip, expected.qaSkip);
+    assert.equal(change.releaseNoteSkip, expected.releaseNoteSkip);
+  }
 });
 
 test('migration records accept free-text priorities and compose without rendering them', () => {

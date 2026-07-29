@@ -46,9 +46,9 @@ import {
 } from './release-communication.mjs';
 import {
   extractReleasePrIdentity,
-  requireReleaseHighlights,
   renderReleasePrBody,
   selectLatestMatchingReleasePrBody,
+  validateReleasePrBody,
 } from './release-pr-body.mjs';
 
 const execute = promisify(execFile);
@@ -140,8 +140,15 @@ const publicPackagesAt = async (oid) => {
   return { packages, root };
 };
 
-const releasePrTemplate = () =>
-  readFile(join(repositoryRoot, '.github/release-pr-template.md'), 'utf8');
+const releasePrTemplate = (version) => {
+  const { patch } = parseStableVersion(version);
+  const filename =
+    patch === 0 ? 'release-pr-initial.md' : 'release-pr-patch.md';
+  return readFile(
+    join(repositoryRoot, '.github/release-templates', filename),
+    'utf8'
+  );
+};
 
 const associatedPulls = async (token, oid) => {
   const pulls = [];
@@ -256,7 +263,7 @@ const renderProposalBody = async ({
     proposalOid,
     releaseOid: action.releaseOid,
     supersededPr: action.supersededPr,
-    template: await releasePrTemplate(),
+    template: await releasePrTemplate(action.version),
     version: action.version,
   });
 };
@@ -779,7 +786,15 @@ const loadMaintenanceStates = async (token) => {
               version: closedProposal.version,
             },
       line,
-      openPr: openPull ? { bodyCurrent, number: openPull.number } : null,
+      openPr: openPull
+        ? {
+            bodyCurrent,
+            number: openPull.number,
+            replaceRequired: String(openPull.body ?? '').includes(
+              '<!-- fablebook:release-pr=v6 -->'
+            ),
+          }
+        : null,
       releaseOid,
       staged,
     });
@@ -915,7 +930,17 @@ async function applyMaintenance(options) {
 
   for (const action of transition.actions) {
     parseReleaseLine(action.line);
-    if (!['create', 'dormant', 'open', 'recreate', 'refresh', 'sync'].includes(action.kind)) {
+    if (
+      ![
+        'create',
+        'dormant',
+        'open',
+        'recreate',
+        'refresh',
+        'replace',
+        'sync',
+      ].includes(action.kind)
+    ) {
       throw new Error(`Unknown maintenance action: ${action.kind}`);
     }
     validateFullOid(action.releaseOid, `${action.line} release source`);
@@ -993,7 +1018,7 @@ async function applyMaintenance(options) {
       continue;
     }
 
-    if (action.kind === 'refresh') {
+    if (action.kind === 'refresh' || action.kind === 'replace') {
       if (openPulls.length !== 1 || openPulls[0].number !== action.openPr) {
         throw new Error(`${action.line} no longer has the expected open release PR.`);
       }
@@ -1035,6 +1060,11 @@ async function applyMaintenance(options) {
       await updatePullRequestBody(token, action.openPr, body);
     }
 
+    if (action.kind === 'replace') {
+      await closePullRequest(token, action.openPr);
+      await createReleasePr(token, action, uploadedProposalOid, action.proposalOid);
+    }
+
     if (action.kind === 'create' || action.kind === 'recreate') {
       await createReleasePr(token, action, uploadedProposalOid, action.proposalOid);
     }
@@ -1068,7 +1098,18 @@ async function checkPullRequest() {
     sourceOid: pull.base.sha,
     version: metadata.version,
   });
-  requireReleaseHighlights(pull.body);
+  const bodyIdentity = extractReleasePrIdentity(pull.body);
+  if (
+    bodyIdentity?.proposalOid !== pull.head.sha ||
+    bodyIdentity.releaseOid !== pull.base.sha ||
+    bodyIdentity.version !== metadata.version
+  ) {
+    throw new Error('Release PR body is not bound to the current proposal.');
+  }
+  validateReleasePrBody({
+    body: pull.body,
+    version: metadata.version,
+  });
   console.log(`Release proposal ${pull.head.sha} is current for ${pull.base.sha}.`);
 }
 

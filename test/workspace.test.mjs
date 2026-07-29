@@ -76,10 +76,11 @@ test('the core label API accepts locale options', () => {
   assert.equal(normalizeLabel(' I ', { locale: 'tr' }), 'ı');
 });
 
-test('the trusted PR description check requires highlights on every canonical release line', () => {
+test('the trusted PR description check requires Why upgrade for initial releases only', () => {
   assert.match(pullRequestDescriptionWorkflow, /pull_request_target:/);
   assert.match(pullRequestDescriptionWorkflow, /PR_HEAD_REPOSITORY:/);
   assert.match(pullRequestDescriptionWorkflow, /staged\/\$\{line\[1\]\}/);
+  assert.match(pullRequestDescriptionWorkflow, /Number\.parseInt\(version\[3\], 10\) === 0/);
   assert.match(pullRequestDescriptionWorkflow, /fablebook:release-highlights:start/);
   assert.match(pullRequestDescriptionWorkflow, /fablebook:release-highlights=empty/);
 });

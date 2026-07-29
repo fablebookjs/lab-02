@@ -8,6 +8,7 @@ import {
   deriveReleasePrChanges,
   EMPTY_RELEASE_HIGHLIGHTS,
   extractReleaseHighlights,
+  extractReleasePrChanges,
   extractReleasePrCheckboxes,
   extractReleasePrIdentity,
   recoverReleaseHighlights,
@@ -15,83 +16,157 @@ import {
   requireReleaseHighlights,
   renderReleasePrBody,
   selectLatestMatchingReleasePrBody,
+  validateReleasePrBody,
 } from '../scripts/release-pr-body.mjs';
 
-const template = await readFile(join(repositoryRoot, '.github/release-pr-template.md'), 'utf8');
+const templateDirectory = join(repositoryRoot, '.github', 'release-templates');
+const templates = {
+  initial: await readFile(join(templateDirectory, 'release-pr-initial.md'), 'utf8'),
+  patch: await readFile(join(templateDirectory, 'release-pr-patch.md'), 'utf8'),
+};
 const releaseOid = 'a'.repeat(40);
 const proposalOid = 'b'.repeat(40);
 const initialChanges = [
   {
     key: 'pr:3',
     oid: 'c'.repeat(40),
+    qaSkip: false,
+    releaseNoteSkip: false,
     title: 'Fix the release fixture',
     url: 'https://github.com/fablebookjs/lab-02/pull/3',
   },
   {
-    key: `commit:${'d'.repeat(40)}`,
+    key: 'pr:4',
     oid: 'd'.repeat(40),
+    qaSkip: true,
+    releaseNoteSkip: false,
+    title: 'Refresh browser metadata',
+    url: 'https://github.com/fablebookjs/lab-02/pull/4',
+  },
+  {
+    key: 'pr:5',
+    oid: 'e'.repeat(40),
+    qaSkip: false,
+    releaseNoteSkip: true,
+    title: 'Simplify retry accounting',
+    url: 'https://github.com/fablebookjs/lab-02/pull/5',
+  },
+  {
+    key: 'pr:6',
+    oid: 'f'.repeat(40),
+    qaSkip: true,
+    releaseNoteSkip: true,
+    title: 'Update CI metadata',
+    url: 'https://github.com/fablebookjs/lab-02/pull/6',
+  },
+  {
+    key: `commit:${'1'.repeat(40)}`,
+    oid: '1'.repeat(40),
+    qaSkip: false,
+    releaseNoteSkip: false,
     title: 'fix: direct release correction',
-    url: `https://github.com/fablebookjs/lab-02/commit/${'d'.repeat(40)}`,
+    url: `https://github.com/fablebookjs/lab-02/commit/${'1'.repeat(40)}`,
   },
 ];
 
-const render = (overrides = {}) =>
-  renderReleasePrBody({
+const render = (overrides = {}) => {
+  const version = overrides.version ?? '1.0.0';
+  const kind = version.endsWith('.0') ? 'initial' : 'patch';
+  return renderReleasePrBody({
     changes: initialChanges,
     line: 'v1.0',
     packageNames: ['@fablebook/lab-02-core', '@fablebook/lab-02-addon'],
     proposalOid,
     releaseOid,
-    template,
-    version: '1.0.0',
+    template: templates[kind],
+    version,
     ...overrides,
   });
+};
 
 const authoredHighlights = [
-  '**Faster setup:** New projects reach their first rendered story with fewer steps.',
+  '### Faster setup',
   '',
-  '- Existing projects can upgrade without configuration changes.',
+  'New projects reach their first rendered story with fewer steps.',
 ].join('\n');
 
 const writeHighlights = (body, highlights = authoredHighlights) =>
   body.replace(EMPTY_RELEASE_HIGHLIGHTS, highlights);
 
-test('the Markdown template renders linked release facts and required maintainer tasks', () => {
+test('the initial-line template renders all classification combinations and blocks for Why upgrade', () => {
   const body = render();
-  assert.match(body, /<!-- fablebook:release-pr=v6 -->/);
+  assert.match(body, /<!-- fablebook:release-pr=v7 -->/);
+  assert.match(body, /<!-- fablebook:release-kind=initial -->/);
   assert.deepEqual(extractReleasePrIdentity(body), {
     proposalOid,
     releaseOid,
     version: '1.0.0',
   });
-  assert.match(body, new RegExp(`https://github.com/fablebookjs/lab-02/commit/${releaseOid}`));
-  assert.match(body, new RegExp(`https://github.com/fablebookjs/lab-02/commit/${proposalOid}`));
-  assert.match(body, /- \[ \] https:\/\/github\.com\/fablebookjs\/lab-02\/pull\/3 <!-- fablebook:change=pr:3 -->/);
-  assert.doesNotMatch(body, /\[Fix the release fixture\]\(/);
-  assert.match(body, new RegExp(`fablebook:change=commit:${'d'.repeat(40)}`));
-  assert.match(body, /<details>\n<summary>Clean-install smoke-test commands<\/summary>/);
-  assert.match(body, /@fablebook\/lab-02-core@v-1\.0 @fablebook\/lab-02-addon@v-1\.0/);
-  assert.match(body, /MANUAL - Publish: Promote to latest/);
+  assert.match(body, /## Why upgrade/);
   assert.equal(extractReleaseHighlights(body), EMPTY_RELEASE_HIGHLIGHTS);
   assert.match(body, new RegExp(RELEASE_HIGHLIGHTS_EMPTY_MARKER));
   assert.throws(() => requireReleaseHighlights(body), /blocking empty placeholder/);
+  assert.doesNotMatch(body, /## Migrations/);
 
-  const visibleBody = body.replace(/<!--[\s\S]*?-->/g, '');
-  assert.doesNotMatch(visibleBody, /Write the short, user-facing reasons to upgrade/);
-  assert.doesNotMatch(visibleBody, /A change introduced without a PR/);
-  assert.doesNotMatch(visibleBody, /When this proposal is regenerated/);
-  assert.doesNotMatch(visibleBody, /\n---\n/);
-  assert.match(visibleBody, /review the included changes below/);
-  assert.match(visibleBody, /No migration records target this release line/);
+  const changes = extractReleasePrChanges(body);
+  assert.deepEqual(
+    changes.map(({ checked, key, qaSkip, releaseNoteSkip }) => ({
+      checked,
+      key,
+      qaSkip,
+      releaseNoteSkip,
+    })),
+    [
+      {
+        checked: false,
+        key: 'pr:3',
+        qaSkip: false,
+        releaseNoteSkip: false,
+      },
+      {
+        checked: true,
+        key: 'pr:4',
+        qaSkip: true,
+        releaseNoteSkip: false,
+      },
+      {
+        checked: false,
+        key: 'pr:5',
+        qaSkip: false,
+        releaseNoteSkip: true,
+      },
+      {
+        checked: true,
+        key: 'pr:6',
+        qaSkip: true,
+        releaseNoteSkip: true,
+      },
+      {
+        checked: false,
+        key: `commit:${'1'.repeat(40)}`,
+        qaSkip: false,
+        releaseNoteSkip: false,
+      },
+    ]
+  );
+  assert.match(body, /No manual QA required \(`qa:skip`\)/);
+  assert.match(body, /Not included in public release notes \(`release-note:skip`\)/);
+  assert.match(body, /\[Fix the release fixture\]\(https:\/\/github\.com\/fablebookjs\/lab-02\/pull\/3\)/);
+  assert.match(body, /fablebook:check=source-metadata-current/);
+  assert.match(body, /fablebook:check=release-docs-reviewed/);
 });
 
-test('an older template revision is stale even when its proposal identity matches', () => {
-  const body = render().replace('fablebook:release-pr=v6', 'fablebook:release-pr=v5');
-  assert.equal(extractReleasePrIdentity(body), null);
-});
+test('the patch template omits Why upgrade and renders migrations only when present', () => {
+  const withoutMigrations = render({ version: '1.0.1' });
+  assert.match(withoutMigrations, /<!-- fablebook:release-kind=patch -->/);
+  assert.doesNotMatch(withoutMigrations, /## Why upgrade/);
+  assert.doesNotMatch(withoutMigrations, /## Migrations/);
+  assert.deepEqual(
+    validateReleasePrBody({ body: withoutMigrations, version: '1.0.1' }).kind,
+    'patch'
+  );
 
-test('the release PR links ordered migration records at the exact release source', () => {
-  const body = render({
+  const withMigrations = render({
     migrationRecords: [
       {
         filename: 'adopt-portable-stories.md',
@@ -102,82 +177,108 @@ test('the release PR links ordered migration records at the exact release source
         title: 'Remove the legacy API',
       },
     ],
+    version: '1.0.1',
   });
+  assert.match(withMigrations, /## Migrations/);
   assert.match(
-    body,
+    withMigrations,
     new RegExp(
       `https://github.com/fablebookjs/lab-02/blob/${releaseOid}/migration-notes/v1\\.0/adopt-portable-stories\\.md`
     )
   );
   assert.ok(
-    body.indexOf('Adopt portable stories') < body.indexOf('Remove the legacy API')
+    withMigrations.indexOf('Adopt portable stories') <
+      withMigrations.indexOf('Remove the legacy API')
   );
 });
 
-test('an in-place refresh preserves highlights and known checks while adding new changes unchecked', () => {
-  const manuallyChecked = writeHighlights(render())
+test('regeneration preserves compatible QA while resetting generated review attestations', () => {
+  const checked = writeHighlights(render())
     .replace(
-      '- [ ] https://github.com/fablebookjs/lab-02/pull/3',
-      '- [x] https://github.com/fablebookjs/lab-02/pull/3'
+      '- [ ] [Fix the release fixture]',
+      '- [x] [Fix the release fixture]'
     )
     .replace(
-      '- [ ] Ensure all discussions on the release have been resolved',
-      '- [x] Ensure all discussions on the release have been resolved'
+      '- [ ] Resolve all release discussions.',
+      '- [x] Resolve all release discussions.'
+    )
+    .replace(
+      '- [ ] Confirm that included change titles',
+      '- [x] Confirm that included change titles'
+    )
+    .replace(
+      '- [ ] Review the release communication',
+      '- [x] Review the release communication'
     );
-  const newChange = {
-    key: 'pr:12',
-    oid: 'e'.repeat(40),
-    title: 'Prevent Git fixture cleanup races',
-    url: 'https://github.com/fablebookjs/lab-02/pull/12',
-  };
+  const changed = [
+    {
+      ...initialChanges[0],
+      releaseNoteSkip: true,
+      title: 'Renamed release fixture fix',
+    },
+    {
+      ...initialChanges[1],
+      qaSkip: false,
+    },
+    {
+      ...initialChanges[2],
+      qaSkip: true,
+    },
+    ...initialChanges.slice(3),
+    {
+      key: 'pr:7',
+      oid: '2'.repeat(40),
+      qaSkip: false,
+      releaseNoteSkip: false,
+      title: 'Add a new release fix',
+      url: 'https://github.com/fablebookjs/lab-02/pull/7',
+    },
+  ];
   const refreshed = render({
-    changes: [...initialChanges, newChange],
-    previousBody: manuallyChecked,
-    proposalOid: 'f'.repeat(40),
-    releaseOid: 'e'.repeat(40),
+    changes: changed,
+    previousBody: checked,
+    proposalOid: '3'.repeat(40),
+    releaseOid: '4'.repeat(40),
   });
   const states = extractReleasePrCheckboxes(refreshed);
   assert.equal(states.get('change:pr:3'), true);
-  assert.equal(states.get(`change:commit:${'d'.repeat(40)}`), false);
-  assert.equal(states.get('change:pr:12'), false);
+  assert.equal(states.get('change:pr:4'), false);
+  assert.equal(states.get('change:pr:5'), true);
+  assert.equal(states.get('change:pr:7'), false);
   assert.equal(states.get('check:discussions-resolved'), true);
+  assert.equal(states.get('check:source-metadata-current'), false);
   assert.equal(states.get('check:release-docs-reviewed'), false);
-  assert.match(refreshed, /Proposal commit[^\n]+fffffff/);
   assert.equal(requireReleaseHighlights(refreshed), authoredHighlights);
 });
 
-test('a recreated proposal preserves only same-version highlights and starts with fresh checks', () => {
-  const checked = render().replaceAll('- [ ]', '- [x]');
-  const refreshed = render({ previousBody: checked });
-  assert.equal([...extractReleasePrCheckboxes(refreshed).values()].every(Boolean), true);
-
-  const predecessor = writeHighlights(render());
-  const recreated = render({ previousHighlightsBody: predecessor, supersededPr: 9 });
-  assert.equal([...extractReleasePrCheckboxes(recreated).values()].some(Boolean), false);
+test('clean replacement preserves same-version Why upgrade but no QA state', () => {
+  const predecessor = writeHighlights(render()).replaceAll('- [ ]', '- [x]');
+  const recreated = render({
+    previousHighlightsBody: predecessor,
+    supersededPr: 9,
+  });
+  const states = extractReleasePrCheckboxes(recreated);
+  assert.equal(states.get('change:pr:3'), false);
+  assert.equal(states.get('change:pr:4'), true);
+  assert.equal(states.get('check:discussions-resolved'), false);
   assert.equal(requireReleaseHighlights(recreated), authoredHighlights);
   assert.match(recreated, /supersedes \[#9\]/);
-
-  const revisedTemplate = template.replace('## Maintainer procedure', '## Release operator guide');
-  assert.match(render({ template: revisedTemplate }), /## Release operator guide/);
 });
 
 test('replacement chooses the highest-numbered closed predecessor for the same version', () => {
-  const older = writeHighlights(render(), 'Older highlights');
-  const latest = writeHighlights(render(), 'Latest highlights');
-  const anotherVersion = writeHighlights(
-    render({ version: '1.0.1' }),
-    'Highlights for another version'
-  );
+  const older = writeHighlights(render(), 'Older reasons');
+  const latest = writeHighlights(render(), 'Latest reasons');
+  const anotherVersion = render({ version: '1.0.1' });
   const selected = selectLatestMatchingReleasePrBody({
     pulls: [
       { body: older, number: 5, state: 'closed' },
       { body: anotherVersion, number: 20, state: 'closed' },
       { body: latest, number: 12, state: 'closed' },
-      { body: writeHighlights(render(), 'Still open'), number: 30, state: 'open' },
+      { body: latest, number: 30, state: 'open' },
     ],
     version: '1.0.0',
   });
-  assert.equal(requireReleaseHighlights(selected), 'Latest highlights');
+  assert.equal(requireReleaseHighlights(selected), 'Latest reasons');
   assert.equal(
     selectLatestMatchingReleasePrBody({
       pulls: [{ body: anotherVersion, number: 20, state: 'closed' }],
@@ -185,38 +286,11 @@ test('replacement chooses the highest-numbered closed predecessor for the same v
     }),
     ''
   );
-
-  const previousTemplate = older.replace(
-    'fablebook:release-pr=v6',
-    'fablebook:release-pr=v5'
-  );
-  assert.equal(
-    requireReleaseHighlights(
-      selectLatestMatchingReleasePrBody({
-        pulls: [{ body: previousTemplate, number: 7, state: 'closed' }],
-        version: '1.0.0',
-      })
-    ),
-    'Older highlights'
-  );
-
-  const malformedLatest = latest.replace(
-    '<!-- fablebook:release-highlights:end -->',
-    '<!-- release-highlights:end -->'
-  );
-  const failedLatest = selectLatestMatchingReleasePrBody({
-    pulls: [
-      { body: older, number: 5, state: 'closed' },
-      { body: malformedLatest, number: 12, state: 'closed' },
-    ],
-    version: '1.0.0',
-  });
-  assert.equal(recoverReleaseHighlights(failedLatest), EMPTY_RELEASE_HIGHLIGHTS);
 });
 
-test('failed highlight extraction always falls back to the blocking empty placeholder', () => {
+test('failed Why upgrade extraction falls back to the blocking placeholder', () => {
   const valid = writeHighlights(render());
-  const malformed = [
+  for (const body of [
     '',
     valid.replace('fablebook:release-highlights:start', 'release-highlights:start'),
     valid.replace(
@@ -224,43 +298,67 @@ test('failed highlight extraction always falls back to the blocking empty placeh
       '<!-- fablebook:release-highlights:start -->'
     ),
     render().replace('- [ ] Replace this placeholder', '- [x] Replace this placeholder'),
-  ];
-  for (const body of malformed) {
+  ]) {
     assert.equal(recoverReleaseHighlights(body), EMPTY_RELEASE_HIGHLIGHTS);
   }
 });
 
-test('the dependency-free template fails on unknown or omitted placeholders', () => {
+test('template and generated metadata failures are detected before mutation', () => {
   assert.throws(
-    () => render({ template: `${template}\n{{unknown_value}}\n` }),
+    () => render({ template: `${templates.initial}\n{{unknown_value}}\n` }),
     /unknown placeholder/
   );
   assert.throws(
-    () => render({ template: template.replaceAll('{{npm_channel}}', 'stable channel') }),
+    () =>
+      render({
+        template: templates.initial.replaceAll(
+          '{{npm_channel}}',
+          'stable channel'
+        ),
+      }),
     /omits placeholders: npm_channel/
+  );
+  assert.throws(
+    () => render({ template: templates.patch }),
+    /initial template is missing its canonical markers/
+  );
+  const malformed = render({ version: '1.0.1' }).replace(
+    'release-note=include qa=required',
+    'release-note=include qa=skip'
+  );
+  assert.throws(
+    () => extractReleasePrChanges(malformed),
+    /contradictory generated metadata/
   );
 });
 
-test('duplicate identities and noncanonical links fail closed', () => {
-  assert.throws(() => render({ changes: [...initialChanges, initialChanges[0]] }), /repeat identity/);
-  assert.throws(
-    () => render({ changes: [{ ...initialChanges[0], url: 'https://example.com/pull/3' }] }),
-    /noncanonical pull request URL/
-  );
-  assert.throws(
-    () => extractReleasePrCheckboxes('- [ ] A <!-- fablebook:check=same -->\n- [x] B <!-- fablebook:check=same -->'),
-    /repeats checkbox identity/
+test('approval validation binds the generated shape and required attestations', () => {
+  const reviewed = writeHighlights(render()).replaceAll('- [ ]', '- [x]');
+  assert.deepEqual(
+    validateReleasePrBody({
+      body: reviewed,
+      requireAttestations: true,
+      version: '1.0.0',
+    }).kind,
+    'initial'
   );
   assert.throws(
     () =>
-      requireReleaseHighlights(
-        `${writeHighlights(render())}\n<!-- fablebook:release-highlights:start -->`
-      ),
-    /exactly one marked highlights block/
+      validateReleasePrBody({
+        body: writeHighlights(render()),
+        requireAttestations: true,
+        version: '1.0.0',
+      }),
+    /has not satisfied required check/
   );
+  const older = reviewed.replace(
+    'fablebook:release-pr=v7',
+    'fablebook:release-pr=v6'
+  );
+  assert.equal(extractReleasePrIdentity(older), null);
 });
 
-test('release history prefers one canonical merged PR and keeps direct commits visible', () => {
+test('release history requires unambiguous source metadata and defaults direct commits', () => {
   const pullOid = '7'.repeat(40);
   const directOid = '8'.repeat(40);
   const changes = deriveReleasePrChanges({
@@ -272,6 +370,7 @@ test('release history prefers one canonical merged PR and keeps direct commits v
               ref: 'releases/v1.0',
               repo: { full_name: 'fablebookjs/lab-02' },
             },
+            labels: [{ name: 'qa:skip' }],
             merge_commit_sha: pullOid,
             merged_at: '2026-07-22T12:00:00Z',
             number: 17,
@@ -290,18 +389,8 @@ test('release history prefers one canonical merged PR and keeps direct commits v
     line: 'v1.0',
   });
 
-  assert.deepEqual(changes, [
-    {
-      key: 'pr:17',
-      oid: pullOid,
-      title: 'Fix QA finding',
-      url: 'https://github.com/fablebookjs/lab-02/pull/17',
-    },
-    {
-      key: `commit:${directOid}`,
-      oid: directOid,
-      title: 'fix: direct release correction',
-      url: `https://github.com/fablebookjs/lab-02/commit/${directOid}`,
-    },
-  ]);
+  assert.equal(changes[0].qaSkip, true);
+  assert.equal(changes[0].releaseNoteSkip, false);
+  assert.equal(changes[1].qaSkip, false);
+  assert.equal(changes[1].releaseNoteSkip, false);
 });

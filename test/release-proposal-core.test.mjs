@@ -115,6 +115,36 @@ test('a current proposal repairs a stale generated body without replacing its co
   });
 });
 
+test('the disposable legacy proposal is replaced cleanly', () => {
+  const [action] = planProposalMaintenance([
+    lineState({
+      openPr: {
+        bodyCurrent: false,
+        number: 68,
+        replaceRequired: true,
+      },
+      staged: {
+        oid: '3'.repeat(40),
+        sourceOid: '1'.repeat(40),
+        version: '1.0.1',
+      },
+      completedVersion: '1.0.0',
+    }),
+  ]);
+  assert.deepEqual(action, {
+    kind: 'replace',
+    line: 'v1.0',
+    openPr: {
+      bodyCurrent: false,
+      number: 68,
+      replaceRequired: true,
+    },
+    reason: 'legacy release PR is disposable',
+    supersededPr: 68,
+    version: '1.0.1',
+  });
+});
+
 test('a current proposal refreshes in place when its release record predates the system', () => {
   const [action] = planProposalMaintenance([
     lineState({
