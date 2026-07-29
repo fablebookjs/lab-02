@@ -145,7 +145,7 @@ const branchValue = (
 export const validatedPullRequestResponse = (value: unknown): GitPullRequest => {
   const pull = objectValue(value, 'GitHub pull request');
   const body = pull['body'];
-  const mergeCommitSha = pull['merge_commit_sha'];
+  const mergeCommitSha = pull['merge_commit_sha'] ?? null;
   const mergedAt = pull['merged_at'];
   if (body !== null && typeof body !== 'string') {
     throw new Error('GitHub pull request body must be text or null.');

@@ -14,6 +14,7 @@ import {
 import {
   createRefUpdate,
   extractPullRequestMergeCommitOid,
+  validatedPullRequestResponse,
 } from '../scripts/github/release-proposal/github.ts';
 
 const lineState = (overrides = {}) => ({
@@ -365,6 +366,29 @@ test('merged pull request authority comes from the GraphQL merge commit', () => 
       { data: { repository: { pullRequest: { mergeCommit: null } } } },
       5
     )
+  );
+});
+
+test('pull request lists may omit the merge commit without weakening its type', () => {
+  const response = {
+    base: {
+      ref: 'releases/v1.0',
+      repo: { full_name: 'fablebookjs/lab-02' },
+      sha: '1'.repeat(40),
+    },
+    body: '',
+    head: {
+      ref: 'staged/v1.0',
+      repo: { full_name: 'fablebookjs/lab-02' },
+      sha: '2'.repeat(40),
+    },
+    merged_at: null,
+    number: 5,
+    state: 'open',
+  };
+  assert.equal(validatedPullRequestResponse(response).merge_commit_sha, null);
+  assert.throws(() =>
+    validatedPullRequestResponse({ ...response, merge_commit_sha: 42 })
   );
 });
 
