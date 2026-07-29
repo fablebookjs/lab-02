@@ -1,10 +1,8 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { promisify } from 'node:util';
 
 import {
   compareReleaseLines,
@@ -55,15 +53,17 @@ import {
   validateReleasePrBody,
 } from '../../shared/release-proposal/body.ts';
 import { materializeVersion } from '../../shared/version/materialize.ts';
-
-const execute = promisify(execFile);
+import type { ValidatedPullRequest } from '../events.ts';
+import {
+  readJson,
+  requireGithubToken,
+  requireOption,
+  run,
+  writeJson,
+} from '../controller-support.ts';
+import type { RunOptions } from '../controller-support.ts';
 const ARTIFACT_PREFIX = 'refs/release-pilot/artifact/';
 const IMPORT_PREFIX = 'refs/release-pilot/imported/';
-
-type RunOptions = {
-  cwd?: string;
-  env?: NodeJS.ProcessEnv;
-};
 
 type RootManifest = {
   version?: string;
@@ -213,20 +213,6 @@ export type ApplyMaintenanceOptions = {
   transition: string;
 };
 
-export type ReleaseProposalPullRequest = {
-  base: {
-    ref: string;
-    repo: { full_name: string };
-    sha: string;
-  };
-  body: string | null;
-  head: {
-    ref: string;
-    repo: { full_name: string };
-    sha: string;
-  };
-};
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -371,51 +357,8 @@ const stringRecord = (value: unknown, label: string): Record<string, string> | u
   );
 };
 
-const run = async (command: string, args: string[], options: RunOptions = {}) => {
-  try {
-    return await execute(command, args, {
-      cwd: options.cwd ?? repositoryRoot,
-      env: options.env ?? process.env,
-      maxBuffer: 20 * 1024 * 1024,
-    });
-  } catch (error) {
-    const output = isRecord(error)
-      ? [error['stdout'], error['stderr']]
-          .filter((value): value is string => typeof value === 'string' && value.length > 0)
-          .join('\n')
-      : '';
-    throw new Error(`${command} ${args.join(' ')} failed${output ? `\n${output}` : ''}`, {
-      cause: error,
-    });
-  }
-};
-
-const git = (args: string[], options: RunOptions = {}) => run('git', args, options);
-const readJson = async (path: string): Promise<unknown> => {
-  const value: unknown = JSON.parse(await readFile(path, 'utf8'));
-  return value;
-};
-const writeJson = async (path: string, value: unknown): Promise<void> =>
-  writeFile(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-
-const requireOption = <Name extends string>(
-  options: Record<Name, string | undefined>,
-  name: Name,
-): string => {
-  const value = options[name];
-  if (!value) {
-    throw new Error(`Missing required option --${name}`);
-  }
-  return value;
-};
-
-const requireGithubToken = (options: { 'github-token': string }): string => {
-  const token = options['github-token'];
-  if (!token) {
-    throw new Error('An authenticated GitHub capability is required.');
-  }
-  return token;
-};
+const git = (args: string[], options: RunOptions = {}) =>
+  run('git', args, { ...options, cwd: options.cwd ?? repositoryRoot });
 
 const ensureSeedRepository = async (): Promise<void> => {
   const { stdout } = await git(['rev-parse', '--show-toplevel']);
@@ -1561,7 +1504,7 @@ export async function applyMaintenance(
 }
 
 export async function checkPullRequest(
-  pull: ReleaseProposalPullRequest,
+  pull: Pick<ValidatedPullRequest, 'base' | 'body' | 'head'>,
 ): Promise<void> {
   await ensureSeedRepository();
   if (

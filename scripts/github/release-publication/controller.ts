@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
-import { promisify } from 'node:util';
 
 import {
   listPublicPackages,
@@ -37,19 +35,20 @@ import {
   getRef,
   getReleaseByTag,
   githubRequest,
+  isCanonicalReleasePull,
   validatedGitCommitResponse,
   validatedReleaseResponse,
 } from '../release-proposal/github.ts';
 import type { GitHubRelease, GitPullRequest } from '../release-proposal/github.ts';
-
-const execute = promisify(execFile);
+import {
+  readJson,
+  requireGithubToken,
+  requireOption,
+  run,
+  writeJson,
+} from '../controller-support.ts';
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const PACKAGE_PREFIX = '@fablebook/lab-02-';
-
-type RunOptions = {
-  cwd?: string;
-  env?: NodeJS.ProcessEnv;
-};
 
 type PublicationPackage = {
   filename: string;
@@ -141,51 +140,6 @@ const positiveInteger = (value: unknown, label: string): number => {
     throw new Error(`${label} must be a positive integer.`);
   }
   return value;
-};
-
-const run = async (command: string, args: string[], options: RunOptions = {}) => {
-  try {
-    return await execute(command, args, {
-      cwd: options.cwd,
-      env: options.env ?? process.env,
-      maxBuffer: 20 * 1024 * 1024,
-    });
-  } catch (error) {
-    const output = isRecord(error)
-      ? [error['stdout'], error['stderr']]
-          .filter((value): value is string => typeof value === 'string' && value.length > 0)
-          .join('\n')
-      : '';
-    throw new Error(`${command} ${args.join(' ')} failed${output ? `\n${output}` : ''}`, {
-      cause: error,
-    });
-  }
-};
-
-const readJson = async (path: string): Promise<unknown> => {
-  const value: unknown = JSON.parse(await readFile(path, 'utf8'));
-  return value;
-};
-const writeJson = async (path: string, value: unknown): Promise<void> =>
-  writeFile(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-
-const requireOption = <Name extends string>(
-  options: Record<Name, string | undefined>,
-  name: Name,
-): string => {
-  const value = options[name];
-  if (!value) {
-    throw new Error(`Missing required option --${name}`);
-  }
-  return value;
-};
-
-const requireGithubToken = (options: { 'github-token': string }): string => {
-  const token = options['github-token'];
-  if (!token) {
-    throw new Error('An authenticated GitHub capability is required.');
-  }
-  return token;
 };
 
 const validateOid = (oid: unknown, label: string): string => {
@@ -360,17 +314,6 @@ const readLiveRelease = async (
   };
 };
 
-const canonicalReleasePull = (pull: GitPullRequest): boolean => {
-  const line = pull.base.ref.replace(/^releases\//, '');
-  return (
-    line.length > 0 &&
-    pull.base.ref === `releases/${line}` &&
-    pull.head.ref === `staged/${line}` &&
-    pull.base.repo.full_name === PILOT_REPOSITORY &&
-    pull.head.repo.full_name === PILOT_REPOSITORY
-  );
-};
-
 export async function resolvePublication(
   options: ResolvePublicationOptions,
 ): Promise<PublicationResolution> {
@@ -384,7 +327,7 @@ export async function resolvePublication(
 
   const token = requireGithubToken(options);
   const pull = await getPullRequest(token, pullRequest);
-  if (!canonicalReleasePull(pull) || pull.merged_at === null) {
+  if (!isCanonicalReleasePull(pull) || pull.merged_at === null) {
     const outputs: PublicationResolution = { publish: false };
     console.log(`Pull request ${pullRequest} does not authorize publication.`);
     return outputs;

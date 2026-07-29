@@ -1,7 +1,5 @@
-import { execFile } from 'node:child_process';
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { promisify } from 'node:util';
 
 import {
   derivePatchbackItems,
@@ -35,6 +33,7 @@ import {
   getRef,
   getReleaseByTag,
   githubRequest,
+  isCanonicalReleasePull,
   resolveRefObject,
   withPullRequestMergeCommit,
   validatedGitCommitResponse,
@@ -46,15 +45,13 @@ import type {
 } from '../release-proposal/github.ts';
 import type { ReleaseAuthority } from '../../shared/release-publication/core.ts';
 import type { PatchbackItem } from '../../shared/patchback/core.ts';
-
-const execute = promisify(execFile);
-
-type RunOptions = {
-  cwd?: string;
-  env?: NodeJS.ProcessEnv;
-};
-
-type CanonicalPullRequest = GitPullRequest;
+import {
+  readJson,
+  requireGithubToken,
+  requireOption,
+  run,
+  writeJson,
+} from '../controller-support.ts';
 
 type IssueComment = {
   body: string | null;
@@ -136,51 +133,7 @@ const positiveInteger = (value: unknown, label: string): number => {
   return value;
 };
 
-const run = async (command: string, args: string[], options: RunOptions = {}) => {
-  try {
-    return await execute(command, args, {
-      cwd: options.cwd,
-      env: options.env ?? process.env,
-      maxBuffer: 20 * 1024 * 1024,
-    });
-  } catch (error) {
-    const output = isRecord(error)
-      ? [error['stdout'], error['stderr']]
-          .filter((value): value is string => typeof value === 'string' && value.length > 0)
-          .join('\n')
-      : '';
-    throw new Error(`${command} ${args.join(' ')} failed${output ? `\n${output}` : ''}`, {
-      cause: error,
-    });
-  }
-};
-
 const git = (args: string[], cwd: string) => run('git', args, { cwd });
-const readJson = async (path: string): Promise<unknown> => {
-  const value: unknown = JSON.parse(await readFile(path, 'utf8'));
-  return value;
-};
-const writeJson = async (path: string, value: unknown): Promise<void> =>
-  writeFile(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-
-const requireOption = <Name extends string>(
-  options: Record<Name, string | undefined>,
-  name: Name,
-): string => {
-  const value = options[name];
-  if (!value) {
-    throw new Error(`Missing required option --${name}`);
-  }
-  return value;
-};
-
-const requireGithubToken = (options: { 'github-token': string }): string => {
-  const token = options['github-token'];
-  if (!token) {
-    throw new Error('An authenticated GitHub capability is required.');
-  }
-  return token;
-};
 
 const fullOid = (value: unknown, label: string): string => {
   if (typeof value !== 'string' || !/^[0-9a-f]{40}$/.test(value)) {
@@ -196,17 +149,6 @@ const ensureTrustedMain = (): void => {
   ) {
     throw new Error('Patchback authority is restricted to trusted main in the pilot repository.');
   }
-};
-
-const canonicalReleasePull = (pull: GitPullRequest): boolean => {
-  const line = pull.base.ref.replace(/^releases\//, '');
-  return (
-    line.length > 0 &&
-    pull.base.ref === `releases/${line}` &&
-    pull.head.ref === `staged/${line}` &&
-    pull.base.repo.full_name === PILOT_REPOSITORY &&
-    pull.head.repo.full_name === PILOT_REPOSITORY
-  );
 };
 
 const readLiveAuthority = async (
@@ -295,7 +237,7 @@ export async function resolvePatchback(
 
   const token = requireGithubToken(options);
   const pull = await getPullRequest(token, pullRequest);
-  if (!canonicalReleasePull(pull) || pull.merged_at === null) {
+  if (!isCanonicalReleasePull(pull) || pull.merged_at === null) {
     const outputs: PatchbackResolution = { patchback: false };
     console.log(`Pull request ${pullRequest} does not authorize a patchback.`);
     return outputs;
@@ -727,8 +669,8 @@ export async function preparePatchback(
 const listPatchbackPulls = async (
   token: string,
   branch: string,
-): Promise<CanonicalPullRequest[]> => {
-  const pulls: CanonicalPullRequest[] = [];
+): Promise<GitPullRequest[]> => {
+  const pulls: GitPullRequest[] = [];
   for (let page = 1; ; page += 1) {
     const query = new URLSearchParams({
       head: `fablebookjs:${branch}`,
@@ -1013,7 +955,7 @@ const assignNewPatchback = async (
 };
 
 const validateExistingPull = (
-  pull: CanonicalPullRequest,
+  pull: GitPullRequest,
   manifest: PatchbackManifest,
 ): void => {
   const body = pull.body;

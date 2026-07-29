@@ -44,6 +44,17 @@ export type GitHubRelease = {
   tag_name: string;
 };
 
+export function isCanonicalReleasePull(pull: GitPullRequest): boolean {
+  const line = pull.base.ref.replace(/^releases\//, '');
+  return (
+    line.length > 0 &&
+    pull.base.ref === `releases/${line}` &&
+    pull.head.ref === `staged/${line}` &&
+    pull.base.repo.full_name === PILOT_REPOSITORY &&
+    pull.head.repo.full_name === PILOT_REPOSITORY
+  );
+}
+
 const headers = (token: string): Record<string, string> => ({
   Accept: 'application/vnd.github+json',
   Authorization: `Bearer ${token}`,
