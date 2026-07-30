@@ -12,8 +12,9 @@ Run it with:
 npm run prototype:prerelease-journey
 ```
 
-Press `d` to load the suggested end-to-end journey, then `v` to cycle through
-the generated artifacts. Press `z` to reset and drive each event manually.
+The command opens a narrated eight-step journey. Press `n` to move forward,
+`p` to move back, and `a` to cycle through the concrete artifacts available at
+the current point in time.
 
 This directory is deliberately disposable. It performs no GitHub, npm, or
 filesystem mutations.
