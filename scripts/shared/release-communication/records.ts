@@ -75,9 +75,9 @@ type CanonicalReleasePull = {
   title: unknown;
 };
 
-const canonicalReleasePull = (
+const canonicalBranchPull = (
   pull: unknown,
-  line: string,
+  branch: string,
   oid: string,
 ): pull is CanonicalReleasePull => {
   if (!isRecord(pull) || !Number.isSafeInteger(pull['number'])) return false;
@@ -88,7 +88,7 @@ const canonicalReleasePull = (
     number > 0 &&
     pull['merged_at'] !== null &&
     isRecord(base) &&
-    base['ref'] === `releases/${line}` &&
+    base['ref'] === branch &&
     isRecord(base['repo']) &&
     base['repo']['full_name'] === REPOSITORY &&
     pull['merge_commit_sha'] === oid
@@ -125,14 +125,16 @@ const pullClassification = (
   };
 };
 
-export function deriveReleaseChanges({
+const deriveBranchChanges = ({
+  branch,
   commits,
-  line,
 }: {
+  branch: string;
   commits: unknown;
-  line: string;
-}): ReleaseChange[] {
-  parseReleaseLine(line);
+}): ReleaseChange[] => {
+  if (branch !== 'main' && !/^releases\/v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(branch)) {
+    throw new Error(`Unsupported change-history branch: ${branch}`);
+  }
   if (!Array.isArray(commits)) {
     throw new Error('Release commits must be an array.');
   }
@@ -146,7 +148,7 @@ export function deriveReleaseChanges({
       throw new Error(`Release change ${oid} has malformed pull request metadata.`);
     }
     const associated = (associatedPulls ?? []).filter((pull): pull is CanonicalReleasePull =>
-      canonicalReleasePull(pull, line, oid)
+      canonicalBranchPull(pull, branch, oid)
     );
     if (associated.length > 1) {
       throw new Error(`Release change ${oid} has ambiguous pull request metadata.`);
@@ -170,6 +172,25 @@ export function deriveReleaseChanges({
       url: `${repositoryUrl}/commit/${oid}`,
     };
   });
+};
+
+export function deriveReleaseChanges({
+  commits,
+  line,
+}: {
+  commits: unknown;
+  line: string;
+}): ReleaseChange[] {
+  parseReleaseLine(line);
+  return deriveBranchChanges({ branch: `releases/${line}`, commits });
+}
+
+export function derivePrereleaseChanges({
+  commits,
+}: {
+  commits: unknown;
+}): ReleaseChange[] {
+  return deriveBranchChanges({ branch: 'main', commits });
 }
 
 export function normalizeReleaseChanges(changes: unknown): ReleaseChange[] {
