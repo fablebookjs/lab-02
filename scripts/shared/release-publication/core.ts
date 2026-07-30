@@ -359,18 +359,18 @@ export function composeGitHubReleaseBody({
     source: releaseRecord,
     version,
   });
+  const publicChanges = normalized.changes.filter(
+    ({ releaseNoteSkip }) => !releaseNoteSkip
+  );
   if (
     JSON.stringify(
-      normalized.changes.map(({ title, url }) => ({ title, url }))
+      publicChanges.map(({ title, url }) => ({ title, url }))
     ) !== JSON.stringify(recordChanges)
   ) {
     throw new Error(
       `Generated v${version} release record contradicts its authorized communication.`
     );
   }
-  const publicChanges = normalized.changes.filter(
-    ({ releaseNoteSkip }) => !releaseNoteSkip
-  );
   const renderedChanges = publicChanges
     .map(({ title, url }) => `- [${title}](${url})`)
     .join('\n');

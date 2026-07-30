@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
+import { repositoryRoot } from '../scripts/shared/workspace/packages.ts';
 import {
   composeMigrationRecords,
   deriveReleaseChanges,
@@ -63,10 +64,29 @@ test('one release-history interpretation renders the durable per-version record'
         oid: oid('b'),
         subject: 'fix: correct the release branch directly',
       },
+      {
+        associatedPulls: [
+          {
+            base: {
+              ref: 'releases/v2.1',
+              repo: { full_name: 'fablebookjs/lab-02' },
+            },
+            merge_commit_sha: oid('c'),
+            merged_at: '2026-07-28T12:10:00Z',
+            labels: [{ name: 'release-note:skip' }],
+            number: 42,
+            title: 'Refine internal release accounting',
+          },
+        ],
+        oid: oid('c'),
+        subject: 'Merge pull request #42',
+      },
     ],
     line: 'v2.1',
   });
 
+  assert.equal(changes.length, 3);
+  assert.equal(changes[2]?.releaseNoteSkip, true);
   assert.equal(releaseRecordPath('2.1.0'), 'releases/v2.1.0.md');
   assert.equal(
     renderReleaseRecord({ changes, version: '2.1.0' }),
@@ -102,14 +122,43 @@ test('one release-history interpretation renders the durable per-version record'
   );
 });
 
-test('an empty release record uses the same concise visible format', () => {
+test('an entirely excluded release record uses the same concise visible format', () => {
   assert.equal(
-    renderReleaseRecord({ changes: [], version: '2.1.1' }),
+    renderReleaseRecord({
+      changes: [
+        {
+          key: 'pr:42',
+          oid: oid('c'),
+          qaSkip: false,
+          releaseNoteSkip: true,
+          title: 'Refine internal release accounting',
+          url: 'https://github.com/fablebookjs/lab-02/pull/42',
+        },
+      ],
+      version: '2.1.1',
+    }),
     `# v2.1.1 changes
 
 No changes were recorded for this release.
 `
   );
+});
+
+test('the normalized checked-in release record omits its excluded change', async () => {
+  const source = await readFile(
+    join(repositoryRoot, 'releases/v2.0.3.md'),
+    'utf8'
+  );
+  assert.deepEqual(
+    parseReleaseRecordChanges({ source, version: '2.0.3' }),
+    [
+      {
+        title: 'Add count-based summary formatting',
+        url: 'https://github.com/fablebookjs/lab-02/pull/44',
+      },
+    ]
+  );
+  assert.doesNotMatch(source, /Document adopting count-based summaries|pull\/46/);
 });
 
 test('an authorized historical release record remains readable for recovery', () => {
