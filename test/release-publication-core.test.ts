@@ -9,10 +9,9 @@ import {
   composeGitHubReleaseBody,
   deriveReleaseAuthority,
   deriveReleaseCommunication,
-  exactPublication,
   lineChannel,
   promotionDisposition,
-  publicationDisposition,
+  registryIntegrity,
   SETUP_NODE_AUTH_PLACEHOLDER,
   validateReleaseCommunication,
 } from '../scripts/shared/release-publication/core.ts';
@@ -428,51 +427,40 @@ test('migration links and communication schemas fail closed', () => {
   );
 });
 
-test('stable publication publishes missing versions and skips only exact completed results', () => {
+test('stable publication observes only the exact registry version integrity', () => {
   const input = {
-    channel: 'v-1.0',
-    integrity,
     name: '@fablebook/lab-02-core',
     version: '1.0.0',
   };
-  assert.equal(publicationDisposition({ ...input, document: null }), 'publish');
-  assert.equal(
-    publicationDisposition({ ...input, document: registryDocument() }),
-    'skip'
-  );
+  assert.equal(registryIntegrity({ ...input, document: null }), null);
+  assert.equal(registryIntegrity({ ...input, document: registryDocument() }), integrity);
 
   const otherVersion = registryDocument({
     'dist-tags': { 'v-1.0': '0.9.0' },
     versions: {},
   });
-  assert.equal(
-    publicationDisposition({ ...input, document: otherVersion }),
-    'publish'
-  );
+  assert.equal(registryIntegrity({ ...input, document: otherVersion }), null);
 
   const wrongIntegrity = registryDocument();
   const published = wrongIntegrity.versions['1.0.0'];
   assert.ok(published);
   published.dist.integrity =
     `sha512-${Buffer.alloc(64, 8).toString('base64')}`;
-  assert.throws(() =>
-    publicationDisposition({ ...input, document: wrongIntegrity })
+  assert.equal(
+    registryIntegrity({ ...input, document: wrongIntegrity }),
+    published.dist.integrity,
   );
 
   const wrongChannel = registryDocument();
   wrongChannel['dist-tags']['v-1.0'] = '1.0.1';
-  assert.throws(() =>
-    publicationDisposition({ ...input, document: wrongChannel })
-  );
   assert.equal(
-    exactPublication({
+    registryIntegrity({
       document: wrongChannel,
-      integrity,
       name: input.name,
       version: input.version,
     }),
-    true,
-    'a completed older release remains exact after its line channel advances'
+    integrity,
+    'a completed older release remains exact after its line channel advances',
   );
 });
 
