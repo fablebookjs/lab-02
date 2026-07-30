@@ -12,7 +12,11 @@ import {
 } from '../../shared/prerelease-publication/core.ts';
 import type {
   PrereleaseAuthority,
+  PrereleaseAuthorityBase,
 } from '../../shared/prerelease-publication/core.ts';
+import {
+  parseManualPrereleasePhase,
+} from '../../shared/prerelease-phase-entry/core.ts';
 import {
   reconcileNextPackageSet,
   validatePrereleasePublicationManifest,
@@ -95,6 +99,11 @@ export type FinalizePrereleaseOptions = PublishPrereleasePackagesOptions & {
   'github-token': string;
 };
 
+export type CheckPrereleaseCompletionOptions =
+  PublishPrereleasePackagesOptions & {
+    'github-token': string;
+  };
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -132,21 +141,13 @@ const authorityValue = (input: unknown): PrereleaseAuthorityDocument => {
     );
   }
   const version = stringValue(input['version'], 'Prerelease authority version');
-  parseDevelopmentVersion(version);
-  const authority: PrereleaseAuthority = {
+  const parsedVersion = parseDevelopmentVersion(version);
+  const common: PrereleaseAuthorityBase = {
     boundaryOid: oidValue(
       input['boundaryOid'],
       'Prerelease authority boundary',
     ),
     channel: PRERELEASE_CHANNEL,
-    proposalOid: oidValue(
-      input['proposalOid'],
-      'Prerelease authority proposal',
-    ),
-    pullRequest: positiveInteger(
-      input['pullRequest'],
-      'Prerelease authority pull request',
-    ),
     snapshotOid: oidValue(
       input['snapshotOid'],
       'Prerelease authority snapshot',
@@ -157,6 +158,33 @@ const authorityValue = (input: unknown): PrereleaseAuthorityDocument => {
     ),
     version,
   };
+  let authority: PrereleaseAuthority;
+  if (input['phase'] !== undefined) {
+    const phase = parseManualPrereleasePhase(
+      stringValue(input['phase'], 'Prerelease authority phase'),
+    );
+    if (
+      parsedVersion.prerelease !== phase ||
+      parsedVersion.prereleaseNumber !== 0
+    ) {
+      throw new Error(
+        'Phase-entry authority does not identify its target .0 version.',
+      );
+    }
+    authority = { ...common, phase };
+  } else {
+    authority = {
+      ...common,
+      proposalOid: oidValue(
+        input['proposalOid'],
+        'Prerelease authority proposal',
+      ),
+      pullRequest: positiveInteger(
+        input['pullRequest'],
+        'Prerelease authority pull request',
+      ),
+    };
+  }
   return {
     ...authority,
     changes: validatePrereleaseCommunication(input['changes']),
@@ -387,12 +415,58 @@ const prereleaseCompletionState = async (
   if (
     release.tag_name !== tag ||
     release.draft !== false ||
-    release.prerelease !== true
+    release.prerelease !== true ||
+    release.body !== manifest.releaseBody
   ) {
     throw new Error(`GitHub prerelease ${tag} contradicts its snapshot.`);
   }
   return true;
 };
+
+export async function checkPrereleaseCompletion(
+  options: CheckPrereleaseCompletionOptions,
+): Promise<{ complete: boolean }> {
+  ensureTrustedMain();
+  const manifest = await loadManifest(options);
+  const token = requireGithubToken(options);
+  for (const pkg of manifest.packages) {
+    const document = await readRegistryDocument(pkg.name);
+    const publishedIntegrity = registryIntegrity({
+      document,
+      name: pkg.name,
+      version: manifest.version,
+    });
+    if (publishedIntegrity === null) {
+      console.log(
+        `Prerelease ${manifest.version} is incomplete: ${pkg.name} is unpublished.`,
+      );
+      return { complete: false };
+    }
+    if (publishedIntegrity !== pkg.integrity) {
+      throw new Error(
+        `${pkg.name}@${manifest.version} exists with unexpected integrity.`,
+      );
+    }
+    if (
+      registryNextVersion({
+        document,
+        name: pkg.name,
+      }) !== manifest.version
+    ) {
+      console.log(
+        `Prerelease ${manifest.version} is incomplete: npm next is not reconciled.`,
+      );
+      return { complete: false };
+    }
+  }
+  const complete = await prereleaseCompletionState(token, manifest);
+  console.log(
+    complete
+      ? `Skipped prerelease publication: ${manifest.version} is already complete.`
+      : `Prerelease ${manifest.version} still requires GitHub finalization.`,
+  );
+  return { complete };
+}
 
 export async function finalizePrerelease(
   options: FinalizePrereleaseOptions,

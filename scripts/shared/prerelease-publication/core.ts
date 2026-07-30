@@ -8,19 +8,31 @@ import {
 } from '../prerelease-proposal/core.ts';
 import { cleanReleaseTitle } from '../release-communication/records.ts';
 import { parseDevelopmentVersion } from '../release-proposal/core.ts';
+import type { ManualPrereleasePhase } from '../prerelease-phase-entry/core.ts';
 
 export const PILOT_REPOSITORY = 'fablebookjs/lab-02';
 export const PRERELEASE_CHANNEL = 'next';
 
-export type PrereleaseAuthority = {
+export type PrereleaseAuthorityBase = {
   boundaryOid: string;
   channel: typeof PRERELEASE_CHANNEL;
-  proposalOid: string;
-  pullRequest: number;
   snapshotOid: string;
   sourceOid: string;
   version: string;
 };
+
+export type OrdinaryPrereleaseAuthority = PrereleaseAuthorityBase & {
+  proposalOid: string;
+  pullRequest: number;
+};
+
+export type PhaseEntryPrereleaseAuthority = PrereleaseAuthorityBase & {
+  phase: ManualPrereleasePhase;
+};
+
+export type PrereleaseAuthority =
+  | OrdinaryPrereleaseAuthority
+  | PhaseEntryPrereleaseAuthority;
 
 type GitCommit = {
   message?: string;
@@ -57,7 +69,7 @@ export function derivePrereleaseAuthority({
   headCommit: GitCommit;
   mergeCommit: GitCommit;
   pull: PrereleasePull;
-}): PrereleaseAuthority {
+}): OrdinaryPrereleaseAuthority {
   if (!Number.isSafeInteger(pull.number) || pull.number <= 0) {
     throw new Error('Prerelease authority requires a positive pull request number.');
   }
@@ -121,7 +133,7 @@ export function derivePrereleaseCommunication({
   authority,
   body,
 }: {
-  authority: PrereleaseAuthority;
+  authority: OrdinaryPrereleaseAuthority;
   body: unknown;
 }): PrereleasePrChange[] {
   const identity = extractPrereleasePrIdentity(body);

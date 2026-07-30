@@ -17,6 +17,9 @@ import type {
   PrereleaseProposal,
   PrereleaseProposalPlan,
 } from '../../shared/prerelease-proposal/core.ts';
+import {
+  parsePhaseEntryCommitMessageIfPresent,
+} from '../../shared/prerelease-phase-entry/core.ts';
 import { ZERO_OID } from '../../shared/release-proposal/core.ts';
 import type { ReleaseChange } from '../../shared/release-communication/records.ts';
 import { repositoryRoot } from '../../shared/workspace/packages.ts';
@@ -57,7 +60,8 @@ import {
 
 const ARTIFACT_PREFIX = 'refs/release-pilot/artifact/';
 
-type ManagedBoundary = {
+export type ManagedPrereleaseBoundary = {
+  kind: 'ordinary' | 'phase-entry';
   oid: string;
   version: string;
 };
@@ -181,9 +185,9 @@ const treeOid = async (oid: string): Promise<string> =>
     `${oid} tree`,
   );
 
-const findManagedBoundary = async (
+export const findManagedPrereleaseBoundary = async (
   mainOid: string,
-): Promise<ManagedBoundary | null> => {
+): Promise<ManagedPrereleaseBoundary | null> => {
   const history = (
     await git(['rev-list', '--first-parent', mainOid])
   ).stdout
@@ -192,6 +196,21 @@ const findManagedBoundary = async (
     .filter(Boolean);
   for (const oid of history) {
     const parents = await proposalCommitParents(oid);
+    const message = await proposalCommitMessageAt(oid);
+    const phaseEntry = parsePhaseEntryCommitMessageIfPresent(message);
+    if (phaseEntry !== null) {
+      if (
+        parents.length !== 1 ||
+        parents[0] !== phaseEntry.sourceOid
+      ) {
+        throw new Error(
+          `${oid} resembles a phase-entry snapshot but does not directly advance its source.`,
+        );
+      }
+      await proposalValidateVersionTree(oid, phaseEntry.version);
+      return { kind: 'phase-entry', oid, version: phaseEntry.version };
+    }
+
     const proposalOid = parents[1];
     if (parents.length !== 2 || proposalOid === undefined) {
       continue;
@@ -213,7 +232,7 @@ const findManagedBoundary = async (
       );
     }
     await proposalValidateVersionTree(oid, proposal.version);
-    return { oid, version: proposal.version };
+    return { kind: 'ordinary', oid, version: proposal.version };
   }
   return null;
 };
@@ -377,7 +396,7 @@ export async function preparePrereleaseProposal(
   const token = requireGithubToken(options);
   const mainOid = await currentOid();
   const lineVersion = await proposalRootVersionAt(mainOid);
-  const boundary = await findManagedBoundary(mainOid);
+  const boundary = await findManagedPrereleaseBoundary(mainOid);
   if (boundary !== null && boundary.version !== lineVersion) {
     throw new Error(
       `main carries ${lineVersion}, but its latest managed prerelease snapshot carries ${boundary.version}.`,

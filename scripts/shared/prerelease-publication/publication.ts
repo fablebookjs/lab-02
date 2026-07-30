@@ -7,15 +7,20 @@ import {
   PILOT_REPOSITORY,
   PRERELEASE_CHANNEL,
   type PrereleaseAuthority,
+  type PrereleaseAuthorityBase,
 } from './core.ts';
+import { parseManualPrereleasePhase } from '../prerelease-phase-entry/core.ts';
 
-export type PrereleasePublicationManifest = PrereleaseAuthority &
+type PrereleasePublicationBase = PrereleaseAuthorityBase &
   Readonly<{
     packages: readonly PublicationPackage[];
     releaseBody: string;
     repository: typeof PILOT_REPOSITORY;
     schema: 1;
   }>;
+
+export type PrereleasePublicationManifest = PrereleaseAuthority &
+  PrereleasePublicationBase;
 
 export type PrereleasePublicationBinding = Readonly<{
   repository: string;
@@ -53,18 +58,25 @@ const oidValue = (value: unknown, label: string): string => {
   return value;
 };
 
-const manifestKeys: readonly string[] = [
+const commonManifestKeys: readonly string[] = [
   'boundaryOid',
   'channel',
   'packages',
-  'proposalOid',
-  'pullRequest',
   'releaseBody',
   'repository',
   'schema',
   'snapshotOid',
   'sourceOid',
   'version',
+];
+const ordinaryManifestKeys: readonly string[] = [
+  ...commonManifestKeys,
+  'proposalOid',
+  'pullRequest',
+];
+const phaseEntryManifestKeys: readonly string[] = [
+  ...commonManifestKeys,
+  'phase',
 ];
 
 const hasExactKeys = (
@@ -89,7 +101,6 @@ export async function validatePrereleasePublicationManifest(
   if (
     expected.repository !== PILOT_REPOSITORY ||
     !isRecord(input) ||
-    !hasExactKeys(input, manifestKeys) ||
     input['schema'] !== 1 ||
     input['repository'] !== expected.repository ||
     input['snapshotOid'] !== expected.snapshotOid ||
@@ -100,9 +111,20 @@ export async function validatePrereleasePublicationManifest(
       'Prerelease publication manifest is outside the expected schema-1 binding.',
     );
   }
+  const phaseEntry = input['phase'] !== undefined;
+  if (
+    !hasExactKeys(
+      input,
+      phaseEntry ? phaseEntryManifestKeys : ordinaryManifestKeys,
+    )
+  ) {
+    throw new Error(
+      'Prerelease publication manifest is outside the expected schema-1 binding.',
+    );
+  }
   const version = stringValue(input['version'], 'Prerelease manifest version');
-  parseDevelopmentVersion(version);
-  return {
+  const parsedVersion = parseDevelopmentVersion(version);
+  const common: PrereleasePublicationBase = {
     boundaryOid: oidValue(
       input['boundaryOid'],
       'Prerelease manifest boundary',
@@ -111,14 +133,6 @@ export async function validatePrereleasePublicationManifest(
     packages: await validatePublicationPackages(
       input['packages'],
       artifactRoot,
-    ),
-    proposalOid: oidValue(
-      input['proposalOid'],
-      'Prerelease manifest proposal',
-    ),
-    pullRequest: positiveInteger(
-      input['pullRequest'],
-      'Prerelease manifest pull request',
     ),
     releaseBody: stringValue(
       input['releaseBody'],
@@ -132,6 +146,31 @@ export async function validatePrereleasePublicationManifest(
     ),
     sourceOid: oidValue(input['sourceOid'], 'Prerelease manifest source'),
     version,
+  };
+  if (phaseEntry) {
+    const phase = parseManualPrereleasePhase(
+      stringValue(input['phase'], 'Prerelease manifest phase'),
+    );
+    if (
+      parsedVersion.prerelease !== phase ||
+      parsedVersion.prereleaseNumber !== 0
+    ) {
+      throw new Error(
+        'Prerelease phase-entry manifest does not identify its target .0 version.',
+      );
+    }
+    return { ...common, phase };
+  }
+  return {
+    ...common,
+    proposalOid: oidValue(
+      input['proposalOid'],
+      'Prerelease manifest proposal',
+    ),
+    pullRequest: positiveInteger(
+      input['pullRequest'],
+      'Prerelease manifest pull request',
+    ),
   };
 }
 

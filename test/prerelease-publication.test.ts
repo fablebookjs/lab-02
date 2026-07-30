@@ -226,6 +226,65 @@ test('the sealed manifest binds the complete package set to next', async () => {
   });
 });
 
+test('the same sealed publisher accepts honest direct phase-entry authority', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'lab-02-phase-entry-manifest-'));
+  try {
+    const tarballs = join(root, 'tarballs');
+    await mkdir(tarballs);
+    await writeFile(join(tarballs, 'lab-02-core-3.2.0-beta.0.tgz'), 'core');
+    const value = {
+      boundaryOid: oid('0'),
+      channel: 'next',
+      packages: [
+        {
+          filename: 'lab-02-core-3.2.0-beta.0.tgz',
+          integrity,
+          name: '@fablebook/lab-02-core',
+        },
+      ],
+      phase: 'beta',
+      releaseBody: '# Lab-02 3.2.0-beta.0\n',
+      repository: 'fablebookjs/lab-02',
+      schema: 1,
+      snapshotOid: oid('3'),
+      sourceOid: oid('1'),
+      version: '3.2.0-beta.0',
+    };
+    const manifest = await validatePrereleasePublicationManifest(
+      value,
+      tarballs,
+      {
+        repository: 'fablebookjs/lab-02',
+        snapshotOid: oid('3'),
+        version: '3.2.0-beta.0',
+      },
+    );
+    assert.ok('phase' in manifest);
+    assert.equal(manifest.phase, 'beta');
+    assert.ok(!('proposalOid' in manifest));
+    assert.ok(!('pullRequest' in manifest));
+    await assert.rejects(
+      validatePrereleasePublicationManifest(
+        { ...value, pullRequest: 93 },
+        tarballs,
+        {
+          repository: 'fablebookjs/lab-02',
+          snapshotOid: oid('3'),
+          version: '3.2.0-beta.0',
+        },
+      ),
+      /outside the expected schema/,
+    );
+  } finally {
+    await rm(root, {
+      force: true,
+      maxRetries: 5,
+      recursive: true,
+      retryDelay: 100,
+    });
+  }
+});
+
 test('next reconciliation queries first, repairs only drift, and reads back all packages', async () => {
   await withManifest(async (manifest) => {
     let current: string | null = null;
