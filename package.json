@@ -16,7 +16,6 @@
     "list-packages": "node scripts/workspace/list-packages.ts",
     "set-version": "node scripts/version/set-version.ts",
     "smoke:packed": "node scripts/consumer-smoke/run.ts",
-    "smoke:zero-install": "node scripts/zero-install/smoke.ts",
     "test": "node --test test/*.test.ts",
     "typecheck:scripts": "tsc -p tsconfig.scripts.json",
     "validate:release-communication": "node scripts/release-communication/validate.ts"

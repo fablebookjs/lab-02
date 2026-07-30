@@ -29,8 +29,7 @@ its synchronous `require(...).default` bridge.
    modules, and repository tests with the full strict project. Runtime
    execution itself strips types and does not type-check.
 3. **Dependency boundary:** post-install CI statically checks every runtime
-   edge. A separate pre-install smoke loads the real graph without repository
-   packages, including a representative handler through the pinned action.
+   edge and the complete reachable zero-install graph.
 
 Webhook payloads are `unknown` at the injected runtime boundary. Narrow
 validated event views derive their field types from the exact pinned

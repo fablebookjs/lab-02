@@ -24,31 +24,6 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
-      - name: Load the zero-install graph before dependencies exist
-        run: npm run smoke:zero-install
-      - name: Exercise a representative Actions handler before dependencies exist
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
-        with:
-          script: |
-            const handler = require('./scripts/github/pull-request/check-description.ts').default
-            return handler({
-              github,
-              context: {
-                payload: {
-                  pull_request: {
-                    base: { ref: 'main' },
-                    body: 'CI zero-install smoke',
-                    head: {
-                      ref: 'ci-zero-install-smoke',
-                      repo: { full_name: `${context.repo.owner}/${context.repo.repo}` },
-                    },
-                  },
-                },
-                repo: context.repo,
-              },
-              core,
-              env: process.env,
-            })
       - name: Install, compile, test, and exercise packed packages
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
