@@ -56,6 +56,57 @@ test('the exact prerelease snapshot seals the complete package set without a rel
     await git(['config', 'user.email', 'lab-02-test@example.com'], repository);
     await run(
       process.execPath,
+      ['scripts/version/set-version.ts', '3.2.0-alpha.0'],
+      repository,
+    );
+    await git(['add', '.'], repository);
+    await git(['commit', '-m', 'release: begin 3.2.0-alpha.0'], repository);
+    const bootstrapOid = (
+      await git(['rev-parse', 'HEAD'], repository)
+    ).stdout.trim();
+    await writeFile(
+      authorityPath,
+      `${JSON.stringify(
+        {
+          boundaryOid: bootstrapOid,
+          changes: [],
+          channel: 'next',
+          cutLine: 'v3.1',
+          repository: 'fablebookjs/lab-02',
+          schema: 1,
+          snapshotOid: bootstrapOid,
+          sourceOid: '1'.repeat(40),
+          version: '3.2.0-alpha.0',
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+    const bootstrapOutput = join(temporaryRoot, 'bootstrap-output');
+    await preparePrereleasePublication({
+      authority: authorityPath,
+      output: bootstrapOutput,
+      snapshot: repository,
+    });
+    const bootstrapManifest: unknown = JSON.parse(
+      await readFile(join(bootstrapOutput, 'publication.json'), 'utf8'),
+    );
+    assert.ok(
+      bootstrapManifest !== null &&
+        typeof bootstrapManifest === 'object' &&
+        'cutLine' in bootstrapManifest &&
+        bootstrapManifest.cutLine === 'v3.1' &&
+        'releaseBody' in bootstrapManifest &&
+        typeof bootstrapManifest.releaseBody === 'string',
+    );
+    assert.match(
+      bootstrapManifest.releaseBody,
+      /no user-facing changes worth mentioning/,
+    );
+
+    await run(
+      process.execPath,
       ['scripts/version/set-version.ts', '3.2.0-alpha.1'],
       repository,
     );

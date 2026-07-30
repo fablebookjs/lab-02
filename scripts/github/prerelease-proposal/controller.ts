@@ -20,7 +20,10 @@ import type {
 import {
   parsePhaseEntryCommitMessageIfPresent,
 } from '../../shared/prerelease-phase-entry/core.ts';
-import { ZERO_OID } from '../../shared/release-proposal/core.ts';
+import {
+  parsePrereleaseBootstrapCommitMessageIfPresent,
+  ZERO_OID,
+} from '../../shared/release-proposal/core.ts';
 import type { ReleaseChange } from '../../shared/release-communication/records.ts';
 import { repositoryRoot } from '../../shared/workspace/packages.ts';
 import type { ValidatedPullRequest } from '../events.ts';
@@ -61,7 +64,7 @@ import {
 const ARTIFACT_PREFIX = 'refs/release-pilot/artifact/';
 
 export type ManagedPrereleaseBoundary = {
-  kind: 'ordinary' | 'phase-entry';
+  kind: 'bootstrap' | 'ordinary' | 'phase-entry';
   oid: string;
   version: string;
 };
@@ -197,6 +200,17 @@ export const findManagedPrereleaseBoundary = async (
   for (const oid of history) {
     const parents = await proposalCommitParents(oid);
     const message = await proposalCommitMessageAt(oid);
+    const bootstrap =
+      parsePrereleaseBootstrapCommitMessageIfPresent(message);
+    if (bootstrap !== null) {
+      if (parents.length !== 1 || parents[0] !== bootstrap.sourceOid) {
+        throw new Error(
+          `${oid} resembles a prerelease bootstrap but does not directly advance its cut source.`,
+        );
+      }
+      await proposalValidateVersionTree(oid, bootstrap.version);
+      return { kind: 'bootstrap', oid, version: bootstrap.version };
+    }
     const phaseEntry = parsePhaseEntryCommitMessageIfPresent(message);
     if (phaseEntry !== null) {
       if (

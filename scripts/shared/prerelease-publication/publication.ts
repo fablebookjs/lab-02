@@ -2,7 +2,10 @@ import {
   type PublicationPackage,
   validatePublicationPackages,
 } from '../release-publication/publication.ts';
-import { parseDevelopmentVersion } from '../release-proposal/core.ts';
+import {
+  parseDevelopmentVersion,
+  parseReleaseLine,
+} from '../release-proposal/core.ts';
 import {
   PILOT_REPOSITORY,
   PRERELEASE_CHANNEL,
@@ -78,6 +81,10 @@ const phaseEntryManifestKeys: readonly string[] = [
   ...commonManifestKeys,
   'phase',
 ];
+const bootstrapManifestKeys: readonly string[] = [
+  ...commonManifestKeys,
+  'cutLine',
+];
 
 const hasExactKeys = (
   value: Record<string, unknown>,
@@ -111,11 +118,16 @@ export async function validatePrereleasePublicationManifest(
       'Prerelease publication manifest is outside the expected schema-1 binding.',
     );
   }
+  const bootstrap = input['cutLine'] !== undefined;
   const phaseEntry = input['phase'] !== undefined;
   if (
     !hasExactKeys(
       input,
-      phaseEntry ? phaseEntryManifestKeys : ordinaryManifestKeys,
+      bootstrap
+        ? bootstrapManifestKeys
+        : phaseEntry
+          ? phaseEntryManifestKeys
+          : ordinaryManifestKeys,
     )
   ) {
     throw new Error(
@@ -147,6 +159,23 @@ export async function validatePrereleasePublicationManifest(
     sourceOid: oidValue(input['sourceOid'], 'Prerelease manifest source'),
     version,
   };
+  if (bootstrap) {
+    const cutLine = stringValue(
+      input['cutLine'],
+      'Prerelease bootstrap cut line',
+    );
+    parseReleaseLine(cutLine);
+    if (
+      common.boundaryOid !== common.snapshotOid ||
+      parsedVersion.prerelease !== 'alpha' ||
+      parsedVersion.prereleaseNumber !== 0
+    ) {
+      throw new Error(
+        'Prerelease bootstrap manifest does not identify its alpha.0 boundary.',
+      );
+    }
+    return { ...common, cutLine };
+  }
   if (phaseEntry) {
     const phase = parseManualPrereleasePhase(
       stringValue(input['phase'], 'Prerelease manifest phase'),

@@ -30,7 +30,12 @@ export type PhaseEntryPrereleaseAuthority = PrereleaseAuthorityBase & {
   phase: ManualPrereleasePhase;
 };
 
+export type BootstrapPrereleaseAuthority = PrereleaseAuthorityBase & {
+  cutLine: string;
+};
+
 export type PrereleaseAuthority =
+  | BootstrapPrereleaseAuthority
   | OrdinaryPrereleaseAuthority
   | PhaseEntryPrereleaseAuthority;
 

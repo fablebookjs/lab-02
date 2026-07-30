@@ -285,6 +285,65 @@ test('the same sealed publisher accepts honest direct phase-entry authority', as
   }
 });
 
+test('the same sealed publisher accepts an honest cut bootstrap authority', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'lab-02-bootstrap-manifest-'));
+  try {
+    const tarballs = join(root, 'tarballs');
+    await mkdir(tarballs);
+    await writeFile(join(tarballs, 'lab-02-core-3.2.0-alpha.0.tgz'), 'core');
+    const value = {
+      boundaryOid: oid('3'),
+      channel: 'next',
+      cutLine: 'v3.1',
+      packages: [
+        {
+          filename: 'lab-02-core-3.2.0-alpha.0.tgz',
+          integrity,
+          name: '@fablebook/lab-02-core',
+        },
+      ],
+      releaseBody: '# Lab-02 3.2.0-alpha.0\n',
+      repository: 'fablebookjs/lab-02',
+      schema: 1,
+      snapshotOid: oid('3'),
+      sourceOid: oid('1'),
+      version: '3.2.0-alpha.0',
+    };
+    const manifest = await validatePrereleasePublicationManifest(
+      value,
+      tarballs,
+      {
+        repository: 'fablebookjs/lab-02',
+        snapshotOid: oid('3'),
+        version: '3.2.0-alpha.0',
+      },
+    );
+    assert.ok('cutLine' in manifest);
+    assert.equal(manifest.cutLine, 'v3.1');
+    assert.ok(!('proposalOid' in manifest));
+    assert.ok(!('pullRequest' in manifest));
+    await assert.rejects(
+      validatePrereleasePublicationManifest(
+        { ...value, boundaryOid: oid('0') },
+        tarballs,
+        {
+          repository: 'fablebookjs/lab-02',
+          snapshotOid: oid('3'),
+          version: '3.2.0-alpha.0',
+        },
+      ),
+      /alpha\.0 boundary/,
+    );
+  } finally {
+    await rm(root, {
+      force: true,
+      maxRetries: 5,
+      recursive: true,
+      retryDelay: 100,
+    });
+  }
+});
+
 test('next reconciliation queries first, repairs only drift, and reads back all packages', async () => {
   await withManifest(async (manifest) => {
     let current: string | null = null;
