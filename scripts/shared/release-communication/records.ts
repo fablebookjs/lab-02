@@ -234,11 +234,13 @@ export function renderReleaseRecord({
   version: string;
 }): string {
   parseStableVersion(version);
-  const normalized = normalizeReleaseChanges(changes);
+  const publicChanges = normalizeReleaseChanges(changes).filter(
+    ({ releaseNoteSkip }) => !releaseNoteSkip
+  );
   const renderedChanges =
-    normalized.length === 0
+    publicChanges.length === 0
       ? 'No changes were recorded for this release.'
-      : normalized.map(({ title, url }) => `- [${title}](${url})`).join('\n');
+      : publicChanges.map(({ title, url }) => `- [${title}](${url})`).join('\n');
   return [
     `# v${version} changes`,
     '',

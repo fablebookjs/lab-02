@@ -343,7 +343,7 @@ This maintenance release contains no user-facing changes worth mentioning.
   );
 });
 
-test('historical release records remain readable while contradictions fail closed', () => {
+test('release records contain only public changes while contradictions fail closed', () => {
   const historicalChanges = [
     {
       key: 'pr:44',
@@ -368,7 +368,6 @@ test('historical release records remain readable while contradictions fail close
 ## Changes
 
 - [Add count-based summary formatting](https://github.com/fablebookjs/lab-02/pull/44)
-- [Document adopting count-based summaries](https://github.com/fablebookjs/lab-02/pull/46)
 `;
   const input = {
     communication: {
@@ -384,6 +383,21 @@ test('historical release records remain readable while contradictions fail close
   assert.doesNotMatch(
     body,
     /Document adopting count-based summaries|fablebook:release-record|Generated from/
+  );
+  assert.throws(
+    () =>
+      composeGitHubReleaseBody({
+        ...input,
+        releaseRecord: releaseRecord.replace(
+          '- [Add count-based summary formatting](https://github.com/fablebookjs/lab-02/pull/44)\n',
+          [
+            '- [Add count-based summary formatting](https://github.com/fablebookjs/lab-02/pull/44)',
+            '- [Document adopting count-based summaries](https://github.com/fablebookjs/lab-02/pull/46)',
+            '',
+          ].join('\n')
+        ),
+      }),
+    /release record contradicts/
   );
   assert.throws(() =>
     composeGitHubReleaseBody({
