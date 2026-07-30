@@ -436,22 +436,3 @@ export function registryIntegrity({
   }
   return dist['integrity'];
 }
-
-export function promotionDisposition({
-  document,
-  name,
-  version,
-}: {
-  document: unknown;
-  name: string;
-  version: string;
-}): 'skip' | 'update' {
-  parseStableVersion(version);
-  const published = packageVersion(document, name, version);
-  const dist = published?.['dist'];
-  if (published === null || !isRecord(dist) || typeof dist['integrity'] !== 'string') {
-    throw new Error(`${name}@${version} is not a complete published package.`);
-  }
-  const tags = isRecord(document) ? document['dist-tags'] : undefined;
-  return isRecord(tags) && tags['latest'] === version ? 'skip' : 'update';
-}
