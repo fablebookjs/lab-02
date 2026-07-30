@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  resolve:
+  prepare:
     if: github.repository == 'fablebookjs/lab-02' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
@@ -29,7 +29,7 @@ jobs:
           fetch-depth: 0
           path: controller
           persist-credentials: false
-          ref: main
+          ref: ${{ github.sha }}
       - name: Use Node.js 24
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -44,11 +44,38 @@ jobs:
           script: |
             const handler = require('./controller/scripts/github/release-publication/resolve-promotion.ts').default
             return handler({ github, context, core, env: process.env })
+      - name: Check out the exact completed release snapshot without credentials
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          path: snapshot
+          persist-credentials: false
+          ref: ${{ steps.release.outputs.snapshot }}
+      - name: Prepare the sealed latest-promotion plan
+        env:
+          PROMOTION_MANIFEST: ${{ runner.temp }}/latest-promotion/promotion.json
+          RELEASE_VERSION: ${{ inputs.version }}
+          SNAPSHOT: ${{ github.workspace }}/snapshot
+          SNAPSHOT_OID: ${{ steps.release.outputs.snapshot }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          script: |
+            const handler = require('./controller/scripts/github/release-publication/prepare-promotion.ts').default
+            return handler({ github, context, core, env: process.env })
+      - name: Transfer the inert latest-promotion manifest
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: latest-promotion-${{ github.run_id }}
+          path: ${{ runner.temp }}/latest-promotion/promotion.json
+          retention-days: 1
 
   promote:
-    needs: resolve
+    needs: prepare
     runs-on: ubuntu-latest
     environment: npm-promotion
+    permissions:
+      actions: read
+      contents: read
     steps:
       - name: Check out only the trusted main controller
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -56,27 +83,26 @@ jobs:
           fetch-depth: 0
           path: controller
           persist-credentials: false
-          ref: main
+          ref: ${{ github.sha }}
       - name: Use npm with dist-tag support
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24
           package-manager-cache: false
           registry-url: https://registry.npmjs.org
-      - name: Check out the historical package set as inert data
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          fetch-depth: 0
-          path: snapshot
-          persist-credentials: false
-          ref: ${{ needs.resolve.outputs.snapshot }}
       - name: Pin the npm dist-tag client
         run: npm install --global npm@12.0.1
-      - name: Move the complete historical package set to latest
+      - name: Download the sealed latest-promotion plan
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: latest-promotion-${{ github.run_id }}
+          path: ${{ runner.temp }}/latest-promotion
+      - name: Promote exactly the sealed package set to latest
         env:
+          EXPECTED_SNAPSHOT: ${{ needs.prepare.outputs.snapshot }}
+          EXPECTED_VERSION: ${{ inputs.version }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_PROMOTION_TOKEN }}
-          RELEASE_VERSION: ${{ inputs.version }}
-          SNAPSHOT: ${{ github.workspace }}/snapshot
+          PROMOTION_MANIFEST: ${{ runner.temp }}/latest-promotion/promotion.json
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
         with:
           script: |

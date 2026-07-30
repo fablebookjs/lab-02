@@ -10,7 +10,6 @@ import {
   deriveReleaseAuthority,
   deriveReleaseCommunication,
   lineChannel,
-  promotionDisposition,
   registryIntegrity,
   SETUP_NODE_AUTH_PLACEHOLDER,
   validateReleaseCommunication,
@@ -461,35 +460,5 @@ test('stable publication observes only the exact registry version integrity', ()
     }),
     integrity,
     'a completed older release remains exact after its line channel advances',
-  );
-});
-
-test('latest promotion is restartable and permits an intentional lower target', () => {
-  const document = registryDocument();
-  document['dist-tags']['latest'] = '2.0.0';
-  assert.equal(
-    promotionDisposition({
-      document,
-      name: '@fablebook/lab-02-core',
-      version: '1.0.0',
-    }),
-    'update'
-  );
-  document['dist-tags']['latest'] = '1.0.0';
-  assert.equal(
-    promotionDisposition({
-      document,
-      name: '@fablebook/lab-02-core',
-      version: '1.0.0',
-    }),
-    'skip'
-  );
-  document.versions = {};
-  assert.throws(() =>
-    promotionDisposition({
-      document,
-      name: '@fablebook/lab-02-core',
-      version: '1.0.0',
-    })
   );
 });

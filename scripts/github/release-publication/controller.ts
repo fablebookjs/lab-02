@@ -15,7 +15,6 @@ import {
   lineChannel,
   NPM_REGISTRY,
   PILOT_REPOSITORY,
-  promotionDisposition,
   registryIntegrity,
   validateReleaseCommunication,
 } from '../../shared/release-publication/core.ts';
@@ -109,12 +108,6 @@ export type ResolvePromotionOptions = {
 
 export type PromotionResolution = {
   snapshot: string;
-};
-
-export type PromoteLatestOptions = {
-  'github-token': string;
-  snapshot: string;
-  version: string;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -719,59 +712,4 @@ export async function resolvePromotion(
   const outputs: PromotionResolution = { snapshot: snapshotOid };
   console.log(`Resolved completed v${version} at ${snapshotOid}.`);
   return outputs;
-}
-
-const observePromotion = async (
-  version: string,
-  pkg: PublicPackage,
-): Promise<'skip' | 'update'> => {
-  const document = await registryDocument(pkg.name);
-  return promotionDisposition({ document, name: pkg.name, version });
-};
-
-export async function promoteLatest(options: PromoteLatestOptions): Promise<void> {
-  ensureTrustedMain();
-  const version = requireOption(options, 'version');
-  parseStableVersion(version);
-  if (!process.env['NODE_AUTH_TOKEN']) {
-    throw new Error('Promotion requires the package-scoped npm promotion credential.');
-  }
-  const token = requireGithubToken(options);
-  const snapshotOid = await validateCompletedRelease(token, version);
-  const snapshot = resolve(requireOption(options, 'snapshot'));
-  await validateSnapshot(snapshot, snapshotOid);
-  const packages = await validatePackageSet(snapshot, version);
-
-  const plan: Array<{
-    disposition: 'skip' | 'update';
-    pkg: PublicPackage;
-  }> = [];
-  for (const pkg of packages) {
-    plan.push({ disposition: await observePromotion(version, pkg), pkg });
-  }
-
-  for (const { disposition, pkg } of plan) {
-    if (disposition === 'skip') {
-      console.log(`Verified existing ${pkg.name}@${version} latest tag.`);
-      continue;
-    }
-    await run(
-      npm,
-      ['dist-tag', 'add', `${pkg.name}@${version}`, 'latest', '--registry', NPM_REGISTRY],
-      { cwd: snapshot }
-    );
-    await waitFor(async () => {
-      if ((await observePromotion(version, pkg)) !== 'skip') {
-        throw new Error(`${pkg.name} latest is not visible at ${version} yet.`);
-      }
-    });
-    console.log(`Moved ${pkg.name} latest to ${version}.`);
-  }
-
-  for (const pkg of packages) {
-    if ((await observePromotion(version, pkg)) !== 'skip') {
-      throw new Error(`${pkg.name} latest did not converge to ${version}.`);
-    }
-  }
-  console.log(`Promoted the complete ${version} package set to latest.`);
 }
