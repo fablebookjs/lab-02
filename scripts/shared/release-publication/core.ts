@@ -15,6 +15,7 @@ import {
   RELEASE_HIGHLIGHTS_START,
   validateReleasePrBody,
 } from '../release-proposal/body.ts';
+import { validateMaterializedVersion } from '../version/materialize.ts';
 
 export const NPM_REGISTRY = 'https://registry.npmjs.org/';
 export const PILOT_REPOSITORY = 'fablebookjs/lab-02';
@@ -74,7 +75,7 @@ export function assertOidcPublishEnvironment({
     npmToken ||
     (nodeAuthToken && nodeAuthToken !== SETUP_NODE_AUTH_PLACEHOLDER)
   ) {
-    throw new Error('Stable publication must use npm OIDC, not an ambient npm token.');
+    throw new Error('Package publication must use npm OIDC, not an ambient npm token.');
   }
 }
 
@@ -425,7 +426,7 @@ export function registryIntegrity({
   name: string;
   version: string;
 }): string | null {
-  parseStableVersion(version);
+  validateMaterializedVersion(version);
   const published = packageVersion(document, name, version);
   if (published === null) {
     return null;

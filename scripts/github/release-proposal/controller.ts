@@ -41,6 +41,7 @@ import type { GitCommit, GitPullRequest, GitReference } from './github.ts';
 import { repositoryRoot } from '../../shared/workspace/packages.ts';
 import {
   composeMigrationRecords,
+  derivePrereleaseChanges,
   deriveReleaseChanges,
   migrationRecordDirectory,
   releaseRecordPath,
@@ -1505,6 +1506,78 @@ export async function applyMaintenance(
     }
   }
   console.log(`Applied ${transition.actions.length} release proposal maintenance actions.`);
+}
+
+export const proposalCommitParents = commitParents;
+export const proposalCommitMessageAt = commitMessage;
+export const proposalImportBundle = importBundle;
+export const proposalImportedOid = importedOid;
+export const proposalMaterializeCommit = materializeCommit;
+export const proposalPrepareOutput = prepareOutput;
+export const proposalUploadCommitObject = uploadCommitObject;
+export const proposalValidateVersionTree = validateVersionTree;
+
+export async function proposalRootVersionAt(oid: string): Promise<string> {
+  const manifest = rootManifestValue(await manifestAt(oid, 'package.json'));
+  if (typeof manifest.version !== 'string') {
+    throw new Error(`${oid} root package.json has no version.`);
+  }
+  return manifest.version;
+}
+
+export async function proposalWriteBundle(
+  path: string,
+  refs: Array<{ name: string; oid: string }>,
+): Promise<void> {
+  await writeBundle(path, refs);
+}
+
+export async function proposalAssertExpectedRef(
+  token: string,
+  ref: string,
+  expectedOid: string | null,
+): Promise<void> {
+  await assertExpectedRef(token, ref, expectedOid);
+}
+
+export async function prereleaseChanges(
+  token: string,
+  {
+    boundaryOid,
+    sourceOid,
+  }: {
+    boundaryOid: string;
+    sourceOid: string;
+  },
+): Promise<ReleaseChange[]> {
+  const { stdout: ancestry } = await git([
+    'rev-list',
+    '--first-parent',
+    sourceOid,
+  ]);
+  if (!ancestry.trim().split('\n').includes(boundaryOid)) {
+    throw new Error(
+      `${boundaryOid} is not on the main first-parent prerelease history.`,
+    );
+  }
+  const { stdout } = await git([
+    'rev-list',
+    '--first-parent',
+    '--reverse',
+    `${boundaryOid}..${sourceOid}`,
+  ]);
+  const commits = await Promise.all(
+    stdout
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map(async (oid) => ({
+        associatedPulls: await associatedPulls(token, oid),
+        oid,
+        subject: (await commitMessage(oid)).split('\n', 1)[0] ?? '',
+      })),
+  );
+  return derivePrereleaseChanges({ commits });
 }
 
 export async function checkPullRequest(

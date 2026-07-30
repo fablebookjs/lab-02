@@ -57,7 +57,7 @@ type ReleaseAuthorityDocument = ReleaseAuthority & {
   releaseCommunication: ReleaseCommunication;
 };
 
-type AnnotatedTag = {
+export type AnnotatedTag = {
   object: {
     sha: string;
     type: 'commit';
@@ -146,7 +146,10 @@ const ensureTrustedMain = (): void => {
 const gitHead = async (root: string): Promise<string> =>
   (await run('git', ['rev-parse', 'HEAD'], { cwd: root })).stdout.trim();
 
-const validateSnapshot = async (root: string, expectedOid: string): Promise<void> => {
+export const validatePublicationSnapshot = async (
+  root: string,
+  expectedOid: string,
+): Promise<void> => {
   validateOid(expectedOid, 'Expected snapshot');
   if ((await gitHead(root)) !== expectedOid) {
     throw new Error('The checked-out snapshot does not match release authority.');
@@ -305,16 +308,15 @@ const integrityFor = async (path: string): Promise<string> => {
   return `sha512-${hash.digest('base64')}`;
 };
 
-export async function preparePublication(
-  options: PreparePublicationOptions,
-): Promise<void> {
-  const authority = authorityDocumentValue(
-    await readJson(resolve(requireOption(options, 'authority'))),
-  );
-  const snapshot = resolve(requireOption(options, 'snapshot'));
-  const output = resolve(requireOption(options, 'output'));
-  await validateSnapshot(snapshot, authority.snapshotOid);
-  const packages = await loadReleasePackageSet(snapshot, authority.version);
+export async function packPublicationPackageSet(
+  snapshot: string,
+  output: string,
+  version: string,
+): Promise<{
+  packages: PublicationPackage[];
+  tarballs: string;
+}> {
+  const packages = await loadReleasePackageSet(snapshot, version);
   const tarballs = join(output, 'tarballs');
   await mkdir(tarballs, { recursive: true });
 
@@ -330,7 +332,7 @@ export async function preparePublication(
         tarballs,
         join(snapshot, pkg.location),
       ],
-      { cwd: snapshot }
+      { cwd: snapshot },
     );
     const packResult: unknown = JSON.parse(stdout);
     const packedValue =
@@ -344,7 +346,9 @@ export async function preparePublication(
     }
     const files = new Set<string>(
       packedValue['files'].map((file) => {
-        if (!isRecord(file)) throw new Error('npm pack file entry must be an object.');
+        if (!isRecord(file)) {
+          throw new Error('npm pack file entry must be an object.');
+        }
         return stringValue(file['path'], 'npm pack file path');
       }),
     );
@@ -356,7 +360,7 @@ export async function preparePublication(
     };
     if (
       packed.name !== pkg.name ||
-      packed.version !== authority.version ||
+      packed.version !== version ||
       basename(packed.filename) !== packed.filename ||
       !files.has('dist/index.js') ||
       !files.has('dist/index.d.ts') ||
@@ -375,6 +379,23 @@ export async function preparePublication(
       name: pkg.name,
     });
   }
+  return { packages: packedPackages, tarballs };
+}
+
+export async function preparePublication(
+  options: PreparePublicationOptions,
+): Promise<void> {
+  const authority = authorityDocumentValue(
+    await readJson(resolve(requireOption(options, 'authority'))),
+  );
+  const snapshot = resolve(requireOption(options, 'snapshot'));
+  const output = resolve(requireOption(options, 'output'));
+  await validatePublicationSnapshot(snapshot, authority.snapshotOid);
+  const packed = await packPublicationPackageSet(
+    snapshot,
+    output,
+    authority.version,
+  );
 
   const releaseRecord = await readFile(
     join(snapshot, releaseRecordPath(authority.version)),
@@ -391,12 +412,12 @@ export async function preparePublication(
   const manifest = await validatePublicationManifest(
     {
       ...releaseAuthority,
-      packages: packedPackages,
+      packages: packed.packages,
       releaseBody,
       repository: PILOT_REPOSITORY,
       schema: 3,
     },
-    tarballs,
+    packed.tarballs,
     {
       repository: PILOT_REPOSITORY,
       snapshotOid: authority.snapshotOid,
@@ -407,7 +428,7 @@ export async function preparePublication(
   console.log(`Prepared ${manifest.packages.length} packages for ${manifest.version}.`);
 }
 
-const registryDocument = async (name: string): Promise<unknown> => {
+export const readRegistryDocument = async (name: string): Promise<unknown> => {
   const url = new URL(encodeURIComponent(name), NPM_REGISTRY);
   url.searchParams.set('fablebook_read', `${Date.now()}-${Math.random()}`);
   const response = await fetch(url, {
@@ -471,7 +492,7 @@ export async function publishPackages(options: PublishPackagesOptions): Promise<
   await reconcilePublicationPlan(manifest, {
     observeIntegrity: async (pkg, version) =>
       registryIntegrity({
-        document: await registryDocument(pkg.name),
+        document: await readRegistryDocument(pkg.name),
         name: pkg.name,
         version,
       }),
@@ -516,7 +537,7 @@ const annotatedTagValue = (value: unknown): AnnotatedTag => {
   };
 };
 
-const readAnnotatedTag = async (
+export const readAnnotatedTag = async (
   token: string,
   tag: string,
 ): Promise<AnnotatedTag | null> => {
@@ -532,7 +553,7 @@ const readAnnotatedTag = async (
   );
 };
 
-const assertTagTarget = (
+export const assertTagTarget = (
   tagObject: AnnotatedTag,
   tag: string,
   snapshotOid: string,
@@ -546,9 +567,9 @@ const assertTagTarget = (
   }
 };
 
-const ensureAnnotatedTag = async (
+export const ensureAnnotatedTag = async (
   token: string,
-  manifest: PublicationManifest,
+  manifest: Pick<PublicationManifest, 'snapshotOid' | 'version'>,
 ): Promise<string> => {
   const tag = `v${manifest.version}`;
   let tagObject = await readAnnotatedTag(token, tag);
@@ -587,11 +608,12 @@ const ensureAnnotatedTag = async (
   return tag;
 };
 
-const ensureGitHubRelease = async (
+export const ensureGitHubRelease = async (
   token: string,
-  manifest: PublicationManifest,
+  manifest: Pick<PublicationManifest, 'snapshotOid'>,
   tag: string,
   body: string,
+  prerelease = false,
 ): Promise<void> => {
   let release = await getReleaseByTag(token, tag);
   if (release === null) {
@@ -601,7 +623,7 @@ const ensureGitHubRelease = async (
           body,
           draft: false,
           name: tag,
-          prerelease: false,
+          prerelease,
           tag_name: tag,
           target_commitish: manifest.snapshotOid,
         },
@@ -616,10 +638,10 @@ const ensureGitHubRelease = async (
   if (
     release.tag_name !== tag ||
     release.draft !== false ||
-    release.prerelease !== false ||
+    release.prerelease !== prerelease ||
     release.body !== body
   ) {
-    throw new Error(`GitHub Release ${tag} contradicts the completed stable release.`);
+    throw new Error(`GitHub Release ${tag} contradicts the completed release.`);
   }
 };
 

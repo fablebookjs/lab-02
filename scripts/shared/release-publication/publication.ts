@@ -41,6 +41,12 @@ export type PublicationAdapter = Readonly<{
   wait: (milliseconds: number) => Promise<void>;
 }>;
 
+export type PublicationPlan = Readonly<{
+  channel: string;
+  packages: readonly PublicationPackage[];
+  version: string;
+}>;
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -150,6 +156,38 @@ const packageValue = (value: unknown): PublicationPackage => {
   };
 };
 
+export async function validatePublicationPackages(
+  input: unknown,
+  artifactRoot: string,
+): Promise<readonly PublicationPackage[]> {
+  if (!Array.isArray(input) || input.length === 0) {
+    throw new Error('Publication packages must be one nonempty array.');
+  }
+  const packages = input.map(packageValue);
+  const names = new Set<string>();
+  const filenames = new Set<string>();
+  const root = resolve(artifactRoot);
+  for (const pkg of packages) {
+    if (names.has(pkg.name) || filenames.has(pkg.filename)) {
+      throw new Error('Publication manifest package names and filenames must be unique.');
+    }
+    names.add(pkg.name);
+    filenames.add(pkg.filename);
+
+    const path = join(root, pkg.filename);
+    let regular = false;
+    try {
+      regular = (await lstat(path)).isFile();
+    } catch {
+      regular = false;
+    }
+    if (!regular) {
+      throw new Error(`Publication tarball is missing or not a regular file: ${pkg.filename}`);
+    }
+  }
+  return packages;
+}
+
 const manifestKeys = [
   'channel',
   'line',
@@ -186,28 +224,7 @@ export async function validatePublicationManifest(
   }
 
   const authority = authorityValue(input, 'Publication manifest');
-  const packages = input['packages'].map(packageValue);
-  const names = new Set<string>();
-  const filenames = new Set<string>();
-  const root = resolve(artifactRoot);
-  for (const pkg of packages) {
-    if (names.has(pkg.name) || filenames.has(pkg.filename)) {
-      throw new Error('Publication manifest package names and filenames must be unique.');
-    }
-    names.add(pkg.name);
-    filenames.add(pkg.filename);
-
-    const path = join(root, pkg.filename);
-    let regular = false;
-    try {
-      regular = (await lstat(path)).isFile();
-    } catch {
-      regular = false;
-    }
-    if (!regular) {
-      throw new Error(`Publication tarball is missing or not a regular file: ${pkg.filename}`);
-    }
-  }
+  const packages = await validatePublicationPackages(input['packages'], artifactRoot);
 
   return {
     ...authority,
@@ -222,7 +239,7 @@ const errorValue = (error: unknown): Error =>
   error instanceof Error ? error : new Error(String(error));
 
 export async function reconcilePublicationPlan(
-  manifest: PublicationManifest,
+  manifest: PublicationPlan,
   adapter: PublicationAdapter,
 ): Promise<void> {
   const failures: Error[] = [];
@@ -273,7 +290,7 @@ export async function reconcilePublicationPlan(
   if (failures.length > 0) {
     throw new AggregateError(
       failures,
-      `Stable publication failed for ${failures.length} package(s):\n${failures
+      `Package publication failed for ${failures.length} package(s):\n${failures
         .map((failure) => `- ${failure.message}`)
         .join('\n')}`,
     );

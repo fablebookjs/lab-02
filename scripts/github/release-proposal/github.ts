@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { ZERO_OID } from '../../shared/release-proposal/core.ts';
 import { RELEASE_PR_TEMPLATE_MARKER } from '../../shared/release-proposal/body.ts';
+import { PRERELEASE_PR_TEMPLATE_MARKER } from '../../shared/prerelease-proposal/body.ts';
 
 export const PILOT_REPOSITORY = 'fablebookjs/lab-02';
 
@@ -52,6 +53,15 @@ export function isCanonicalReleasePull(pull: GitPullRequest): boolean {
     line.length > 0 &&
     pull.base.ref === `releases/${line}` &&
     pull.head.ref === `staged/${line}` &&
+    pull.base.repo.full_name === PILOT_REPOSITORY &&
+    pull.head.repo.full_name === PILOT_REPOSITORY
+  );
+}
+
+export function isCanonicalPrereleasePull(pull: GitPullRequest): boolean {
+  return (
+    pull.base.ref === 'main' &&
+    pull.head.ref === 'prerelease' &&
     pull.base.repo.full_name === PILOT_REPOSITORY &&
     pull.head.repo.full_name === PILOT_REPOSITORY
   );
@@ -348,6 +358,35 @@ export async function listReleasePulls(
   );
 }
 
+export async function listPrereleasePulls(
+  token: string,
+): Promise<GitPullRequest[]> {
+  const pulls: GitPullRequest[] = [];
+  for (let page = 1; ; page += 1) {
+    const query = new URLSearchParams({
+      base: 'main',
+      direction: 'desc',
+      head: 'fablebookjs:prerelease',
+      page: String(page),
+      per_page: '100',
+      sort: 'updated',
+      state: 'all',
+    });
+    const batch = await githubRequest(
+      `/repos/${PILOT_REPOSITORY}/pulls?${query}`,
+      { token },
+    );
+    if (!Array.isArray(batch)) {
+      throw new Error('GitHub prerelease pull request list must be an array.');
+    }
+    pulls.push(...batch.map(validatedPullRequestResponse));
+    if (batch.length < 100) {
+      break;
+    }
+  }
+  return pulls.filter(isCanonicalPrereleasePull);
+}
+
 export async function getPullRequest(token: string, number: number): Promise<GitPullRequest> {
   const pull = await githubRequest(`/repos/${PILOT_REPOSITORY}/pulls/${number}`, { token });
   return withPullRequestMergeCommit(token, validatedPullRequestResponse(pull));
@@ -488,6 +527,37 @@ export async function createDraftReleasePr(
   }));
 }
 
+export async function createDraftPrereleasePr(
+  token: string,
+  {
+    body,
+    version,
+  }: {
+    body: string;
+    version: string;
+  },
+): Promise<GitPullRequest> {
+  if (!body.includes(PRERELEASE_PR_TEMPLATE_MARKER)) {
+    throw new Error(
+      'Prerelease PR creation requires one rendered canonical body.',
+    );
+  }
+  return validatedPullRequestResponse(
+    await githubRequest(`/repos/${PILOT_REPOSITORY}/pulls`, {
+      body: {
+        base: 'main',
+        body,
+        draft: true,
+        head: 'prerelease',
+        maintainer_can_modify: false,
+        title: `Prerelease ${version}`,
+      },
+      method: 'POST',
+      token,
+    }),
+  );
+}
+
 export async function closePullRequest(token: string, number: number): Promise<GitPullRequest> {
   return validatedPullRequestResponse(await githubRequest(`/repos/${PILOT_REPOSITORY}/pulls/${number}`, {
     body: { state: 'closed' },
@@ -521,6 +591,7 @@ export function createRefUpdate({
 }) {
   if (
     name !== 'refs/heads/main' &&
+    name !== 'refs/heads/prerelease' &&
     !/^refs\/heads\/(?:releases|staged)\/v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(name)
   ) {
     throw new Error(`Ref is outside the release controller allowlist: ${name}`);
