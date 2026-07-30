@@ -174,7 +174,6 @@ type MaintenanceTransition = {
 type MaintenanceState = {
   closedPrs: Array<{ body: string; number: number; state: string }>;
   completedOid: string | null;
-  completedVersion: string | null;
   latestClosedPr: {
     headOid: string;
     mergeCommitOid: string | null;
@@ -183,6 +182,7 @@ type MaintenanceState = {
     version: string;
   } | null;
   line: string;
+  lineVersion: string;
   openPr: {
     bodyCurrent: boolean;
     number: number;
@@ -1130,6 +1130,18 @@ const loadMaintenanceStates = async (token: string): Promise<MaintenanceState[]>
       throw new Error(`GitHub omitted the discovered releases/${line} ref.`);
     }
     const releaseOid = refOid(releaseRef);
+    await git([
+      'fetch',
+      '--no-tags',
+      'origin',
+      `+refs/heads/releases/${line}:refs/remotes/origin/releases/${line}`,
+    ]);
+    const releaseManifest = rootManifestValue(
+      await manifestAt(releaseOid, 'package.json'),
+    );
+    if (typeof releaseManifest.version !== 'string') {
+      throw new Error(`releases/${line} root package.json has no version.`);
+    }
     const stagedRef = await getRef(token, `heads/staged/${line}`);
     const pulls = await listReleasePulls(token, line);
     const openPulls = pulls.filter(({ state }) => state === 'open');
@@ -1185,9 +1197,9 @@ const loadMaintenanceStates = async (token: string): Promise<MaintenanceState[]>
         .filter(({ state }) => state === 'closed')
         .map(({ body, number, state }) => ({ body: body ?? '', number, state })),
       completedOid: completed.oid,
-      completedVersion: completed.version,
       latestClosedPr,
       line,
+      lineVersion: releaseManifest.version,
       openPr: openPull
         ? {
             bodyCurrent,
