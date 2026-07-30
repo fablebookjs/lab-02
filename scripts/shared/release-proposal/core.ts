@@ -44,7 +44,6 @@ const developmentTrailerNames: readonly string[] = [
 
 export type ProposalState = {
   completedOid: string | null;
-  completedVersion: string | null;
   latestClosedPr: {
     headOid: string;
     mergeCommitOid: string | null;
@@ -53,6 +52,7 @@ export type ProposalState = {
     version: string;
   } | null;
   line: string;
+  lineVersion: string;
   openPr: {
     bodyCurrent: boolean;
     number: number;
@@ -146,24 +146,25 @@ export function deriveCutVersions(
   return { developmentVersion: development, line, releaseVersion };
 }
 
-export function nextReleaseVersion(line: string, completedVersion: string | null): string {
+export function nextReleaseVersion(line: string, lineVersion: string): string {
   const parsedLine = parseReleaseLine(line);
-  if (completedVersion === null) {
-    return `${parsedLine.major}.${parsedLine.minor}.0`;
+  if (developmentPattern.test(lineVersion)) {
+    const development = parseDevelopmentVersion(lineVersion);
+    if (
+      development.major !== parsedLine.major ||
+      development.minor !== parsedLine.minor
+    ) {
+      throw new Error(`${lineVersion} does not belong to release line ${line}`);
+    }
+    return `${development.major}.${development.minor}.0`;
   }
 
-  const completed = parseStableVersion(completedVersion);
-  if (completed.major !== parsedLine.major || completed.minor !== parsedLine.minor) {
-    throw new Error(`${completedVersion} does not belong to release line ${line}`);
+  const current = parseStableVersion(lineVersion);
+  if (current.major !== parsedLine.major || current.minor !== parsedLine.minor) {
+    throw new Error(`${lineVersion} does not belong to release line ${line}`);
   }
-  return `${completed.major}.${completed.minor}.${completed.patch + 1}`;
+  return `${current.major}.${current.minor}.${current.patch + 1}`;
 }
-
-const compareStableVersions = (left: string, right: string): number => {
-  const a = parseStableVersion(left);
-  const b = parseStableVersion(right);
-  return a.major - b.major || a.minor - b.minor || a.patch - b.patch;
-};
 
 export function proposalCommitMessage({
   attempt,
@@ -274,7 +275,7 @@ export function planProposalMaintenance(lines: readonly ProposalState[]) {
 
   return lines.map((state) => {
     parseReleaseLine(state.line);
-    const expectedVersion = nextReleaseVersion(state.line, state.completedVersion);
+    const expectedVersion = nextReleaseVersion(state.line, state.lineVersion);
     const hasUnreleasedWork =
       state.completedOid === null || state.releaseOid !== state.completedOid;
     const active = state.line === newestLine || hasUnreleasedWork;
@@ -289,18 +290,6 @@ export function planProposalMaintenance(lines: readonly ProposalState[]) {
         };
       }
       return { kind: 'none', line: state.line, reason: 'line is dormant' };
-    }
-
-    const mergedAuthorizationPending =
-      state.latestClosedPr?.merged === true &&
-      (state.completedVersion === null ||
-        compareStableVersions(state.completedVersion, state.latestClosedPr.version) < 0);
-    if (mergedAuthorizationPending) {
-      return {
-        kind: 'none',
-        line: state.line,
-        reason: 'merged proposal is awaiting release completion',
-      };
     }
 
     if (state.openPr !== null) {
@@ -366,20 +355,16 @@ export function planProposalMaintenance(lines: readonly ProposalState[]) {
       };
     }
 
-    const completedProposalIsStillStaged =
+    const mergedProposalIsStillStaged =
       state.staged !== null &&
-      state.completedOid !== null &&
-      state.completedVersion !== null &&
       state.latestClosedPr?.merged === true &&
       state.latestClosedPr.headOid === state.staged.oid &&
-      state.latestClosedPr.mergeCommitOid === state.completedOid &&
-      state.latestClosedPr.version === state.completedVersion &&
-      state.staged.version === state.completedVersion;
-    if (completedProposalIsStillStaged) {
+      state.latestClosedPr.version === state.staged.version;
+    if (mergedProposalIsStillStaged) {
       return {
         kind: 'create',
         line: state.line,
-        reason: 'completed proposal advances to next patch',
+        reason: 'merged proposal advances to next patch',
         version: expectedVersion,
       };
     }

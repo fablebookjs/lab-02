@@ -20,9 +20,9 @@ import {
 
 const lineState = (overrides = {}) => ({
   completedOid: null,
-  completedVersion: null,
   latestClosedPr: null,
   line: 'v1.0',
+  lineVersion: '1.0.0-alpha.0',
   openPr: null,
   releaseOid: '1'.repeat(40),
   staged: null,
@@ -81,9 +81,12 @@ test('release-cut discovery distinguishes ordinary commits from malformed metada
   );
 });
 
-test('the first proposal is stable zero and later proposals advance only patch', () => {
-  assert.equal(nextReleaseVersion('v10.4', null), '10.4.0');
+test('the release-line root version chooses the stable proposal successor', () => {
+  assert.equal(nextReleaseVersion('v10.4', '10.4.0-alpha.7'), '10.4.0');
+  assert.equal(nextReleaseVersion('v10.4', '10.4.0-beta.2'), '10.4.0');
+  assert.equal(nextReleaseVersion('v10.4', '10.4.0-rc.1'), '10.4.0');
   assert.equal(nextReleaseVersion('v10.4', '10.4.7'), '10.4.8');
+  assert.throws(() => nextReleaseVersion('v10.4', '10.5.0-alpha.0'));
   assert.throws(() => nextReleaseVersion('v10.4', '10.5.0'));
   assert.throws(() =>
     parseProposalMessage(
@@ -138,6 +141,27 @@ test('a current proposal repairs a stale generated body without replacing its co
   });
 });
 
+test('a matching open patch proposal remains current from its line root version', () => {
+  const [action] = planProposalMaintenance([
+    lineState({
+      line: 'v3.0',
+      lineVersion: '3.0.0',
+      openPr: { bodyCurrent: true, number: 88, replaceRequired: false },
+      releaseOid: '3'.repeat(40),
+      staged: {
+        oid: '4'.repeat(40),
+        sourceOid: '3'.repeat(40),
+        version: '3.0.1',
+      },
+    }),
+  ]);
+  assert.deepEqual(action, {
+    kind: 'none',
+    line: 'v3.0',
+    reason: 'open proposal is current',
+  });
+});
+
 test('the disposable legacy proposal is replaced cleanly', () => {
   const [action] = planProposalMaintenance([
     lineState({
@@ -151,7 +175,7 @@ test('the disposable legacy proposal is replaced cleanly', () => {
         sourceOid: '1'.repeat(40),
         version: '1.0.1',
       },
-      completedVersion: '1.0.0',
+      lineVersion: '1.0.0',
     }),
   ]);
   assert.deepEqual(action, {
@@ -223,7 +247,7 @@ test('a fresh replacement proposal recovers PR creation after the previous PR cl
   });
 });
 
-test('a merged proposal is not recreated while its release completion is pending', () => {
+test('a merged proposal advances from the line version before publication completes', () => {
   const releaseOid = '4'.repeat(40);
   const [action] = planProposalMaintenance([
     lineState({
@@ -233,34 +257,37 @@ test('a merged proposal is not recreated while its release completion is pending
         number: 16,
         version: '1.0.0',
       },
+      lineVersion: '1.0.0',
       releaseOid,
     }),
   ]);
   assert.deepEqual(action, {
-    kind: 'none',
+    kind: 'create',
     line: 'v1.0',
-    reason: 'merged proposal is awaiting release completion',
+    reason: 'line has unreleased work',
+    version: '1.0.1',
   });
 });
 
-test('late work waits for the already-authorized release version to complete', () => {
+test('late work advances from the merged line version without a completion gate', () => {
   const [action] = planProposalMaintenance([
     lineState({
       completedOid: '4'.repeat(40),
-      completedVersion: '1.0.0',
       latestClosedPr: {
         mergeCommitOid: '5'.repeat(40),
         merged: true,
         number: 17,
         version: '1.0.1',
       },
+      lineVersion: '1.0.1',
       releaseOid: '6'.repeat(40),
     }),
   ]);
   assert.deepEqual(action, {
-    kind: 'none',
+    kind: 'create',
     line: 'v1.0',
-    reason: 'merged proposal is awaiting release completion',
+    reason: 'line has unreleased work',
+    version: '1.0.2',
   });
 });
 
@@ -274,12 +301,16 @@ test('an older completed line goes dormant but new work activates it again', () 
   const dormant = planProposalMaintenance([
     lineState({
       completedOid,
-      completedVersion: '1.0.0',
+      lineVersion: '1.0.0',
       openPr: { number: 20 },
       releaseOid: completedOid,
       staged,
     }),
-    lineState({ line: 'v1.1', releaseOid: '7'.repeat(40) }),
+    lineState({
+      line: 'v1.1',
+      lineVersion: '1.1.0-alpha.0',
+      releaseOid: '7'.repeat(40),
+    }),
   ])[0];
   assert.ok(dormant);
   assert.equal(dormant.kind, 'dormant');
@@ -287,10 +318,14 @@ test('an older completed line goes dormant but new work activates it again', () 
   const active = planProposalMaintenance([
     lineState({
       completedOid,
-      completedVersion: '1.0.0',
+      lineVersion: '1.0.0',
       releaseOid: '8'.repeat(40),
     }),
-    lineState({ line: 'v1.1', releaseOid: '7'.repeat(40) }),
+    lineState({
+      line: 'v1.1',
+      lineVersion: '1.1.0-alpha.0',
+      releaseOid: '7'.repeat(40),
+    }),
   ])[0];
   assert.deepEqual(active, {
     kind: 'create',
@@ -305,7 +340,7 @@ test('the newest completed line remains active for its next patch', () => {
   const [action] = planProposalMaintenance([
     lineState({
       completedOid,
-      completedVersion: '1.0.3',
+      lineVersion: '1.0.3',
       releaseOid: completedOid,
     }),
   ]);
@@ -317,13 +352,12 @@ test('the newest completed line remains active for its next patch', () => {
   });
 });
 
-test('the exact completed staged proposal is replaced by the next patch proposal', () => {
+test('the exact merged staged proposal is replaced before publication completes', () => {
   const completedOid = '9'.repeat(40);
   const completedProposalOid = '8'.repeat(40);
   const [action] = planProposalMaintenance([
     lineState({
       completedOid,
-      completedVersion: '1.0.3',
       latestClosedPr: {
         headOid: completedProposalOid,
         mergeCommitOid: completedOid,
@@ -331,6 +365,7 @@ test('the exact completed staged proposal is replaced by the next patch proposal
         number: 18,
         version: '1.0.3',
       },
+      lineVersion: '1.0.3',
       releaseOid: '7'.repeat(40),
       staged: {
         oid: completedProposalOid,
@@ -342,7 +377,7 @@ test('the exact completed staged proposal is replaced by the next patch proposal
   assert.deepEqual(action, {
     kind: 'create',
     line: 'v1.0',
-    reason: 'completed proposal advances to next patch',
+    reason: 'merged proposal advances to next patch',
     version: '1.0.4',
   });
 });
@@ -354,7 +389,6 @@ test('an unrelated staged version mismatch still fails closed after completion',
       planProposalMaintenance([
         lineState({
           completedOid,
-          completedVersion: '1.0.3',
           latestClosedPr: {
             headOid: '8'.repeat(40),
             mergeCommitOid: completedOid,
@@ -362,6 +396,7 @@ test('an unrelated staged version mismatch still fails closed after completion',
             number: 18,
             version: '1.0.3',
           },
+          lineVersion: '1.0.3',
           releaseOid: completedOid,
           staged: {
             oid: '7'.repeat(40),
