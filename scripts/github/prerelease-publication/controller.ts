@@ -88,6 +88,10 @@ export type PreparePrereleasePublicationOptions = {
   snapshot: string;
 };
 
+export type InspectPrereleaseAuthorityOptions = {
+  authority: string;
+};
+
 export type PublishPrereleasePackagesOptions = {
   'expected-snapshot': string;
   'expected-version': string;
@@ -287,6 +291,27 @@ export async function resolvePrereleasePublication(
   });
   console.log(
     `Resolved prerelease ${authority.version} at ${authority.snapshotOid}.`,
+  );
+  return {
+    publish: true,
+    snapshot: authority.snapshotOid,
+    version: authority.version,
+  };
+}
+
+export async function inspectPrereleaseAuthority(
+  options: InspectPrereleaseAuthorityOptions,
+): Promise<{
+  publish: true;
+  snapshot: string;
+  version: string;
+}> {
+  ensureTrustedMain();
+  const authority = authorityValue(
+    await readJson(resolve(requireOption(options, 'authority'))),
+  );
+  console.log(
+    `Accepted prerelease ${authority.version} authority at ${authority.snapshotOid}.`,
   );
   return {
     publish: true,

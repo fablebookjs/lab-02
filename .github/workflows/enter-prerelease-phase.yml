@@ -1,18 +1,20 @@
-name: 'MANUAL - Release: Start new release line'
+name: 'MANUAL - Prerelease: Enter phase'
+run-name: 'Enter ${{ inputs.phase }} prerelease phase'
 
 on:
   workflow_dispatch:
     inputs:
-      next-development:
-        description: Version line carried by main after this cut
+      phase:
+        description: Forward prerelease phase to establish and publish
         required: true
         type: choice
         options:
-          - minor
-          - major
+          - beta
+          - rc
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: release-proposal-writes
@@ -33,24 +35,23 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24
-      - name: Materialize and validate both children of main
+      - name: Prepare the exact forward phase transition
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          NEXT_DEVELOPMENT: ${{ inputs.next-development }}
-          OUTPUT: ${{ runner.temp }}/release-cut
+          OUTPUT: ${{ runner.temp }}/prerelease-phase
+          TARGET: ${{ inputs.phase }}
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
         with:
           script: |
-            const handler = require('./scripts/github/release-proposal/prepare-cut.ts').default
+            const handler = require('./scripts/github/prerelease-phase-entry/prepare.ts').default
             return handler({ github, context, core, env: process.env })
-      - name: Transfer inert Git objects and their transition manifest
+      - name: Transfer the inert phase transition
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: release-cut-${{ github.run_id }}
+          name: prerelease-phase-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/release-cut/bootstrap-authority.json
-            ${{ runner.temp }}/release-cut/objects.bundle
-            ${{ runner.temp }}/release-cut/transition.json
+            ${{ runner.temp }}/prerelease-phase/objects.bundle
+            ${{ runner.temp }}/prerelease-phase/transition.json
           retention-days: 1
 
   apply:
@@ -71,8 +72,8 @@ jobs:
       - name: Download the prepared transition
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
-          name: release-cut-${{ github.run_id }}
-          path: ${{ runner.temp }}/release-cut
+          name: prerelease-phase-${{ github.run_id }}
+          path: ${{ runner.temp }}/prerelease-phase
       - name: Mint the repository-scoped release App token
         id: release-app
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
@@ -81,20 +82,22 @@ jobs:
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           permission-contents: write
           permission-pull-requests: write
-      - name: Atomically cut the line and open its draft proposal
+      - name: Apply the guarded phase transition
+        id: phase
         env:
-          BUNDLE: ${{ runner.temp }}/release-cut/objects.bundle
+          BUNDLE: ${{ runner.temp }}/prerelease-phase/objects.bundle
           GITHUB_TOKEN: ${{ steps.release-app.outputs.token }}
-          TRANSITION: ${{ runner.temp }}/release-cut/transition.json
+          OUTPUT: ${{ runner.temp }}/prerelease-phase
+          TRANSITION: ${{ runner.temp }}/prerelease-phase/transition.json
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
         with:
           github-token: ${{ steps.release-app.outputs.token }}
           script: |
-            const handler = require('./scripts/github/release-proposal/apply-cut.ts').default
+            const handler = require('./scripts/github/prerelease-phase-entry/apply.ts').default
             return handler({ github, context, core, env: process.env })
-      - name: Transfer the new line's exact alpha.0 publication authority
+      - name: Transfer the exact phase-entry publication authority
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: prerelease-authority-${{ github.run_id }}
-          path: ${{ runner.temp }}/release-cut/bootstrap-authority.json
+          path: ${{ runner.temp }}/prerelease-phase/authority.json
           retention-days: 1

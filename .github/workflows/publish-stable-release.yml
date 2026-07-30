@@ -3,6 +3,9 @@ name: 'Publish: Publish approved release'
 on:
   workflow_run:
     workflows:
+      - 'MANUAL - Prerelease: Enter phase'
+      - 'MANUAL - Release: Start new release line'
+      - 'Prerelease: Trigger publication'
       - 'Release: Trigger proposal maintenance'
     types:
       - completed
@@ -18,7 +21,8 @@ jobs:
       github.repository == 'fablebookjs/lab-02' &&
       github.ref == 'refs/heads/main' &&
       github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'pull_request_target'
+      github.event.workflow_run.event == 'pull_request_target' &&
+      github.event.workflow_run.name == 'Release: Trigger proposal maintenance'
     runs-on: ubuntu-latest
     outputs:
       publish: ${{ steps.resolve.outputs.publish }}
@@ -179,3 +183,17 @@ jobs:
           script: |
             const handler = require('./controller/scripts/github/release-publication/finalize.ts').default
             return handler({ github, context, core, env: process.env })
+
+  prerelease:
+    if: >-
+      github.repository == 'fablebookjs/lab-02' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.name != 'Release: Trigger proposal maintenance'
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      pull-requests: read
+    uses: ./.github/workflows/publish-prerelease.yml
+    secrets: inherit
