@@ -416,56 +416,25 @@ const packageVersion = (
   return published;
 };
 
-type PublicationInput = {
-  channel: string;
+export function registryIntegrity({
+  document,
+  name,
+  version,
+}: {
   document: unknown;
-  integrity: string;
   name: string;
   version: string;
-};
-
-export function publicationDisposition({
-  channel,
-  document,
-  integrity,
-  name,
-  version,
-}: PublicationInput): 'publish' | 'skip' {
-  stableVersionOnLine(version, channel.replace(/^v-/, 'v'));
-  const exact = exactPublication({ document, integrity, name, version });
-  if (!exact) {
-    const tags = isRecord(document) ? document['dist-tags'] : undefined;
-    if (isRecord(tags) && tags[channel] === version) {
-      throw new Error(`${name} has ${channel} at an absent version ${version}.`);
-    }
-    return 'publish';
-  }
-  const tags = isRecord(document) ? document['dist-tags'] : undefined;
-  if (!isRecord(tags) || tags[channel] !== version) {
-    throw new Error(`${name}@${version} exists but ${channel} points elsewhere.`);
-  }
-  return 'skip';
-}
-
-export function exactPublication({
-  document,
-  integrity,
-  name,
-  version,
-}: Omit<PublicationInput, 'channel'>): boolean {
+}): string | null {
   parseStableVersion(version);
-  if (!/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(integrity ?? '')) {
-    throw new Error(`Prepared integrity is invalid for ${name}@${version}.`);
-  }
   const published = packageVersion(document, name, version);
   if (published === null) {
-    return false;
+    return null;
   }
   const dist = published['dist'];
-  if (!isRecord(dist) || dist['integrity'] !== integrity) {
-    throw new Error(`${name}@${version} exists with different package contents.`);
+  if (!isRecord(dist) || typeof dist['integrity'] !== 'string') {
+    throw new Error(`${name}@${version} has no valid registry integrity.`);
   }
-  return true;
+  return dist['integrity'];
 }
 
 export function promotionDisposition({

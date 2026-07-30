@@ -23,6 +23,7 @@ jobs:
     outputs:
       publish: ${{ steps.resolve.outputs.publish }}
       snapshot: ${{ steps.resolve.outputs.snapshot }}
+      version: ${{ steps.resolve.outputs.version }}
     steps:
       - name: Check out only the trusted main controller
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -55,7 +56,7 @@ jobs:
             return handler({ github, context, core, env: process.env })
       - name: Pin the publication packer
         if: steps.resolve.outputs.publish == 'true'
-        run: npm install --global npm@12.0.1
+        run: npm install --global npm@12.0.1 --ignore-scripts --no-audit --no-fund
       - name: Check out the authorized snapshot without persisted credentials
         if: steps.resolve.outputs.publish == 'true'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -99,7 +100,6 @@ jobs:
       actions: read
       contents: read
       id-token: write
-      pull-requests: read
     steps:
       - name: Check out only the trusted main controller
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -108,13 +108,6 @@ jobs:
           path: controller
           persist-credentials: false
           ref: main
-      - name: Check out the authorized snapshot as inert data
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          fetch-depth: 0
-          path: snapshot
-          persist-credentials: false
-          ref: ${{ needs.prepare.outputs.snapshot }}
       - name: Use npm with trusted publishing support
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -122,16 +115,17 @@ jobs:
           package-manager-cache: false
           registry-url: https://registry.npmjs.org
       - name: Pin the npm trusted-publishing client
-        run: npm install --global npm@12.0.1
+        run: npm install --global npm@12.0.1 --ignore-scripts --no-audit --no-fund
       - name: Download the prepared package set
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: stable-publication-${{ github.run_id }}
           path: ${{ runner.temp }}/release-publication
-      - name: Query first and publish only missing exact packages
+      - name: Consume the sealed plan and publish missing exact packages
         env:
+          EXPECTED_SNAPSHOT: ${{ needs.prepare.outputs.snapshot }}
+          EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
           MANIFEST: ${{ runner.temp }}/release-publication/publication.json
-          SNAPSHOT: ${{ github.workspace }}/snapshot
           TARBALLS: ${{ runner.temp }}/release-publication/tarballs
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
         with:
@@ -148,7 +142,6 @@ jobs:
     permissions:
       actions: read
       contents: read
-      pull-requests: read
     steps:
       - name: Check out only the trusted main controller
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -157,13 +150,6 @@ jobs:
           path: controller
           persist-credentials: false
           ref: main
-      - name: Check out the authorized snapshot as inert data
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          fetch-depth: 0
-          path: snapshot
-          persist-credentials: false
-          ref: ${{ needs.prepare.outputs.snapshot }}
       - name: Use Node.js 24
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -181,11 +167,12 @@ jobs:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           permission-contents: write
-          permission-pull-requests: read
-      - name: Verify publication and complete the immutable release
+      - name: Complete the immutable release from the sealed plan
         env:
+          EXPECTED_SNAPSHOT: ${{ needs.prepare.outputs.snapshot }}
+          EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
           MANIFEST: ${{ runner.temp }}/release-publication/publication.json
-          SNAPSHOT: ${{ github.workspace }}/snapshot
+          TARBALLS: ${{ runner.temp }}/release-publication/tarballs
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
         with:
           github-token: ${{ steps.release-app.outputs.token }}
