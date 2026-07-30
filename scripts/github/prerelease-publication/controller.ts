@@ -35,7 +35,10 @@ import {
 import type {
   PublicationPackage,
 } from '../../shared/release-publication/publication.ts';
-import { parseDevelopmentVersion } from '../../shared/release-proposal/core.ts';
+import {
+  parseDevelopmentVersion,
+  parseReleaseLine,
+} from '../../shared/release-proposal/core.ts';
 import {
   readJson,
   requireGithubToken,
@@ -159,7 +162,23 @@ const authorityValue = (input: unknown): PrereleaseAuthorityDocument => {
     version,
   };
   let authority: PrereleaseAuthority;
-  if (input['phase'] !== undefined) {
+  if (input['cutLine'] !== undefined) {
+    const cutLine = stringValue(
+      input['cutLine'],
+      'Prerelease bootstrap cut line',
+    );
+    parseReleaseLine(cutLine);
+    if (
+      common.boundaryOid !== common.snapshotOid ||
+      parsedVersion.prerelease !== 'alpha' ||
+      parsedVersion.prereleaseNumber !== 0
+    ) {
+      throw new Error(
+        'Prerelease bootstrap authority does not identify its alpha.0 boundary.',
+      );
+    }
+    authority = { ...common, cutLine };
+  } else if (input['phase'] !== undefined) {
     const phase = parseManualPrereleasePhase(
       stringValue(input['phase'], 'Prerelease authority phase'),
     );
@@ -185,9 +204,15 @@ const authorityValue = (input: unknown): PrereleaseAuthorityDocument => {
       ),
     };
   }
+  const changes = validatePrereleaseCommunication(input['changes']);
+  if ('cutLine' in authority && changes.length !== 0) {
+    throw new Error(
+      'Prerelease bootstrap authority cannot carry prior-line changes.',
+    );
+  }
   return {
     ...authority,
-    changes: validatePrereleaseCommunication(input['changes']),
+    changes,
   };
 };
 

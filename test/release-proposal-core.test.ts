@@ -8,15 +8,20 @@ import {
   parseDevelopmentCommitMessage,
   parseDevelopmentCommitMessageIfPresent,
   parseDevelopmentVersion,
+  parsePrereleaseBootstrapCommitMessageIfPresent,
   parseProposalMessage,
   planProposalMaintenance,
   proposalCommitMessage,
+  ZERO_OID,
 } from '../scripts/shared/release-proposal/core.ts';
 import {
   createRefUpdate,
   extractPullRequestMergeCommitOid,
   validatedPullRequestResponse,
 } from '../scripts/github/release-proposal/github.ts';
+import {
+  cutRefUpdates,
+} from '../scripts/github/release-proposal/controller.ts';
 
 const lineState = (overrides = {}) => ({
   completedOid: null,
@@ -63,6 +68,55 @@ test('development commits retain the durable release-cut boundary', () => {
     sourceOid,
     version: '10.5.0-alpha.0',
   });
+  assert.deepEqual(parsePrereleaseBootstrapCommitMessageIfPresent(message), {
+    line: 'v10.4',
+    sourceOid,
+    version: '10.5.0-alpha.0',
+  });
+  assert.equal(
+    parsePrereleaseBootstrapCommitMessageIfPresent(
+      message.replace('\nPrerelease-Bootstrap: next', ''),
+    ),
+    null,
+  );
+});
+
+test('a cut atomically establishes both lines and discards the old proposal ref', () => {
+  assert.deepEqual(
+    cutRefUpdates({
+      developmentOid: '4'.repeat(40),
+      expectedPrereleaseOid: '2'.repeat(40),
+      line: 'v10.4',
+      proposalOid: '3'.repeat(40),
+      sourceOid: '1'.repeat(40),
+    }),
+    [
+      {
+        afterOid: '1'.repeat(40),
+        beforeOid: ZERO_OID,
+        force: false,
+        name: 'refs/heads/releases/v10.4',
+      },
+      {
+        afterOid: '3'.repeat(40),
+        beforeOid: ZERO_OID,
+        force: false,
+        name: 'refs/heads/staged/v10.4',
+      },
+      {
+        afterOid: '4'.repeat(40),
+        beforeOid: '1'.repeat(40),
+        force: false,
+        name: 'refs/heads/main',
+      },
+      {
+        afterOid: ZERO_OID,
+        beforeOid: '2'.repeat(40),
+        force: true,
+        name: 'refs/heads/prerelease',
+      },
+    ],
+  );
 });
 
 test('release-cut discovery distinguishes ordinary commits from malformed metadata', () => {

@@ -41,6 +41,7 @@ const developmentTrailerNames: readonly string[] = [
   'Release-Cut-Source',
   'Development-Version',
 ];
+const prereleaseBootstrapTrailer = 'Prerelease-Bootstrap';
 
 export type ProposalState = {
   completedOid: string | null;
@@ -193,6 +194,7 @@ export function developmentCommitMessage({
     `Release-Cut-Line: ${line}`,
     `Release-Cut-Source: ${sourceOid}`,
     `Development-Version: ${version}`,
+    `${prereleaseBootstrapTrailer}: next`,
   ].join('\n');
 }
 
@@ -244,6 +246,28 @@ export function parseDevelopmentCommitMessageIfPresent(
     return null;
   }
   return developmentCommitFrom(trailers);
+}
+
+export function parsePrereleaseBootstrapCommitMessageIfPresent(
+  message: string,
+): DevelopmentCommit | null {
+  const trailers = trailersFrom(message);
+  if (!Object.hasOwn(trailers, prereleaseBootstrapTrailer)) {
+    return null;
+  }
+  if (trailers[prereleaseBootstrapTrailer] !== 'next') {
+    throw new Error(
+      `${prereleaseBootstrapTrailer} must identify the next channel.`,
+    );
+  }
+  const metadata = developmentCommitFrom(trailers);
+  const version = parseDevelopmentVersion(metadata.version);
+  if (version.prerelease !== 'alpha' || version.prereleaseNumber !== 0) {
+    throw new Error(
+      'A prerelease bootstrap commit must establish an alpha.0 version.',
+    );
+  }
+  return metadata;
 }
 
 export function parseProposalMessage(message: string): ProposalCommit {

@@ -9,6 +9,8 @@ import {
   deriveCutVersions,
   developmentCommitMessage,
   parseDevelopmentCommitMessageIfPresent,
+  parseDevelopmentVersion,
+  parsePrereleaseBootstrapCommitMessageIfPresent,
   parseProposalMessage,
   parseReleaseLine,
   parseStableVersion,
@@ -17,6 +19,12 @@ import {
   ZERO_OID,
 } from '../../shared/release-proposal/core.ts';
 import type { DevelopmentCommit } from '../../shared/release-proposal/core.ts';
+import {
+  parsePrereleaseProposalMessage,
+} from '../../shared/prerelease-proposal/core.ts';
+import {
+  parsePhaseEntryCommitMessageIfPresent,
+} from '../../shared/prerelease-phase-entry/core.ts';
 import {
   closePullRequest,
   createDraftReleasePr,
@@ -28,6 +36,7 @@ import {
   getRepository,
   githubRequest,
   listMatchingRefs,
+  listPrereleasePulls,
   listReleasePulls,
   PILOT_REPOSITORY,
   resolveRefObject,
@@ -44,6 +53,7 @@ import {
   derivePrereleaseChanges,
   deriveReleaseChanges,
   migrationRecordDirectory,
+  normalizeReleaseChanges,
   releaseRecordPath,
   renderReleaseRecord,
 } from '../../shared/release-communication/records.ts';
@@ -92,11 +102,14 @@ type ProposalBodyAction = {
 };
 
 type CutTransition = {
+  changes: ReleaseChange[];
   developmentBundleRef: string;
   developmentOid: string;
   developmentVersion: string;
+  expectedPrereleaseOid: string | null;
   kind: 'cut';
   line: string;
+  openPrereleasePr: number | undefined;
   proposalBundleRef: string;
   proposalOid: string;
   releaseVersion: string;
@@ -194,6 +207,7 @@ type MaintenanceState = {
 };
 
 export type PrepareCutOptions = {
+  'github-token': string;
   'next-development': string;
   output: string;
 };
@@ -254,6 +268,7 @@ const cutTransitionValue = (value: unknown): CutTransition => {
     throw new Error('Cut transition is outside the accepted schema.');
   }
   return {
+    changes: normalizeReleaseChanges(value['changes']),
     developmentBundleRef: stringValue(
       value['developmentBundleRef'],
       'Cut development bundle ref',
@@ -263,8 +278,16 @@ const cutTransitionValue = (value: unknown): CutTransition => {
       value['developmentVersion'],
       'Cut development version',
     ),
+    expectedPrereleaseOid: nullableOid(
+      value['expectedPrereleaseOid'],
+      'Cut prerelease ref expectation',
+    ),
     kind: 'cut',
     line: stringValue(value['line'], 'Cut release line'),
+    openPrereleasePr: optionalPositiveInteger(
+      value['openPrereleasePr'],
+      'Cut open Prerelease PR',
+    ),
     proposalBundleRef: stringValue(value['proposalBundleRef'], 'Cut proposal bundle ref'),
     proposalOid: stringValue(value['proposalOid'], 'Cut proposal OID'),
     releaseVersion: stringValue(value['releaseVersion'], 'Cut release version'),
@@ -493,9 +516,9 @@ const associatedPulls = async (token: string, oid: string): Promise<GitPullReque
 
 const findReleaseCut = async (
   line: string,
-): Promise<DevelopmentCommit> => {
+): Promise<DevelopmentCommit & { oid: string }> => {
   const { stdout } = await git(['rev-list', '--first-parent', 'HEAD']);
-  const matches: DevelopmentCommit[] = [];
+  const matches: Array<DevelopmentCommit & { oid: string }> = [];
   for (const oid of stdout.trim().split('\n').filter(Boolean)) {
     const cut = parseDevelopmentCommitMessageIfPresent(await commitMessage(oid));
     if (cut?.line === line) {
@@ -503,7 +526,7 @@ const findReleaseCut = async (
       if (parents.length !== 1 || parents[0] !== cut.sourceOid) {
         throw new Error(`Release-cut commit ${oid} is not a child of its recorded source.`);
       }
-      matches.push(cut);
+      matches.push({ ...cut, oid });
     }
   }
   if (matches.length !== 1) {
@@ -514,6 +537,218 @@ const findReleaseCut = async (
     throw new Error(`Expected one ${line} release-cut record.`);
   }
   return match;
+};
+
+const findDevelopmentBootstrap = async ({
+  line,
+  sourceOid,
+}: {
+  line: string;
+  sourceOid: string;
+}): Promise<DevelopmentCommit & { oid: string }> => {
+  const target = parseReleaseLine(line);
+  const { stdout } = await git([
+    'rev-list',
+    '--first-parent',
+    sourceOid,
+  ]);
+  const matches: Array<DevelopmentCommit & { oid: string }> = [];
+  for (const oid of stdout.trim().split('\n').filter(Boolean)) {
+    const bootstrap = parseDevelopmentCommitMessageIfPresent(
+      await commitMessage(oid),
+    );
+    if (bootstrap === null) {
+      continue;
+    }
+    const version = parseDevelopmentVersion(bootstrap.version);
+    if (
+      version.major !== target.major ||
+      version.minor !== target.minor ||
+      version.prerelease !== 'alpha' ||
+      version.prereleaseNumber !== 0
+    ) {
+      continue;
+    }
+    const parents = await commitParents(oid);
+    if (parents.length !== 1 || parents[0] !== bootstrap.sourceOid) {
+      throw new Error(
+        `Development bootstrap ${oid} is not a child of its recorded source.`,
+      );
+    }
+    matches.push({ ...bootstrap, oid });
+  }
+  if (matches.length !== 1) {
+    throw new Error(
+      `Expected one ${line} development bootstrap through ${sourceOid}, found ${matches.length}.`,
+    );
+  }
+  const match = matches[0];
+  if (match === undefined) {
+    throw new Error(`Expected one ${line} development bootstrap.`);
+  }
+  return match;
+};
+
+const mechanicalDevelopmentCommit = async (oid: string): Promise<boolean> => {
+  const message = await commitMessage(oid);
+  if (
+    parseDevelopmentCommitMessageIfPresent(message) !== null ||
+    parsePhaseEntryCommitMessageIfPresent(message) !== null
+  ) {
+    return true;
+  }
+  const parents = await commitParents(oid);
+  const proposalOid = parents[1];
+  if (parents.length === 2 && proposalOid !== undefined) {
+    try {
+      const proposal = parsePrereleaseProposalMessage(
+        await commitMessage(proposalOid),
+      );
+      const tree = (await git(['show', '-s', '--format=%T', oid])).stdout.trim();
+      const proposalTree = (
+        await git(['show', '-s', '--format=%T', proposalOid])
+      ).stdout.trim();
+      if (parents[0] === proposal.sourceOid && tree === proposalTree) {
+        return true;
+      }
+    } catch {
+      // Ordinary product merge commits remain part of release communication.
+    }
+  }
+  const parent = parents[0];
+  if (parent === undefined) {
+    return false;
+  }
+  const changedPaths = (
+    await git([
+      'diff-tree',
+      '--no-commit-id',
+      '--name-only',
+      '-r',
+      parent,
+      oid,
+    ])
+  ).stdout
+    .trim()
+    .split('\n')
+    .filter(Boolean);
+  if (
+    changedPaths.length === 0 ||
+    changedPaths.some(
+      (path) =>
+        path !== 'package.json' &&
+        path !== 'package-lock.json' &&
+        !/^packages\/[^/]+\/package\.json$/.test(path),
+    )
+  ) {
+    return false;
+  }
+  const target = await proposalRootVersionAt(oid);
+  const temporaryRoot = await mkdtemp(
+    join(tmpdir(), 'fablebook-version-only-check-'),
+  );
+  const worktree = join(temporaryRoot, 'worktree');
+  let added = false;
+  try {
+    await git(['worktree', 'add', '--detach', worktree, parent]);
+    added = true;
+    await materializeVersion(worktree, target);
+    const generatedLockPath = join(worktree, 'package-lock.json');
+    const generatedLock: unknown = JSON.parse(
+      await readFile(generatedLockPath, 'utf8'),
+    );
+    const targetLock = await manifestAt(oid, 'package-lock.json');
+    if (
+      isRecord(generatedLock) &&
+      isRecord(targetLock) &&
+      typeof targetLock['version'] === 'string'
+    ) {
+      generatedLock['version'] = targetLock['version'];
+      await writeFile(
+        generatedLockPath,
+        `${JSON.stringify(generatedLock, null, 2)}\n`,
+        'utf8',
+      );
+    }
+    await git(
+      ['add', 'package.json', 'package-lock.json', 'packages'],
+      { cwd: worktree },
+    );
+    try {
+      await git(['diff', '--cached', '--quiet', oid, '--'], {
+        cwd: worktree,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  } finally {
+    if (added) {
+      await git(['worktree', 'remove', '--force', worktree]).catch(
+        () => undefined,
+      );
+    }
+    await rm(temporaryRoot, { force: true, recursive: true });
+  }
+};
+
+const developmentLineChanges = async (
+  token: string,
+  {
+    boundaryOid,
+    sourceOid,
+  }: {
+    boundaryOid: string;
+    sourceOid: string;
+  },
+): Promise<ReleaseChange[]> => {
+  const { stdout: ancestry } = await git([
+    'rev-list',
+    '--first-parent',
+    sourceOid,
+  ]);
+  if (!ancestry.trim().split('\n').includes(boundaryOid)) {
+    throw new Error(
+      `${boundaryOid} is not on the main first-parent development history.`,
+    );
+  }
+  const { stdout } = await git([
+    'rev-list',
+    '--first-parent',
+    '--reverse',
+    `${boundaryOid}..${sourceOid}`,
+  ]);
+  const productOids: string[] = [];
+  for (const oid of stdout.trim().split('\n').filter(Boolean)) {
+    if (!(await mechanicalDevelopmentCommit(oid))) {
+      productOids.push(oid);
+    }
+  }
+  const commits = await Promise.all(
+    productOids.map(async (oid) => ({
+      associatedPulls: await associatedPulls(token, oid),
+      oid,
+      subject: (await commitMessage(oid)).split('\n', 1)[0] ?? '',
+    })),
+  );
+  return derivePrereleaseChanges({ commits });
+};
+
+const combineReleaseChanges = (
+  ...groups: readonly ReleaseChange[][]
+): ReleaseChange[] => {
+  const seen = new Set<string>();
+  return normalizeReleaseChanges(
+    groups
+      .flat()
+      .filter(({ key }) => {
+        if (seen.has(key)) {
+          return false;
+        }
+        seen.add(key);
+        return true;
+      }),
+  );
 };
 
 const releaseChanges = async (
@@ -546,6 +781,34 @@ const releaseChanges = async (
       }))
   );
   return deriveReleaseChanges({ commits, line });
+};
+
+const initialReleaseChanges = async (
+  token: string,
+  {
+    line,
+    releaseOid,
+  }: {
+    line: string;
+    releaseOid: string;
+  },
+): Promise<ReleaseChange[]> => {
+  const cut = await findReleaseCut(line);
+  const bootstrap = await findDevelopmentBootstrap({
+    line,
+    sourceOid: cut.sourceOid,
+  });
+  return combineReleaseChanges(
+    await developmentLineChanges(token, {
+      boundaryOid: bootstrap.oid,
+      sourceOid: cut.sourceOid,
+    }),
+    await releaseChanges(token, {
+      boundaryOid: cut.sourceOid,
+      line,
+      releaseOid,
+    }),
+  );
 };
 
 const migrationRecordsAt = async (
@@ -686,6 +949,10 @@ const validateDevelopmentCommit = async (
 ): Promise<void> => {
   assert.deepEqual(await commitParents(oid), [expected.sourceOid]);
   const message = await commitMessage(oid);
+  assert.deepEqual(
+    parsePrereleaseBootstrapCommitMessageIfPresent(message),
+    expected,
+  );
   assert.match(message, new RegExp(`^release: begin ${expected.version.replaceAll('.', '\\.')} development`));
   assert.match(message, new RegExp(`Release-Cut-Line: ${expected.line.replace('.', '\\.')}`));
   assert.match(message, new RegExp(`Release-Cut-Source: ${expected.sourceOid}`));
@@ -932,16 +1199,42 @@ export async function prepareCut(options: PrepareCutOptions): Promise<void> {
   await ensureSeedRepository();
   const nextDevelopment = requireOption(options, 'next-development');
   const output = await prepareOutput(requireOption(options, 'output'));
+  const token = requireGithubToken(options);
   const sourceOid = (await git(['rev-parse', 'HEAD'])).stdout.trim();
   const sourceManifest = rootManifestValue(await manifestAt(sourceOid, 'package.json'));
   if (typeof sourceManifest.version !== 'string') {
     throw new Error('Cut source manifest has no version.');
   }
   const versions = deriveCutVersions(sourceManifest.version, nextDevelopment);
+  const bootstrap = await findDevelopmentBootstrap({
+    line: versions.line,
+    sourceOid,
+  });
+  const changes = await developmentLineChanges(token, {
+    boundaryOid: bootstrap.oid,
+    sourceOid,
+  });
+  const prereleaseRef = await getRef(token, 'heads/prerelease');
+  const openPrereleasePulls = (await listPrereleasePulls(token)).filter(
+    ({ state }) => state === 'open',
+  );
+  if (openPrereleasePulls.length > 1) {
+    throw new Error('More than one canonical Prerelease PR is open.');
+  }
+  const openPrereleasePull = openPrereleasePulls[0];
+  if (
+    openPrereleasePull !== undefined &&
+    (prereleaseRef === null ||
+      openPrereleasePull.head.sha !== prereleaseRef.oid)
+  ) {
+    throw new Error(
+      'The open Prerelease PR contradicts its canonical proposal ref.',
+    );
+  }
   const attempt = randomUUID();
 
   const proposalOid = await materializeCommit({
-    changes: [],
+    changes,
     message: proposalCommitMessage({
       attempt,
       line: versions.line,
@@ -962,7 +1255,7 @@ export async function prepareCut(options: PrepareCutOptions): Promise<void> {
   });
 
   await validateProposalCommit(proposalOid, {
-    changes: [],
+    changes,
     line: versions.line,
     sourceOid,
     version: versions.releaseVersion,
@@ -981,11 +1274,16 @@ export async function prepareCut(options: PrepareCutOptions): Promise<void> {
   ]);
 
   await writeJson(join(output, 'transition.json'), {
+    changes,
     developmentBundleRef,
     developmentOid,
     developmentVersion: versions.developmentVersion,
+    expectedPrereleaseOid: prereleaseRef?.oid ?? null,
     kind: 'cut',
     line: versions.line,
+    ...(openPrereleasePull === undefined
+      ? {}
+      : { openPrereleasePr: openPrereleasePull.number }),
     proposalBundleRef,
     proposalOid,
     releaseVersion: versions.releaseVersion,
@@ -993,7 +1291,58 @@ export async function prepareCut(options: PrepareCutOptions): Promise<void> {
     schema: 1,
     sourceOid,
   });
+  await writeJson(join(output, 'bootstrap-authority.json'), {
+    boundaryOid: developmentOid,
+    changes: [],
+    channel: 'next',
+    cutLine: versions.line,
+    repository: PILOT_REPOSITORY,
+    schema: 1,
+    snapshotOid: developmentOid,
+    sourceOid,
+    version: versions.developmentVersion,
+  });
   console.log(`Prepared ${versions.line} from ${sourceOid}.`);
+}
+
+export function cutRefUpdates({
+  developmentOid,
+  expectedPrereleaseOid,
+  line,
+  proposalOid,
+  sourceOid,
+}: {
+  developmentOid: string;
+  expectedPrereleaseOid: string | null;
+  line: string;
+  proposalOid: string;
+  sourceOid: string;
+}): ReturnType<typeof createRefUpdate>[] {
+  return [
+    createRefUpdate({
+      afterOid: sourceOid,
+      name: `refs/heads/releases/${line}`,
+    }),
+    createRefUpdate({
+      afterOid: proposalOid,
+      name: `refs/heads/staged/${line}`,
+    }),
+    createRefUpdate({
+      afterOid: developmentOid,
+      beforeOid: sourceOid,
+      name: 'refs/heads/main',
+    }),
+    ...(expectedPrereleaseOid === null
+      ? []
+      : [
+          createRefUpdate({
+            afterOid: ZERO_OID,
+            beforeOid: expectedPrereleaseOid,
+            force: true,
+            name: 'refs/heads/prerelease',
+          }),
+        ]),
+  ];
 }
 
 export async function applyCut(options: ApplyCutOptions): Promise<void> {
@@ -1015,7 +1364,7 @@ export async function applyCut(options: ApplyCutOptions): Promise<void> {
   assert.equal(await importedOid(transition.proposalBundleRef), transition.proposalOid);
   assert.equal(await importedOid(transition.developmentBundleRef), transition.developmentOid);
   await validateProposalCommit(transition.proposalOid, {
-    changes: [],
+    changes: transition.changes,
     line: transition.line,
     sourceOid: transition.sourceOid,
     version: transition.releaseVersion,
@@ -1038,22 +1387,38 @@ export async function applyCut(options: ApplyCutOptions): Promise<void> {
   ) {
     throw new Error(`${transition.line} already exists; no refs were changed.`);
   }
+  const livePrerelease = await getRef(token, 'heads/prerelease');
+  if ((livePrerelease?.oid ?? null) !== transition.expectedPrereleaseOid) {
+    throw new Error(
+      'The canonical prerelease proposal changed after cut preparation.',
+    );
+  }
+  const openPrereleasePulls = (await listPrereleasePulls(token)).filter(
+    ({ state }) => state === 'open',
+  );
+  if (
+    openPrereleasePulls.length !==
+      (transition.openPrereleasePr === undefined ? 0 : 1) ||
+    (transition.openPrereleasePr !== undefined &&
+      openPrereleasePulls[0]?.number !== transition.openPrereleasePr)
+  ) {
+    throw new Error('The canonical Prerelease PR changed after cut preparation.');
+  }
 
-  await updateRefs(token, repository.node_id, [
-    createRefUpdate({
-      afterOid: transition.sourceOid,
-      name: `refs/heads/releases/${transition.line}`,
+  await updateRefs(
+    token,
+    repository.node_id,
+    cutRefUpdates({
+      developmentOid: uploadedDevelopmentOid,
+      expectedPrereleaseOid: transition.expectedPrereleaseOid,
+      line: transition.line,
+      proposalOid: uploadedProposalOid,
+      sourceOid: transition.sourceOid,
     }),
-    createRefUpdate({
-      afterOid: uploadedProposalOid,
-      name: `refs/heads/staged/${transition.line}`,
-    }),
-    createRefUpdate({
-      afterOid: uploadedDevelopmentOid,
-      beforeOid: transition.sourceOid,
-      name: 'refs/heads/main',
-    }),
-  ]);
+  );
+  if (transition.openPrereleasePr !== undefined) {
+    await closePullRequest(token, transition.openPrereleasePr);
+  }
 
   const openPulls = (await listReleasePulls(token, transition.line)).filter(
     ({ state }) => state === 'open'
@@ -1062,7 +1427,7 @@ export async function applyCut(options: ApplyCutOptions): Promise<void> {
     await createReleasePr(
       token,
       {
-        changes: [],
+        changes: transition.changes,
         line: transition.line,
         releaseOid: transition.sourceOid,
         version: transition.releaseVersion,
@@ -1244,12 +1609,17 @@ export async function prepareMaintenance(
         'origin',
         `+refs/heads/releases/${plan.line}:refs/remotes/origin/releases/${plan.line}`,
       ]);
-      const boundaryOid = state.completedOid ?? (await findReleaseCut(plan.line)).sourceOid;
-      changes = await releaseChanges(token, {
-        boundaryOid,
-        line: plan.line,
-        releaseOid: state.releaseOid,
-      });
+      changes =
+        state.completedOid === null
+          ? await initialReleaseChanges(token, {
+              line: plan.line,
+              releaseOid: state.releaseOid,
+            })
+          : await releaseChanges(token, {
+              boundaryOid: state.completedOid,
+              line: plan.line,
+              releaseOid: state.releaseOid,
+            });
     }
     const base = {
       changes,
@@ -1511,6 +1881,7 @@ export async function applyMaintenance(
 export const proposalCommitParents = commitParents;
 export const proposalCommitMessageAt = commitMessage;
 export const proposalImportBundle = importBundle;
+export const proposalInitialReleaseChanges = initialReleaseChanges;
 export const proposalImportedOid = importedOid;
 export const proposalMaterializeCommit = materializeCommit;
 export const proposalPrepareOutput = prepareOutput;
