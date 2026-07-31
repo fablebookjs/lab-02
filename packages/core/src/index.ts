@@ -21,14 +21,14 @@ export function normalizeLabels(
 }
 
 export interface ChapterNavigationOptions {
-  layout?: 'current' | 'trail';
+  storyLayout?: 'current' | 'trail';
 }
 
 export function formatChapterNavigation(
   chapters: string[],
-  { layout = 'trail' }: ChapterNavigationOptions = {}
+  { storyLayout = 'trail' }: ChapterNavigationOptions = {}
 ): string {
-  if (layout === 'current') {
+  if (storyLayout === 'current') {
     return chapters.at(-1) ?? '';
   }
   return chapters.join(' > ');
