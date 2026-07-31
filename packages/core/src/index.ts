@@ -58,15 +58,17 @@ export function formatChapterNavigation(
       : chapters;
   const visibleChapters = normalizedChapters;
   const separator = variant ? trailSeparators[variant] ?? ' > ' : ' > ';
-  const navigation =
-    layout === 'current'
-      ? visibleChapters.at(-1) ?? ''
-      : visibleChapters.join(separator);
-
-  if (!variant) return navigation;
   const current = Math.min(
     Math.max(options.currentChapter ?? visibleChapters.length, 0),
     visibleChapters.length,
   );
+  const navigation =
+    layout === 'current'
+      ? current === 0
+        ? ''
+        : visibleChapters[current - 1] ?? ''
+      : visibleChapters.join(separator);
+
+  if (!variant) return navigation;
   return `${navigation} · ${progressLabels[variant]} ${current}/${visibleChapters.length}`;
 }
