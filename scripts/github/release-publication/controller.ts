@@ -1,21 +1,17 @@
-import { createHash } from 'node:crypto';
 import { mkdir, readFile } from 'node:fs/promises';
-import { basename, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
-import { loadReleasePackageSet } from '../../shared/release-publication/package-set.ts';
-import {
-  listPublicPackages,
-  type PublicPackage,
-} from '../../shared/workspace/packages.ts';
 import {
   assertOidcPublishEnvironment,
+  NPM_REGISTRY,
+  registryIntegrity,
+} from '../../shared/package-publication/core.ts';
+import {
   composeGitHubReleaseBody,
   deriveReleaseAuthority,
   deriveReleaseCommunication,
   lineChannel,
-  NPM_REGISTRY,
   PILOT_REPOSITORY,
-  registryIntegrity,
   validateReleaseCommunication,
 } from '../../shared/release-publication/core.ts';
 import type {
@@ -24,8 +20,9 @@ import type {
 } from '../../shared/release-publication/core.ts';
 import {
   reconcilePublicationPlan,
+} from '../../shared/package-publication/publication.ts';
+import {
   type PublicationManifest,
-  type PublicationPackage,
   validatePublicationManifest,
 } from '../../shared/release-publication/publication.ts';
 import {
@@ -33,37 +30,33 @@ import {
   releaseRecordPath,
 } from '../../shared/release-communication/records.ts';
 import { parseStableVersion } from '../../shared/release-proposal/core.ts';
+import { run } from '../../shared/process/run.ts';
 import {
   getGitCommit,
   getPullRequest,
-  getRef,
   getReleaseByTag,
   githubRequest,
   isCanonicalReleasePull,
-  validatedGitCommitResponse,
-  validatedReleaseResponse,
-} from '../release-proposal/github.ts';
-import type { GitHubRelease, GitPullRequest } from '../release-proposal/github.ts';
+} from '../release-repository/github.ts';
 import {
   readJson,
   requireGithubToken,
   requireOption,
-  run,
   writeJson,
 } from '../controller-support.ts';
+import {
+  assertTagTarget,
+  ensureAnnotatedTag,
+  ensureGitHubRelease,
+  packPublicationPackageSet,
+  readAnnotatedTag,
+  readRegistryDocument,
+  validatePublicationSnapshot,
+} from '../package-publication/mechanics.ts';
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 type ReleaseAuthorityDocument = ReleaseAuthority & {
   releaseCommunication: ReleaseCommunication;
-};
-
-export type AnnotatedTag = {
-  object: {
-    sha: string;
-    type: 'commit';
-  };
-  sha: string;
-  tag: string;
 };
 
 export type ResolvePublicationOptions = {
@@ -141,63 +134,6 @@ const ensureTrustedMain = (): void => {
   ) {
     throw new Error('Publication authority is restricted to trusted main in the pilot repository.');
   }
-};
-
-const gitHead = async (root: string): Promise<string> =>
-  (await run('git', ['rev-parse', 'HEAD'], { cwd: root })).stdout.trim();
-
-export const validatePublicationSnapshot = async (
-  root: string,
-  expectedOid: string,
-): Promise<void> => {
-  validateOid(expectedOid, 'Expected snapshot');
-  if ((await gitHead(root)) !== expectedOid) {
-    throw new Error('The checked-out snapshot does not match release authority.');
-  }
-};
-
-const validatePackageSet = async (
-  root: string,
-  version: string,
-): Promise<PublicPackage[]> => {
-  parseStableVersion(version);
-  const rootManifest = await readJson(join(root, 'package.json'));
-  const packages = await listPublicPackages(root);
-  if (!isRecord(rootManifest) || rootManifest['version'] !== version || packages.length === 0) {
-    throw new Error(`The snapshot is not a complete ${version} package set.`);
-  }
-  const publicNames = new Set(packages.map(({ name }) => name));
-  for (const pkg of packages) {
-    if (pkg.version !== version) {
-      throw new Error(`${pkg.name} does not use release version ${version}.`);
-    }
-    if (
-      pkg.manifest.repository?.url !== 'git+https://github.com/fablebookjs/lab-02.git' ||
-      pkg.manifest.repository?.directory !== pkg.location
-    ) {
-      throw new Error(`${pkg.name} does not identify the pilot repository and workspace path.`);
-    }
-    const dependencyFields: Array<
-      'dependencies' | 'devDependencies' | 'optionalDependencies' | 'peerDependencies'
-    > = [
-      'dependencies',
-      'devDependencies',
-      'optionalDependencies',
-      'peerDependencies',
-    ];
-    for (const field of dependencyFields) {
-      const dependencies = pkg.manifest[field];
-      if (dependencies !== undefined && !isRecord(dependencies)) {
-        throw new Error(`${pkg.name} has malformed ${field}.`);
-      }
-      for (const [name, dependencyVersion] of Object.entries(dependencies ?? {})) {
-        if (publicNames.has(name) && dependencyVersion !== version) {
-          throw new Error(`${pkg.name} has a non-lockstep dependency on ${name}.`);
-        }
-      }
-    }
-  }
-  return packages;
 };
 
 const authorityValue = (
@@ -302,86 +238,6 @@ export async function resolvePublication(
   return outputs;
 }
 
-const integrityFor = async (path: string): Promise<string> => {
-  const hash = createHash('sha512');
-  hash.update(await readFile(path));
-  return `sha512-${hash.digest('base64')}`;
-};
-
-export async function packPublicationPackageSet(
-  snapshot: string,
-  output: string,
-  version: string,
-): Promise<{
-  packages: PublicationPackage[];
-  tarballs: string;
-}> {
-  const packages = await loadReleasePackageSet(snapshot, version);
-  const tarballs = join(output, 'tarballs');
-  await mkdir(tarballs, { recursive: true });
-
-  const packedPackages: PublicationPackage[] = [];
-  for (const pkg of packages) {
-    const { stdout } = await run(
-      npm,
-      [
-        'pack',
-        '--json',
-        '--ignore-scripts',
-        '--pack-destination',
-        tarballs,
-        join(snapshot, pkg.location),
-      ],
-      { cwd: snapshot },
-    );
-    const packResult: unknown = JSON.parse(stdout);
-    const packedValue =
-      Array.isArray(packResult)
-        ? packResult[0]
-        : isRecord(packResult)
-          ? packResult[pkg.name]
-          : undefined;
-    if (!isRecord(packedValue) || !Array.isArray(packedValue['files'])) {
-      throw new Error(`npm pack produced no artifact for ${pkg.name}.`);
-    }
-    const files = new Set<string>(
-      packedValue['files'].map((file) => {
-        if (!isRecord(file)) {
-          throw new Error('npm pack file entry must be an object.');
-        }
-        return stringValue(file['path'], 'npm pack file path');
-      }),
-    );
-    const packed = {
-      filename: stringValue(packedValue['filename'], 'npm pack filename'),
-      integrity: stringValue(packedValue['integrity'], 'npm pack integrity'),
-      name: stringValue(packedValue['name'], 'npm pack name'),
-      version: stringValue(packedValue['version'], 'npm pack version'),
-    };
-    if (
-      packed.name !== pkg.name ||
-      packed.version !== version ||
-      basename(packed.filename) !== packed.filename ||
-      !files.has('dist/index.js') ||
-      !files.has('dist/index.d.ts') ||
-      [...files].some((path) => path.startsWith('src/'))
-    ) {
-      throw new Error(`npm pack produced an invalid artifact for ${pkg.name}.`);
-    }
-    const tarball = join(tarballs, packed.filename);
-    const integrity = await integrityFor(tarball);
-    if (integrity !== packed.integrity) {
-      throw new Error(`npm pack integrity did not match ${pkg.name}.`);
-    }
-    packedPackages.push({
-      filename: packed.filename,
-      integrity,
-      name: pkg.name,
-    });
-  }
-  return { packages: packedPackages, tarballs };
-}
-
 export async function preparePublication(
   options: PreparePublicationOptions,
 ): Promise<void> {
@@ -427,41 +283,6 @@ export async function preparePublication(
   await writeJson(join(output, 'publication.json'), manifest);
   console.log(`Prepared ${manifest.packages.length} packages for ${manifest.version}.`);
 }
-
-export const readRegistryDocument = async (name: string): Promise<unknown> => {
-  const url = new URL(encodeURIComponent(name), NPM_REGISTRY);
-  url.searchParams.set('fablebook_read', `${Date.now()}-${Math.random()}`);
-  const response = await fetch(url, {
-    cache: 'no-store',
-    headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' },
-  });
-  if (response.status === 404) {
-    return null;
-  }
-  if (!response.ok) {
-    throw new Error(`npm registry read failed for ${name}: HTTP ${response.status}.`);
-  }
-  const value: unknown = await response.json();
-  return value;
-};
-
-const waitFor = async <Value>(
-  observe: () => Promise<Value>,
-  attempts = 6,
-): Promise<Value> => {
-  let error: unknown;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    try {
-      return await observe();
-    } catch (nextError) {
-      error = nextError;
-      if (attempt + 1 < attempts) {
-        await new Promise((resolveDelay) => setTimeout(resolveDelay, 2_000));
-      }
-    }
-  }
-  throw error instanceof Error ? error : new Error('Observation did not converge.');
-};
 
 const loadPublication = async (
   options: {
@@ -518,132 +339,6 @@ export async function publishPackages(options: PublishPackagesOptions): Promise<
   });
   console.log(`Published the complete ${manifest.version} package set on ${manifest.channel}.`);
 }
-
-const annotatedTagValue = (value: unknown): AnnotatedTag => {
-  if (!isRecord(value) || !isRecord(value['object'])) {
-    throw new Error('GitHub annotated tag response must be an object.');
-  }
-  const type = value['object']['type'];
-  if (type !== 'commit') {
-    throw new Error('GitHub annotated tag must target a commit.');
-  }
-  return {
-    object: {
-      sha: validateOid(value['object']['sha'], 'Annotated tag target'),
-      type,
-    },
-    sha: validateOid(value['sha'], 'Annotated tag object'),
-    tag: stringValue(value['tag'], 'Annotated tag name'),
-  };
-};
-
-export const readAnnotatedTag = async (
-  token: string,
-  tag: string,
-): Promise<AnnotatedTag | null> => {
-  const ref = await getRef(token, `tags/${tag}`);
-  if (ref === null) {
-    return null;
-  }
-  if (ref.type !== 'tag') {
-    throw new Error(`${tag} exists but is not an annotated tag.`);
-  }
-  return annotatedTagValue(
-    await githubRequest(`/repos/${PILOT_REPOSITORY}/git/tags/${ref.oid}`, { token }),
-  );
-};
-
-export const assertTagTarget = (
-  tagObject: AnnotatedTag,
-  tag: string,
-  snapshotOid: string,
-): void => {
-  if (
-    tagObject.tag !== tag ||
-    tagObject.object?.type !== 'commit' ||
-    tagObject.object.sha !== snapshotOid
-  ) {
-    throw new Error(`${tag} does not identify the authorized release snapshot.`);
-  }
-};
-
-export const ensureAnnotatedTag = async (
-  token: string,
-  manifest: Pick<PublicationManifest, 'snapshotOid' | 'version'>,
-): Promise<string> => {
-  const tag = `v${manifest.version}`;
-  let tagObject = await readAnnotatedTag(token, tag);
-  if (tagObject === null) {
-    tagObject = annotatedTagValue(
-      await githubRequest(`/repos/${PILOT_REPOSITORY}/git/tags`, {
-        body: {
-          message: `Release ${tag}`,
-          object: manifest.snapshotOid,
-          tag,
-          tagger: {
-            date: new Date().toISOString(),
-            email: 'release-app@users.noreply.github.com',
-            name: 'fablebook-release-app[bot]',
-          },
-          type: 'commit',
-        },
-        method: 'POST',
-        token,
-      }),
-    );
-    await githubRequest(`/repos/${PILOT_REPOSITORY}/git/refs`, {
-      body: { ref: `refs/tags/${tag}`, sha: tagObject.sha },
-      method: 'POST',
-      token,
-    });
-    tagObject = await waitFor(async () => {
-      const observed = await readAnnotatedTag(token, tag);
-      if (observed === null) {
-        throw new Error(`${tag} is not visible yet.`);
-      }
-      return observed;
-    });
-  }
-  assertTagTarget(tagObject, tag, manifest.snapshotOid);
-  return tag;
-};
-
-export const ensureGitHubRelease = async (
-  token: string,
-  manifest: Pick<PublicationManifest, 'snapshotOid'>,
-  tag: string,
-  body: string,
-  prerelease = false,
-): Promise<void> => {
-  let release = await getReleaseByTag(token, tag);
-  if (release === null) {
-    release = validatedReleaseResponse(
-      await githubRequest(`/repos/${PILOT_REPOSITORY}/releases`, {
-        body: {
-          body,
-          draft: false,
-          name: tag,
-          prerelease,
-          tag_name: tag,
-          target_commitish: manifest.snapshotOid,
-        },
-        method: 'POST',
-        token,
-      }),
-    );
-    if (release.body !== body) {
-      throw new Error(`GitHub did not preserve the composed ${tag} release body.`);
-    }
-  }
-  if (
-    release.tag_name !== tag ||
-    release.draft !== false ||
-    release.prerelease !== prerelease ||
-    release.body !== body
-  ) {
-    throw new Error(`GitHub Release ${tag} contradicts the completed release.`);
-  }
-};
 
 const releaseCompletionState = async (
   token: string,

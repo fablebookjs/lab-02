@@ -192,7 +192,7 @@ const isAllowedReleasePackageSetImport = (
   const loader = releasePackageSetLoader(node);
   if (
     source.zone !== 'shared' ||
-    logical !== 'shared/release-publication/package-set.ts' ||
+    logical !== 'shared/package-publication/package-set.ts' ||
     loader === undefined ||
     loader.parameters.length !== 2
   ) {

@@ -28,22 +28,22 @@ import {
   assertOidcPublishEnvironment,
   NPM_REGISTRY,
   registryIntegrity,
-} from '../../shared/release-publication/core.ts';
+} from '../../shared/package-publication/core.ts';
 import {
   reconcilePublicationPlan,
-} from '../../shared/release-publication/publication.ts';
+} from '../../shared/package-publication/publication.ts';
 import type {
   PublicationPackage,
-} from '../../shared/release-publication/publication.ts';
+} from '../../shared/package-publication/publication.ts';
 import {
   parseDevelopmentVersion,
   parseReleaseLine,
 } from '../../shared/release-proposal/core.ts';
+import { run } from '../../shared/process/run.ts';
 import {
   readJson,
   requireGithubToken,
   requireOption,
-  run,
   writeJson,
 } from '../controller-support.ts';
 import {
@@ -54,13 +54,13 @@ import {
   readAnnotatedTag,
   readRegistryDocument,
   validatePublicationSnapshot,
-} from '../release-publication/controller.ts';
+} from '../package-publication/mechanics.ts';
 import {
   getGitCommit,
   getPullRequest,
   getReleaseByTag,
   isCanonicalPrereleasePull,
-} from '../release-proposal/github.ts';
+} from '../release-repository/github.ts';
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 

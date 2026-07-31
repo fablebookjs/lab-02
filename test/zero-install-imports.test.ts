@@ -98,7 +98,7 @@ test('rejects runtime package imports before execution', async () => {
 test('accepts only the structurally confined release package-set import', async () => {
   await withFixture(
     {
-      'shared/release-publication/package-set.ts':
+      'shared/package-publication/package-set.ts':
         "import { join } from 'node:path';\nimport { pathToFileURL } from 'node:url';\nconst supportedWorkspacePackageApiPaths: readonly string[] = [\n  'scripts/api/v2/workspace-packages.ts',\n  'scripts/api/v1/workspace-packages.ts',\n];\nexport async function loadReleasePackageSet(\n  snapshotRoot: string,\n  expectedVersion: string,\n): Promise<unknown> {\n  void expectedVersion;\n  for (const relativeEntrypoint of supportedWorkspacePackageApiPaths) {\n    const selectedEntrypoint = join(snapshotRoot, relativeEntrypoint);\n    return import(pathToFileURL(selectedEntrypoint).href);\n  }\n  throw new Error('No supported API.');\n}\n",
     },
     (diagnostics) => assert.deepEqual(diagnostics, []),
@@ -108,7 +108,7 @@ test('accepts only the structurally confined release package-set import', async 
 test('rejects the release package-set import outside its exact production function', async () => {
   await withFixture(
     {
-      'shared/release-publication/package-set.ts':
+      'shared/package-publication/package-set.ts':
         "import { pathToFileURL } from 'node:url';\nconst supportedWorkspacePackageApiPaths: readonly string[] = [\n  'scripts/api/v1/workspace-packages.ts',\n];\nexport async function loadSomethingElse(selectedEntrypoint: string): Promise<unknown> {\n  return import(pathToFileURL(selectedEntrypoint).href);\n}\n",
     },
     (diagnostics) => {
@@ -121,7 +121,7 @@ test('rejects the release package-set import outside its exact production functi
 test('rejects the release package-set import without a fixed supported-path table', async () => {
   await withFixture(
     {
-      'shared/release-publication/package-set.ts':
+      'shared/package-publication/package-set.ts':
         "import { join } from 'node:path';\nimport { pathToFileURL } from 'node:url';\nconst otherPaths = ['scripts/api/v1/workspace-packages.ts'];\nexport async function loadReleasePackageSet(snapshotRoot: string, expectedVersion: string): Promise<unknown> {\n  void expectedVersion;\n  for (const relativeEntrypoint of otherPaths) {\n    const selectedEntrypoint = join(snapshotRoot, relativeEntrypoint);\n    return import(pathToFileURL(selectedEntrypoint).href);\n  }\n  throw new Error('No supported API.');\n}\n",
     },
     (diagnostics) => {
@@ -134,7 +134,7 @@ test('rejects the release package-set import without a fixed supported-path tabl
 test('rejects a selected entrypoint that is not derived from the supported-path table', async () => {
   await withFixture(
     {
-      'shared/release-publication/package-set.ts':
+      'shared/package-publication/package-set.ts':
         "import { join } from 'node:path';\nimport { pathToFileURL } from 'node:url';\nconst supportedWorkspacePackageApiPaths: readonly string[] = [\n  'scripts/api/v1/workspace-packages.ts',\n];\nexport async function loadReleasePackageSet(snapshotRoot: string, expectedVersion: string): Promise<unknown> {\n  void expectedVersion;\n  for (const relativeEntrypoint of supportedWorkspacePackageApiPaths) {\n    void relativeEntrypoint;\n    const selectedEntrypoint = join(snapshotRoot, 'untrusted.ts');\n    return import(pathToFileURL(selectedEntrypoint).href);\n  }\n  throw new Error('No supported API.');\n}\n",
     },
     (diagnostics) => {

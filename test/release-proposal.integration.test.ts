@@ -432,7 +432,7 @@ test('prepare-cut creates two validated children and no repository refs', async 
     await git(['branch', '-f', 'main', cut.developmentOid], repository);
     await git(['checkout', 'main'], repository);
     const cumulative = await invokeControllerResult(
-      'proposalInitialReleaseChanges',
+      'initialReleaseChanges',
       { line: 'v1.0', releaseOid: postCutOid },
       repository,
       {

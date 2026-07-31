@@ -21,7 +21,7 @@ loadable through the synchronous Actions bridge.
 
 The sole computed-import exception is the selected Tagged Release API
 entrypoint inside
-`scripts/shared/release-publication/package-set.ts#loadReleasePackageSet`.
+`scripts/shared/package-publication/package-set.ts#loadReleasePackageSet`.
 Static analysis confines it to a newest-first fixed path table and the exact
 runtime snapshot. Every other dynamic import remains literal-only.
 

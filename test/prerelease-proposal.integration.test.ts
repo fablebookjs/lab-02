@@ -84,8 +84,8 @@ test('an ordinary proposal materializes one child and checks exact current main'
     });
     const prepared = await invoke(
       [
-        "const controller = await import('./scripts/github/release-proposal/controller.ts');",
-        'const oid = await controller.proposalMaterializeCommit({',
+        "const mechanics = await import('./scripts/github/prepared-commit/mechanics.ts');",
+        'const oid = await mechanics.materializeCommit({',
         '  message: process.env.MESSAGE,',
         '  sourceOid: process.env.SOURCE_OID,',
         '  version: process.env.VERSION,',

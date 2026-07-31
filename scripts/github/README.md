@@ -41,3 +41,11 @@ no-op decisions succeed with explicit outputs; malformed or unsafe state throws
 a sanitized error. `any`, assertions, and compiler suppressions require a
 nearby `type-escape:` explanation and are mechanically inventoried; broad
 `@ts-ignore` and `@ts-nocheck` directives are forbidden.
+
+## Release module boundary
+
+Stable and prerelease feature controllers are siblings. They do not import
+one another's `controller.ts`; shared GitHub mechanics live in the neutral
+`prepared-commit`, `release-history`, `package-publication`, and
+`release-repository` directories instead. Feature controllers retain release
+policy, communication, channel selection, and completion decisions.

@@ -6,6 +6,8 @@ import test from 'node:test';
 
 import {
   reconcilePublicationPlan,
+} from '../scripts/shared/package-publication/publication.ts';
+import {
   type PublicationManifest,
   validatePublicationManifest,
 } from '../scripts/shared/release-publication/publication.ts';
