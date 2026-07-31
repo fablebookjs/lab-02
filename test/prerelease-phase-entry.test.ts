@@ -297,8 +297,8 @@ test('a phase-entry snapshot is one direct lockstep child of exact current main'
         '--input-type=module',
         '--eval',
         [
-          "const controller = await import('./scripts/github/prerelease-proposal/controller.ts');",
-          'const boundary = await controller.findManagedPrereleaseBoundary(',
+          "const history = await import('./scripts/github/release-history/history.ts');",
+          'const boundary = await history.findManagedPrereleaseBoundary(',
           '  process.env.SNAPSHOT_OID,',
           ');',
           'console.log(JSON.stringify(boundary));',

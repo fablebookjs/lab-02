@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 import {
   loadReleasePackageSet,
   type ReleasePackage,
-} from '../scripts/shared/release-publication/package-set.ts';
+} from '../scripts/shared/package-publication/package-set.ts';
 import { repositoryRoot } from '../scripts/shared/workspace/packages.ts';
 
 const execute = promisify(execFile);

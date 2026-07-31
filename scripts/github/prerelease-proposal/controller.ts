@@ -18,37 +18,38 @@ import type {
   PrereleaseProposalPlan,
 } from '../../shared/prerelease-proposal/core.ts';
 import {
-  parsePhaseEntryCommitMessageIfPresent,
-} from '../../shared/prerelease-phase-entry/core.ts';
-import {
-  parsePrereleaseBootstrapCommitMessageIfPresent,
   ZERO_OID,
 } from '../../shared/release-proposal/core.ts';
 import type { ReleaseChange } from '../../shared/release-communication/records.ts';
+import { derivePrereleaseChanges } from '../../shared/release-communication/records.ts';
 import { repositoryRoot } from '../../shared/workspace/packages.ts';
+import { run } from '../../shared/process/run.ts';
+import type { RunOptions } from '../../shared/process/run.ts';
 import type { ValidatedPullRequest } from '../events.ts';
 import {
   readJson,
   requireGithubToken,
   requireOption,
-  run,
   writeJson,
 } from '../controller-support.ts';
-import type { RunOptions } from '../controller-support.ts';
 import {
-  prereleaseChanges,
-  proposalAssertExpectedRef,
-  proposalCommitMessageAt,
-  proposalCommitParents,
-  proposalImportBundle,
-  proposalImportedOid,
-  proposalMaterializeCommit,
-  proposalPrepareOutput,
-  proposalRootVersionAt,
-  proposalUploadCommitObject,
-  proposalValidateVersionTree,
-  proposalWriteBundle,
-} from '../release-proposal/controller.ts';
+  commitMessageAt,
+  commitParents,
+  rootVersionAt,
+  validateVersionTree,
+} from '../../shared/prepared-commit/inspection.ts';
+import {
+  assertExpectedRef,
+  importBundle,
+  materializeCommit,
+  prepareOutput,
+  uploadCommitObject,
+  writeBundle,
+} from '../prepared-commit/mechanics.ts';
+import {
+  findManagedPrereleaseBoundary,
+  firstParentCommitFacts,
+} from '../release-history/history.ts';
 import {
   closePullRequest,
   createDraftPrereleasePr,
@@ -59,15 +60,9 @@ import {
   PILOT_REPOSITORY,
   updatePullRequestBody,
   updateRefs,
-} from '../release-proposal/github.ts';
+} from '../release-repository/github.ts';
 
 const ARTIFACT_PREFIX = 'refs/release-pilot/artifact/';
-
-export type ManagedPrereleaseBoundary = {
-  kind: 'bootstrap' | 'ordinary' | 'phase-entry';
-  oid: string;
-  version: string;
-};
 
 type ProposalActionBase = {
   boundaryOid: string;
@@ -182,74 +177,17 @@ const currentOid = async (): Promise<string> =>
     'Current repository commit',
   );
 
-const treeOid = async (oid: string): Promise<string> =>
-  oidValue(
-    (await git(['show', '-s', '--format=%T', oid])).stdout.trim(),
-    `${oid} tree`,
-  );
-
-export const findManagedPrereleaseBoundary = async (
-  mainOid: string,
-): Promise<ManagedPrereleaseBoundary | null> => {
-  const history = (
-    await git(['rev-list', '--first-parent', mainOid])
-  ).stdout
-    .trim()
-    .split('\n')
-    .filter(Boolean);
-  for (const oid of history) {
-    const parents = await proposalCommitParents(oid);
-    const message = await proposalCommitMessageAt(oid);
-    const bootstrap =
-      parsePrereleaseBootstrapCommitMessageIfPresent(message);
-    if (bootstrap !== null) {
-      if (parents.length !== 1 || parents[0] !== bootstrap.sourceOid) {
-        throw new Error(
-          `${oid} resembles a prerelease bootstrap but does not directly advance its cut source.`,
-        );
-      }
-      await proposalValidateVersionTree(oid, bootstrap.version);
-      return { kind: 'bootstrap', oid, version: bootstrap.version };
-    }
-    const phaseEntry = parsePhaseEntryCommitMessageIfPresent(message);
-    if (phaseEntry !== null) {
-      if (
-        parents.length !== 1 ||
-        parents[0] !== phaseEntry.sourceOid
-      ) {
-        throw new Error(
-          `${oid} resembles a phase-entry snapshot but does not directly advance its source.`,
-        );
-      }
-      await proposalValidateVersionTree(oid, phaseEntry.version);
-      return { kind: 'phase-entry', oid, version: phaseEntry.version };
-    }
-
-    const proposalOid = parents[1];
-    if (parents.length !== 2 || proposalOid === undefined) {
-      continue;
-    }
-    let proposal: PrereleaseProposal;
-    try {
-      proposal = parsePrereleaseProposalMessage(
-        await proposalCommitMessageAt(proposalOid),
-      );
-    } catch {
-      continue;
-    }
-    if (
-      parents[0] !== proposal.sourceOid ||
-      (await treeOid(oid)) !== (await treeOid(proposalOid))
-    ) {
-      throw new Error(
-        `${oid} resembles a prerelease snapshot but does not exactly merge its proposal.`,
-      );
-    }
-    await proposalValidateVersionTree(oid, proposal.version);
-    return { kind: 'ordinary', oid, version: proposal.version };
-  }
-  return null;
-};
+const prereleaseChanges = async (
+  token: string,
+  range: { boundaryOid: string; sourceOid: string },
+): Promise<ReleaseChange[]> =>
+  derivePrereleaseChanges({
+    commits: await firstParentCommitFacts(token, {
+      boundaryOid: range.boundaryOid,
+      headOid: range.sourceOid,
+      label: 'main prerelease',
+    }),
+  });
 
 const changesValue = (value: unknown): ReleaseChange[] => {
   if (!Array.isArray(value)) {
@@ -361,14 +299,14 @@ const validateProposalCommit = async (
     version: string;
   },
 ): Promise<void> => {
-  assert.deepEqual(await proposalCommitParents(oid), [expected.sourceOid]);
+  assert.deepEqual(await commitParents(oid), [expected.sourceOid]);
   const proposal = parsePrereleaseProposalMessage(
-    await proposalCommitMessageAt(oid),
+    await commitMessageAt(oid),
   );
   assert.equal(proposal.boundaryOid, expected.boundaryOid);
   assert.equal(proposal.sourceOid, expected.sourceOid);
   assert.equal(proposal.version, expected.version);
-  await proposalValidateVersionTree(oid, expected.version);
+  await validateVersionTree(oid, expected.version);
 };
 
 const actionBody = (
@@ -395,7 +333,7 @@ const loadStagedProposal = async (
     '+refs/heads/prerelease:refs/remotes/origin/prerelease',
   ]);
   return {
-    ...parsePrereleaseProposalMessage(await proposalCommitMessageAt(ref.oid)),
+    ...parsePrereleaseProposalMessage(await commitMessageAt(ref.oid)),
     oid: ref.oid,
   };
 };
@@ -404,12 +342,12 @@ export async function preparePrereleaseProposal(
   options: PreparePrereleaseProposalOptions,
 ): Promise<void> {
   await ensureRepository();
-  const output = await proposalPrepareOutput(
+  const output = await prepareOutput(
     requireOption(options, 'output'),
   );
   const token = requireGithubToken(options);
   const mainOid = await currentOid();
-  const lineVersion = await proposalRootVersionAt(mainOid);
+  const lineVersion = await rootVersionAt(mainOid);
   const boundary = await findManagedPrereleaseBoundary(mainOid);
   if (boundary !== null && boundary.version !== lineVersion) {
     throw new Error(
@@ -462,7 +400,7 @@ export async function preparePrereleaseProposal(
       throw new Error('A prepared prerelease proposal requires a managed boundary.');
     }
     const attempt = randomUUID();
-    const proposalOid = await proposalMaterializeCommit({
+    const proposalOid = await materializeCommit({
       message: prereleaseProposalCommitMessage({
         attempt,
         boundaryOid: boundary.oid,
@@ -532,7 +470,7 @@ export async function preparePrereleaseProposal(
   }
 
   if (bundle !== undefined) {
-    await proposalWriteBundle(join(output, 'objects.bundle'), [bundle]);
+    await writeBundle(join(output, 'objects.bundle'), [bundle]);
   }
   await writeJson(join(output, 'transition.json'), {
     action,
@@ -580,8 +518,8 @@ export async function applyPrereleaseProposal(
   const token = requireGithubToken(options);
   const action = transition.action;
   await getRepository(token);
-  await proposalAssertExpectedRef(token, 'heads/main', action.mainOid);
-  await proposalAssertExpectedRef(
+  await assertExpectedRef(token, 'heads/main', action.mainOid);
+  await assertExpectedRef(
     token,
     'heads/prerelease',
     action.expectedStagedOid,
@@ -631,19 +569,20 @@ export async function applyPrereleaseProposal(
   if (bundle === undefined) {
     throw new Error('Prepared prerelease proposal requires its Git object bundle.');
   }
-  await proposalImportBundle(resolve(bundle));
-  assert.equal(await proposalImportedOid(action.bundleRef), action.proposalOid);
+  await importBundle(resolve(bundle), [
+    { name: action.bundleRef, oid: action.proposalOid },
+  ]);
   await validateProposalCommit(action.proposalOid, {
     boundaryOid: action.boundaryOid,
     sourceOid: action.mainOid,
     version: action.version,
   });
-  const uploadedProposalOid = await proposalUploadCommitObject(
+  const uploadedProposalOid = await uploadCommitObject(
     token,
     action.proposalOid,
   );
-  await proposalAssertExpectedRef(token, 'heads/main', action.mainOid);
-  await proposalAssertExpectedRef(
+  await assertExpectedRef(token, 'heads/main', action.mainOid);
+  await assertExpectedRef(
     token,
     'heads/prerelease',
     action.expectedStagedOid,
@@ -694,12 +633,12 @@ export async function checkPrereleasePullRequest(
     throw new Error('Prerelease proposal is not based on exact current main.');
   }
   const proposal = parsePrereleaseProposalMessage(
-    await proposalCommitMessageAt(proposalOid),
+    await commitMessageAt(proposalOid),
   );
   if (
     proposal.sourceOid !== sourceOid ||
     proposal.version !== nextPrereleaseVersion(
-      await proposalRootVersionAt(sourceOid),
+      await rootVersionAt(sourceOid),
     )
   ) {
     throw new Error('Prerelease proposal does not advance exact current main.');

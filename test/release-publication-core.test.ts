@@ -6,12 +6,14 @@ import test from 'node:test';
 import { repositoryRoot } from '../scripts/shared/workspace/packages.ts';
 import {
   assertOidcPublishEnvironment,
+  registryIntegrity,
+  SETUP_NODE_AUTH_PLACEHOLDER,
+} from '../scripts/shared/package-publication/core.ts';
+import {
   composeGitHubReleaseBody,
   deriveReleaseAuthority,
   deriveReleaseCommunication,
   lineChannel,
-  registryIntegrity,
-  SETUP_NODE_AUTH_PLACEHOLDER,
   validateReleaseCommunication,
 } from '../scripts/shared/release-publication/core.ts';
 import {

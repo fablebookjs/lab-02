@@ -1,7 +1,7 @@
 import {
   type PublicationPackage,
   validatePublicationPackages,
-} from '../release-publication/publication.ts';
+} from '../package-publication/publication.ts';
 import {
   parseDevelopmentVersion,
   parseReleaseLine,

@@ -20,36 +20,38 @@ import type {
   PhaseEntrySnapshot,
 } from '../../shared/prerelease-phase-entry/core.ts';
 import type { ReleaseChange } from '../../shared/release-communication/records.ts';
+import { derivePrereleaseChanges } from '../../shared/release-communication/records.ts';
 import {
   parseDevelopmentVersion,
   ZERO_OID,
 } from '../../shared/release-proposal/core.ts';
 import { repositoryRoot } from '../../shared/workspace/packages.ts';
+import { run } from '../../shared/process/run.ts';
+import type { RunOptions } from '../../shared/process/run.ts';
 import {
   readJson,
   requireGithubToken,
   requireOption,
-  run,
   writeJson,
 } from '../controller-support.ts';
-import type { RunOptions } from '../controller-support.ts';
+import {
+  commitMessageAt,
+  commitParents,
+  rootVersionAt,
+  validateVersionTree,
+} from '../../shared/prepared-commit/inspection.ts';
+import {
+  assertExpectedRef,
+  importBundle,
+  materializeCommit,
+  prepareOutput,
+  uploadCommitObject,
+  writeBundle,
+} from '../prepared-commit/mechanics.ts';
 import {
   findManagedPrereleaseBoundary,
-} from '../prerelease-proposal/controller.ts';
-import {
-  prereleaseChanges,
-  proposalAssertExpectedRef,
-  proposalCommitMessageAt,
-  proposalCommitParents,
-  proposalImportBundle,
-  proposalImportedOid,
-  proposalMaterializeCommit,
-  proposalPrepareOutput,
-  proposalRootVersionAt,
-  proposalUploadCommitObject,
-  proposalValidateVersionTree,
-  proposalWriteBundle,
-} from '../release-proposal/controller.ts';
+  firstParentCommitFacts,
+} from '../release-history/history.ts';
 import {
   closePullRequest,
   createRefUpdate,
@@ -58,7 +60,7 @@ import {
   listPrereleasePulls,
   PILOT_REPOSITORY,
   updateRefs,
-} from '../release-proposal/github.ts';
+} from '../release-repository/github.ts';
 
 const PHASE_ENTRY_BUNDLE_REF =
   'refs/release-pilot/artifact/prerelease-phase-entry';
@@ -285,10 +287,22 @@ const currentOid = async (): Promise<string> =>
     'Current repository commit',
   );
 
+const prereleaseChanges = async (
+  token: string,
+  range: { boundaryOid: string; sourceOid: string },
+): Promise<ReleaseChange[]> =>
+  derivePrereleaseChanges({
+    commits: await firstParentCommitFacts(token, {
+      boundaryOid: range.boundaryOid,
+      headOid: range.sourceOid,
+      label: 'main prerelease',
+    }),
+  });
+
 const validatePhaseEntrySnapshot = async (
   snapshot: PhaseEntrySnapshot,
 ): Promise<void> => {
-  const message = await proposalCommitMessageAt(snapshot.snapshotOid);
+  const message = await commitMessageAt(snapshot.snapshotOid);
   const parsed = parsePhaseEntryCommitMessageIfPresent(message);
   if (parsed === null) {
     throw new Error(`${snapshot.snapshotOid} has no phase-entry metadata.`);
@@ -300,10 +314,10 @@ const validatePhaseEntrySnapshot = async (
     version: snapshot.version,
   });
   assert.deepEqual(
-    await proposalCommitParents(snapshot.snapshotOid),
+    await commitParents(snapshot.snapshotOid),
     [snapshot.sourceOid],
   );
-  await proposalValidateVersionTree(snapshot.snapshotOid, snapshot.version);
+  await validateVersionTree(snapshot.snapshotOid, snapshot.version);
 };
 
 const findPhaseEntrySnapshot = async (
@@ -319,7 +333,7 @@ const findPhaseEntrySnapshot = async (
     .filter(Boolean);
   for (const snapshotOid of history) {
     const entry = parsePhaseEntryCommitMessageIfPresent(
-      await proposalCommitMessageAt(snapshotOid),
+      await commitMessageAt(snapshotOid),
     );
     if (entry === null) continue;
     const parsed = planPhaseEntry({
@@ -355,10 +369,10 @@ const loadStagedProposal = async (
     '+refs/heads/prerelease:refs/remotes/origin/prerelease',
   ]);
   const proposal = parsePrereleaseProposalMessage(
-    await proposalCommitMessageAt(ref.oid),
+    await commitMessageAt(ref.oid),
   );
-  assert.deepEqual(await proposalCommitParents(ref.oid), [proposal.sourceOid]);
-  await proposalValidateVersionTree(ref.oid, proposal.version);
+  assert.deepEqual(await commitParents(ref.oid), [proposal.sourceOid]);
+  await validateVersionTree(ref.oid, proposal.version);
   return { ...proposal, oid: ref.oid };
 };
 
@@ -435,7 +449,7 @@ export async function materializePhaseEntryCommit({
   sourceOid: string;
   target: string;
 }): Promise<PhaseEntrySnapshot> {
-  const sourceVersion = await proposalRootVersionAt(sourceOid);
+  const sourceVersion = await rootVersionAt(sourceOid);
   const phase = parseManualPrereleasePhase(target);
   const plan = planPhaseEntry({
     currentVersion: sourceVersion,
@@ -451,7 +465,7 @@ export async function materializePhaseEntryCommit({
     sourceOid,
     version: plan.version,
   };
-  const snapshotOid = await proposalMaterializeCommit({
+  const snapshotOid = await materializeCommit({
     message: phaseEntryCommitMessage(entry),
     sourceOid,
     version: plan.version,
@@ -465,7 +479,7 @@ export async function preparePhaseEntry(
   options: PreparePhaseEntryOptions,
 ): Promise<void> {
   await ensureRepository();
-  const output = await proposalPrepareOutput(
+  const output = await prepareOutput(
     requireOption(options, 'output'),
   );
   const phase = parseManualPrereleasePhase(
@@ -473,7 +487,7 @@ export async function preparePhaseEntry(
   );
   const token = requireGithubToken(options);
   const mainOid = await currentOid();
-  const currentVersion = await proposalRootVersionAt(mainOid);
+  const currentVersion = await rootVersionAt(mainOid);
   const current = parseDevelopmentVersion(currentVersion);
   const boundary = await findManagedPrereleaseBoundary(mainOid);
   if (boundary === null || boundary.version !== currentVersion) {
@@ -501,7 +515,7 @@ export async function preparePhaseEntry(
       sourceOid: mainOid,
       target: phase,
     });
-    await proposalWriteBundle(join(output, 'objects.bundle'), [
+    await writeBundle(join(output, 'objects.bundle'), [
       { name: PHASE_ENTRY_BUNDLE_REF, oid: snapshot.snapshotOid },
     ]);
     action = {
@@ -559,7 +573,7 @@ const assertCanonicalPrereleaseState = async (
   token: string,
   expected: CanonicalPrereleaseState,
 ): Promise<void> => {
-  await proposalAssertExpectedRef(
+  await assertExpectedRef(
     token,
     'heads/prerelease',
     expected.expectedStagedOid,
@@ -614,13 +628,13 @@ export async function applyPhaseEntry(
   const transition = transitionValue(
     await readJson(resolve(requireOption(options, 'transition'))),
   );
-  const output = await proposalPrepareOutput(
+  const output = await prepareOutput(
     requireOption(options, 'output'),
   );
   const token = requireGithubToken(options);
   const action = transition.action;
   await getRepository(token);
-  await proposalAssertExpectedRef(
+  await assertExpectedRef(
     token,
     'heads/main',
     action.currentMainOid,
@@ -633,14 +647,12 @@ export async function applyPhaseEntry(
     if (bundle === undefined) {
       throw new Error('A new phase entry requires its Git object bundle.');
     }
-    await proposalImportBundle(resolve(bundle));
-    assert.equal(
-      await proposalImportedOid(action.bundleRef),
-      action.snapshotOid,
-    );
+    await importBundle(resolve(bundle), [
+      { name: action.bundleRef, oid: action.snapshotOid },
+    ]);
     await validatePhaseEntrySnapshot(action);
     const planned = planPhaseEntry({
-      currentVersion: await proposalRootVersionAt(action.sourceOid),
+      currentVersion: await rootVersionAt(action.sourceOid),
       entry: null,
       target: action.phase,
     });
@@ -648,11 +660,11 @@ export async function applyPhaseEntry(
       kind: 'establish',
       version: action.version,
     });
-    appliedSnapshotOid = await proposalUploadCommitObject(
+    appliedSnapshotOid = await uploadCommitObject(
       token,
       action.snapshotOid,
     );
-    await proposalAssertExpectedRef(
+    await assertExpectedRef(
       token,
       'heads/main',
       action.currentMainOid,

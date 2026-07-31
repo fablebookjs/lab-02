@@ -1,15 +1,12 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
 import {
   compareReleaseLines,
   deriveCutVersions,
   developmentCommitMessage,
-  parseDevelopmentCommitMessageIfPresent,
-  parseDevelopmentVersion,
   parsePrereleaseBootstrapCommitMessageIfPresent,
   parseProposalMessage,
   parseReleaseLine,
@@ -18,13 +15,6 @@ import {
   proposalCommitMessage,
   ZERO_OID,
 } from '../../shared/release-proposal/core.ts';
-import type { DevelopmentCommit } from '../../shared/release-proposal/core.ts';
-import {
-  parsePrereleaseProposalMessage,
-} from '../../shared/prerelease-proposal/core.ts';
-import {
-  parsePhaseEntryCommitMessageIfPresent,
-} from '../../shared/prerelease-phase-entry/core.ts';
 import {
   closePullRequest,
   createDraftReleasePr,
@@ -34,7 +24,6 @@ import {
   getPullRequest,
   getReleaseByTag,
   getRepository,
-  githubRequest,
   listMatchingRefs,
   listPrereleasePulls,
   listReleasePulls,
@@ -42,12 +31,11 @@ import {
   resolveRefObject,
   updatePullRequestBody,
   updateRefs,
-  validatedGitCommitResponse,
-  validatedPullRequestResponse,
-  withPullRequestMergeCommit,
-} from './github.ts';
-import type { GitCommit, GitPullRequest, GitReference } from './github.ts';
+} from '../release-repository/github.ts';
+import type { GitPullRequest, GitReference } from '../release-repository/github.ts';
 import { repositoryRoot } from '../../shared/workspace/packages.ts';
+import { run } from '../../shared/process/run.ts';
+import type { RunOptions } from '../../shared/process/run.ts';
 import {
   composeMigrationRecords,
   derivePrereleaseChanges,
@@ -64,33 +52,37 @@ import {
   selectLatestMatchingReleasePrBody,
   validateReleasePrBody,
 } from '../../shared/release-proposal/body.ts';
-import { materializeVersion } from '../../shared/version/materialize.ts';
 import type { ValidatedPullRequest } from '../events.ts';
 import {
   readJson,
   requireGithubToken,
   requireOption,
-  run,
   writeJson,
 } from '../controller-support.ts';
-import type { RunOptions } from '../controller-support.ts';
+import {
+  commitMessageAt,
+  commitParents,
+  ensureCleanReleaseRepository,
+  publicPackagesAt,
+  rootVersionAt,
+  validateFullOid,
+  validateVersionTree,
+} from '../../shared/prepared-commit/inspection.ts';
+import {
+  assertExpectedRef,
+  importBundle,
+  materializeCommit,
+  prepareOutput,
+  uploadCommitObject,
+  writeBundle,
+} from '../prepared-commit/mechanics.ts';
+import {
+  developmentCommitFacts,
+  findDevelopmentBootstrap,
+  findReleaseCut,
+  firstParentCommitFacts,
+} from '../release-history/history.ts';
 const ARTIFACT_PREFIX = 'refs/release-pilot/artifact/';
-const IMPORT_PREFIX = 'refs/release-pilot/imported/';
-
-type RootManifest = {
-  version?: string;
-  workspaces?: string[];
-};
-
-type PublicPackageManifest = {
-  dependencies?: Record<string, string>;
-  devDependencies?: Record<string, string>;
-  name?: string;
-  optionalDependencies?: Record<string, string>;
-  peerDependencies?: Record<string, string>;
-  private?: boolean;
-  version?: string;
-};
 
 type ProposalBodyAction = {
   changes: unknown[];
@@ -116,11 +108,6 @@ type CutTransition = {
   repository: typeof PILOT_REPOSITORY;
   schema: 1;
   sourceOid: string;
-};
-
-type BundleRef = {
-  name: string;
-  oid: string;
 };
 
 type MaintenanceActionBase = {
@@ -372,118 +359,8 @@ const maintenanceTransitionValue = (value: unknown): MaintenanceTransition => {
   };
 };
 
-const stringRecord = (value: unknown, label: string): Record<string, string> | undefined => {
-  if (value === undefined) return undefined;
-  if (!isRecord(value) || Object.values(value).some((entry) => typeof entry !== 'string')) {
-    throw new Error(`${label} must map names to versions.`);
-  }
-  return Object.fromEntries(
-    Object.entries(value).map(([name, version]) => [name, stringValue(version, `${label}.${name}`)]),
-  );
-};
-
 const git = (args: string[], options: RunOptions = {}) =>
   run('git', args, { ...options, cwd: options.cwd ?? repositoryRoot });
-
-const ensureSeedRepository = async (): Promise<void> => {
-  const { stdout } = await git(['rev-parse', '--show-toplevel']);
-  if (resolve(stdout.trim()) !== resolve(repositoryRoot)) {
-    throw new Error(
-      'Release proposal commands must run after the Lab-02 seed becomes the root of its own Git repository.'
-    );
-  }
-  const status = await git(['status', '--porcelain']);
-  if (status.stdout.trim()) {
-    throw new Error('Release proposal preparation requires a clean working tree.');
-  }
-};
-
-const commitParents = async (oid: string): Promise<string[]> => {
-  const { stdout } = await git(['show', '-s', '--format=%P', oid]);
-  return stdout.trim().split(/\s+/).filter(Boolean);
-};
-
-const commitMessage = async (oid: string): Promise<string> => {
-  const { stdout } = await git(['show', '-s', '--format=%B', oid]);
-  return stdout.trimEnd();
-};
-
-const manifestAt = async (oid: string, path: string): Promise<unknown> => {
-  const { stdout } = await git(['show', `${oid}:${path}`]);
-  const value: unknown = JSON.parse(stdout);
-  return value;
-};
-
-const rootManifestValue = (value: unknown): RootManifest => {
-  if (!isRecord(value)) throw new Error('Root package.json must contain one object.');
-  const workspaces = value['workspaces'];
-  if (
-    workspaces !== undefined &&
-    (!Array.isArray(workspaces) || workspaces.some((entry) => typeof entry !== 'string'))
-  ) {
-    throw new Error('Root package.json workspaces must be strings.');
-  }
-  return {
-    ...(typeof value['version'] === 'string' ? { version: value['version'] } : {}),
-    ...(Array.isArray(workspaces)
-      ? { workspaces: workspaces.filter((entry): entry is string => typeof entry === 'string') }
-      : {}),
-  };
-};
-
-const packageManifestValue = (value: unknown, path: string): PublicPackageManifest => {
-  if (!isRecord(value)) throw new Error(`${path} must contain one object.`);
-  const dependencies = stringRecord(value['dependencies'], `${path}.dependencies`);
-  const devDependencies = stringRecord(
-    value['devDependencies'],
-    `${path}.devDependencies`,
-  );
-  const optionalDependencies = stringRecord(
-    value['optionalDependencies'],
-    `${path}.optionalDependencies`,
-  );
-  const peerDependencies = stringRecord(
-    value['peerDependencies'],
-    `${path}.peerDependencies`,
-  );
-  return {
-    ...(dependencies === undefined ? {} : { dependencies }),
-    ...(devDependencies === undefined ? {} : { devDependencies }),
-    ...(typeof value['name'] === 'string' ? { name: value['name'] } : {}),
-    ...(optionalDependencies === undefined ? {} : { optionalDependencies }),
-    ...(peerDependencies === undefined ? {} : { peerDependencies }),
-    ...(typeof value['private'] === 'boolean' ? { private: value['private'] } : {}),
-    ...(typeof value['version'] === 'string' ? { version: value['version'] } : {}),
-  };
-};
-
-const publicPackagesAt = async (
-  oid: string,
-): Promise<{
-  packages: Array<{ manifest: PublicPackageManifest; name: string }>;
-  root: RootManifest;
-}> => {
-  const root = rootManifestValue(await manifestAt(oid, 'package.json'));
-  if (JSON.stringify(root.workspaces) !== JSON.stringify(['packages/*'])) {
-    throw new Error('The release controller supports only the accepted packages/* seed workspace.');
-  }
-  const { stdout } = await git(['ls-tree', '-d', '--name-only', `${oid}:packages`]);
-  const packages: Array<{ manifest: PublicPackageManifest; name: string }> = [];
-  for (const directory of stdout.trim().split('\n').filter(Boolean)) {
-    const manifestPath = `packages/${directory}/package.json`;
-    const manifest = packageManifestValue(
-      await manifestAt(oid, manifestPath),
-      manifestPath,
-    );
-    if (manifest.private !== true) {
-      if (typeof manifest.name !== 'string' || manifest.name.length === 0) {
-        throw new Error(`packages/${directory}/package.json has no package name.`);
-      }
-      packages.push({ manifest, name: manifest.name });
-    }
-  }
-  return { packages, root };
-};
 
 const releasePrTemplate = (version: string): Promise<string> => {
   const { patch } = parseStableVersion(version);
@@ -493,203 +370,6 @@ const releasePrTemplate = (version: string): Promise<string> => {
     join(repositoryRoot, '.github/release-templates', filename),
     'utf8'
   );
-};
-
-const associatedPulls = async (token: string, oid: string): Promise<GitPullRequest[]> => {
-  const pulls: GitPullRequest[] = [];
-  for (let page = 1; ; page += 1) {
-    const query = new URLSearchParams({ page: String(page), per_page: '100' });
-    const batch = await githubRequest(
-      `/repos/${PILOT_REPOSITORY}/commits/${oid}/pulls?${query}`,
-      { token }
-    );
-    if (!Array.isArray(batch)) {
-      throw new Error(`GitHub associated pull requests for ${oid} must be an array.`);
-    }
-    pulls.push(...batch.map(validatedPullRequestResponse));
-    if (batch.length < 100) {
-      break;
-    }
-  }
-  return Promise.all(pulls.map((pull) => withPullRequestMergeCommit(token, pull)));
-};
-
-const findReleaseCut = async (
-  line: string,
-): Promise<DevelopmentCommit & { oid: string }> => {
-  const { stdout } = await git(['rev-list', '--first-parent', 'HEAD']);
-  const matches: Array<DevelopmentCommit & { oid: string }> = [];
-  for (const oid of stdout.trim().split('\n').filter(Boolean)) {
-    const cut = parseDevelopmentCommitMessageIfPresent(await commitMessage(oid));
-    if (cut?.line === line) {
-      const parents = await commitParents(oid);
-      if (parents.length !== 1 || parents[0] !== cut.sourceOid) {
-        throw new Error(`Release-cut commit ${oid} is not a child of its recorded source.`);
-      }
-      matches.push({ ...cut, oid });
-    }
-  }
-  if (matches.length !== 1) {
-    throw new Error(`Expected one ${line} release-cut record on main, found ${matches.length}.`);
-  }
-  const match = matches[0];
-  if (match === undefined) {
-    throw new Error(`Expected one ${line} release-cut record.`);
-  }
-  return match;
-};
-
-const findDevelopmentBootstrap = async ({
-  line,
-  sourceOid,
-}: {
-  line: string;
-  sourceOid: string;
-}): Promise<DevelopmentCommit & { oid: string }> => {
-  const target = parseReleaseLine(line);
-  const { stdout } = await git([
-    'rev-list',
-    '--first-parent',
-    sourceOid,
-  ]);
-  const matches: Array<DevelopmentCommit & { oid: string }> = [];
-  for (const oid of stdout.trim().split('\n').filter(Boolean)) {
-    const bootstrap = parseDevelopmentCommitMessageIfPresent(
-      await commitMessage(oid),
-    );
-    if (bootstrap === null) {
-      continue;
-    }
-    const version = parseDevelopmentVersion(bootstrap.version);
-    if (
-      version.major !== target.major ||
-      version.minor !== target.minor ||
-      version.prerelease !== 'alpha' ||
-      version.prereleaseNumber !== 0
-    ) {
-      continue;
-    }
-    const parents = await commitParents(oid);
-    if (parents.length !== 1 || parents[0] !== bootstrap.sourceOid) {
-      throw new Error(
-        `Development bootstrap ${oid} is not a child of its recorded source.`,
-      );
-    }
-    matches.push({ ...bootstrap, oid });
-  }
-  if (matches.length !== 1) {
-    throw new Error(
-      `Expected one ${line} development bootstrap through ${sourceOid}, found ${matches.length}.`,
-    );
-  }
-  const match = matches[0];
-  if (match === undefined) {
-    throw new Error(`Expected one ${line} development bootstrap.`);
-  }
-  return match;
-};
-
-const mechanicalDevelopmentCommit = async (oid: string): Promise<boolean> => {
-  const message = await commitMessage(oid);
-  if (
-    parseDevelopmentCommitMessageIfPresent(message) !== null ||
-    parsePhaseEntryCommitMessageIfPresent(message) !== null
-  ) {
-    return true;
-  }
-  const parents = await commitParents(oid);
-  const proposalOid = parents[1];
-  if (parents.length === 2 && proposalOid !== undefined) {
-    try {
-      const proposal = parsePrereleaseProposalMessage(
-        await commitMessage(proposalOid),
-      );
-      const tree = (await git(['show', '-s', '--format=%T', oid])).stdout.trim();
-      const proposalTree = (
-        await git(['show', '-s', '--format=%T', proposalOid])
-      ).stdout.trim();
-      if (parents[0] === proposal.sourceOid && tree === proposalTree) {
-        return true;
-      }
-    } catch {
-      // Ordinary product merge commits remain part of release communication.
-    }
-  }
-  const parent = parents[0];
-  if (parent === undefined) {
-    return false;
-  }
-  const changedPaths = (
-    await git([
-      'diff-tree',
-      '--no-commit-id',
-      '--name-only',
-      '-r',
-      parent,
-      oid,
-    ])
-  ).stdout
-    .trim()
-    .split('\n')
-    .filter(Boolean);
-  if (
-    changedPaths.length === 0 ||
-    changedPaths.some(
-      (path) =>
-        path !== 'package.json' &&
-        path !== 'package-lock.json' &&
-        !/^packages\/[^/]+\/package\.json$/.test(path),
-    )
-  ) {
-    return false;
-  }
-  const target = await proposalRootVersionAt(oid);
-  const temporaryRoot = await mkdtemp(
-    join(tmpdir(), 'fablebook-version-only-check-'),
-  );
-  const worktree = join(temporaryRoot, 'worktree');
-  let added = false;
-  try {
-    await git(['worktree', 'add', '--detach', worktree, parent]);
-    added = true;
-    await materializeVersion(worktree, target);
-    const generatedLockPath = join(worktree, 'package-lock.json');
-    const generatedLock: unknown = JSON.parse(
-      await readFile(generatedLockPath, 'utf8'),
-    );
-    const targetLock = await manifestAt(oid, 'package-lock.json');
-    if (
-      isRecord(generatedLock) &&
-      isRecord(targetLock) &&
-      typeof targetLock['version'] === 'string'
-    ) {
-      generatedLock['version'] = targetLock['version'];
-      await writeFile(
-        generatedLockPath,
-        `${JSON.stringify(generatedLock, null, 2)}\n`,
-        'utf8',
-      );
-    }
-    await git(
-      ['add', 'package.json', 'package-lock.json', 'packages'],
-      { cwd: worktree },
-    );
-    try {
-      await git(['diff', '--cached', '--quiet', oid, '--'], {
-        cwd: worktree,
-      });
-      return true;
-    } catch {
-      return false;
-    }
-  } finally {
-    if (added) {
-      await git(['worktree', 'remove', '--force', worktree]).catch(
-        () => undefined,
-      );
-    }
-    await rm(temporaryRoot, { force: true, recursive: true });
-  }
 };
 
 const developmentLineChanges = async (
@@ -702,35 +382,9 @@ const developmentLineChanges = async (
     sourceOid: string;
   },
 ): Promise<ReleaseChange[]> => {
-  const { stdout: ancestry } = await git([
-    'rev-list',
-    '--first-parent',
-    sourceOid,
-  ]);
-  if (!ancestry.trim().split('\n').includes(boundaryOid)) {
-    throw new Error(
-      `${boundaryOid} is not on the main first-parent development history.`,
-    );
-  }
-  const { stdout } = await git([
-    'rev-list',
-    '--first-parent',
-    '--reverse',
-    `${boundaryOid}..${sourceOid}`,
-  ]);
-  const productOids: string[] = [];
-  for (const oid of stdout.trim().split('\n').filter(Boolean)) {
-    if (!(await mechanicalDevelopmentCommit(oid))) {
-      productOids.push(oid);
-    }
-  }
-  const commits = await Promise.all(
-    productOids.map(async (oid) => ({
-      associatedPulls: await associatedPulls(token, oid),
-      oid,
-      subject: (await commitMessage(oid)).split('\n', 1)[0] ?? '',
-    })),
-  );
+  const commits = (
+    await developmentCommitFacts(token, { boundaryOid, sourceOid })
+  ).filter(({ mechanical }) => !mechanical);
   return derivePrereleaseChanges({ commits });
 };
 
@@ -759,31 +413,15 @@ const releaseChanges = async (
     releaseOid,
   }: { boundaryOid: string; line: string; releaseOid: string },
 ): Promise<ReleaseChange[]> => {
-  const { stdout: ancestry } = await git(['rev-list', '--first-parent', releaseOid]);
-  if (!ancestry.trim().split('\n').includes(boundaryOid)) {
-    throw new Error(`${boundaryOid} is not on the ${line} first-parent release history.`);
-  }
-  const { stdout } = await git([
-    'rev-list',
-    '--first-parent',
-    '--reverse',
-    `${boundaryOid}..${releaseOid}`,
-  ]);
-  const commits = await Promise.all(
-    stdout
-      .trim()
-      .split('\n')
-      .filter(Boolean)
-      .map(async (oid) => ({
-        associatedPulls: await associatedPulls(token, oid),
-        oid,
-        subject: (await commitMessage(oid)).split('\n', 1)[0] ?? '',
-      }))
-  );
+  const commits = await firstParentCommitFacts(token, {
+    boundaryOid,
+    headOid: releaseOid,
+    label: line,
+  });
   return deriveReleaseChanges({ commits, line });
 };
 
-const initialReleaseChanges = async (
+export const initialReleaseChanges = async (
   token: string,
   {
     line,
@@ -881,34 +519,6 @@ const createReleasePr = async (
   return createDraftReleasePr(token, { ...action, body });
 };
 
-const validateVersionTree = async (oid: string, version: string): Promise<void> => {
-  const { packages, root } = await publicPackagesAt(oid);
-  if (root.version !== version || packages.length === 0) {
-    throw new Error(`${oid} does not materialize root version ${version}.`);
-  }
-  const publicNames = new Set(packages.map(({ name }) => name));
-  for (const pkg of packages) {
-    if (pkg.manifest.version !== version) {
-      throw new Error(`${pkg.name} does not materialize ${version}.`);
-    }
-    const dependencyFields: Array<
-      'dependencies' | 'devDependencies' | 'optionalDependencies' | 'peerDependencies'
-    > = [
-      'dependencies',
-      'devDependencies',
-      'optionalDependencies',
-      'peerDependencies',
-    ];
-    for (const field of dependencyFields) {
-      for (const [name, dependencyVersion] of Object.entries(pkg.manifest[field] ?? {})) {
-        if (publicNames.has(name) && dependencyVersion !== version) {
-          throw new Error(`${pkg.name} has a non-lockstep dependency on ${name}.`);
-        }
-      }
-    }
-  }
-};
-
 const validateProposalCommit = async (
   oid: string,
   expected: {
@@ -919,7 +529,7 @@ const validateProposalCommit = async (
   },
 ): Promise<void> => {
   assert.deepEqual(await commitParents(oid), [expected.sourceOid]);
-  const metadata = parseProposalMessage(await commitMessage(oid));
+  const metadata = parseProposalMessage(await commitMessageAt(oid));
   assert.equal(metadata.line, expected.line);
   assert.equal(metadata.sourceOid, expected.sourceOid);
   assert.equal(metadata.version, expected.version);
@@ -948,7 +558,7 @@ const validateDevelopmentCommit = async (
   expected: { line: string; sourceOid: string; version: string },
 ): Promise<void> => {
   assert.deepEqual(await commitParents(oid), [expected.sourceOid]);
-  const message = await commitMessage(oid);
+  const message = await commitMessageAt(oid);
   assert.deepEqual(
     parsePrereleaseBootstrapCommitMessageIfPresent(message),
     expected,
@@ -960,130 +570,15 @@ const validateDevelopmentCommit = async (
   await validateVersionTree(oid, expected.version);
 };
 
-function validateFullOid(oid: unknown, label: string): asserts oid is string {
-  if (typeof oid !== 'string' || !/^[0-9a-f]{40}$/.test(oid)) {
-    throw new Error(`${label} is not a full commit OID.`);
-  }
-}
-
-const uploadCommitObject = async (token: string, oid: string): Promise<string> => {
-  const sourceOid = (await commitParents(oid))[0];
-  validateFullOid(sourceOid, 'Uploaded commit parent');
-  const changedPaths = (
-    await git(['diff-tree', '--no-commit-id', '--name-only', '-r', sourceOid, oid])
-  ).stdout
-    .trim()
-    .split('\n')
-    .filter(Boolean);
-  if (changedPaths.length === 0) {
-    throw new Error(`Prepared commit ${oid} has no tree changes.`);
-  }
-
-  const tree: Array<{
-    content: string;
-    mode: string;
-    path: string;
-    type: string;
-  }> = [];
-  for (const path of changedPaths) {
-    const entry = (await git(['ls-tree', oid, '--', path])).stdout.trim();
-    const match = /^(\d{6}) (blob) [0-9a-f]{40}\t(.+)$/.exec(entry);
-    const mode = match?.[1];
-    const type = match?.[2];
-    if (mode === undefined || type === undefined || match?.[3] !== path) {
-      throw new Error(`Prepared commit has an unsupported tree entry: ${entry}`);
-    }
-    tree.push({
-      content: (await git(['show', `${oid}:${path}`])).stdout,
-      mode,
-      path,
-      type,
-    });
-  }
-
-  const sourceTree = (await git(['show', '-s', '--format=%T', sourceOid])).stdout.trim();
-  const expectedTree = (await git(['show', '-s', '--format=%T', oid])).stdout.trim();
-  const remoteTreeResponse = await githubRequest(`/repos/${PILOT_REPOSITORY}/git/trees`, {
-    body: { base_tree: sourceTree, tree },
-    method: 'POST',
-    token,
-  });
-  if (!isRecord(remoteTreeResponse)) {
-    throw new Error('GitHub created-tree response must be an object.');
-  }
-  const remoteTreeSha = stringValue(remoteTreeResponse['sha'], 'GitHub created tree SHA');
-  if (remoteTreeSha !== expectedTree) {
-    throw new Error(`GitHub created tree ${remoteTreeSha}, expected ${expectedTree}.`);
-  }
-
-  const identity = (
-    await git(['show', '-s', '--format=%an%x00%ae%x00%aI%x00%cn%x00%ce%x00%cI', oid])
-  ).stdout.trimEnd().split('\0');
-  if (identity.length !== 6 || identity.some((value) => value.length === 0)) {
-    throw new Error(`Prepared commit ${oid} has incomplete author or committer metadata.`);
-  }
-  const authorName = stringValue(identity[0], 'Prepared author name');
-  const authorEmail = stringValue(identity[1], 'Prepared author email');
-  const authorDate = stringValue(identity[2], 'Prepared author date');
-  const committerName = stringValue(identity[3], 'Prepared committer name');
-  const committerEmail = stringValue(identity[4], 'Prepared committer email');
-  const committerDate = stringValue(identity[5], 'Prepared committer date');
-  const message = await commitMessage(oid);
-  const remoteCommit = validatedGitCommitResponse(
-    await githubRequest(`/repos/${PILOT_REPOSITORY}/git/commits`, {
-      body: {
-        author: { date: authorDate, email: authorEmail, name: authorName },
-        committer: {
-          date: committerDate,
-          email: committerEmail,
-          name: committerName,
-        },
-        message,
-        parents: [sourceOid],
-        tree: remoteTreeSha,
-      },
-      method: 'POST',
-      token,
-    }),
-  );
-  validateFullOid(remoteCommit.sha, 'Uploaded GitHub commit');
-  const sameIdentity = (
-    remote: GitCommit['author'],
-    name: string,
-    email: string,
-    date: string,
-  ): boolean =>
-    remote.name === name &&
-    remote.email === email &&
-    Number.isFinite(Date.parse(remote.date)) &&
-    Date.parse(remote.date) === Date.parse(date);
-  if (
-    remoteCommit.message !== message ||
-    remoteCommit.tree?.sha !== expectedTree ||
-    remoteCommit.parents.length !== 1 ||
-    remoteCommit.parents[0]?.sha !== sourceOid ||
-    !sameIdentity(remoteCommit.author, authorName, authorEmail, authorDate) ||
-    !sameIdentity(remoteCommit.committer, committerName, committerEmail, committerDate)
-  ) {
-    throw new Error(`GitHub did not preserve the prepared commit ${oid}.`);
-  }
-  return remoteCommit.sha;
-};
-
 const validateCutTransition = async (transition: CutTransition): Promise<void> => {
   parseReleaseLine(transition.line);
   parseStableVersion(transition.releaseVersion);
   validateFullOid(transition.sourceOid, 'Cut source');
   validateFullOid(transition.proposalOid, 'Proposal');
   validateFullOid(transition.developmentOid, 'Development commit');
-  const sourceManifest = rootManifestValue(
-    await manifestAt(transition.sourceOid, 'package.json'),
-  );
-  if (typeof sourceManifest.version !== 'string') {
-    throw new Error('Cut source manifest has no version.');
-  }
-  const minor = deriveCutVersions(sourceManifest.version, 'minor');
-  const major = deriveCutVersions(sourceManifest.version, 'major');
+  const sourceVersion = await rootVersionAt(transition.sourceOid);
+  const minor = deriveCutVersions(sourceVersion, 'minor');
+  const major = deriveCutVersions(sourceVersion, 'major');
   const matches = [minor, major].some(
     (candidate) =>
       candidate.line === transition.line &&
@@ -1095,117 +590,13 @@ const validateCutTransition = async (transition: CutTransition): Promise<void> =
   }
 };
 
-const materializeCommit = async ({
-  changes,
-  message,
-  sourceOid,
-  version,
-}: {
-  changes?: unknown[];
-  message: string;
-  sourceOid: string;
-  version: string;
-}) => {
-  const temporaryRoot = await mkdtemp(join(tmpdir(), 'fablebook-release-proposal-'));
-  const worktree = join(temporaryRoot, 'worktree');
-  let added = false;
-  try {
-    await git(['worktree', 'add', '--detach', worktree, sourceOid]);
-    added = true;
-    await materializeVersion(worktree, version);
-    await git(['add', 'package.json', 'package-lock.json', 'packages'], { cwd: worktree });
-    let recordPath: string | null = null;
-    if (changes !== undefined) {
-      recordPath = releaseRecordPath(version);
-      await mkdir(join(worktree, 'releases'), { recursive: true });
-      await writeFile(
-        join(worktree, recordPath),
-        renderReleaseRecord({ changes, version }),
-        'utf8'
-      );
-      await git(['add', recordPath], { cwd: worktree });
-    }
-
-    const changed = (await git(['diff', '--cached', '--name-only'], { cwd: worktree })).stdout
-      .trim()
-      .split('\n')
-      .filter(Boolean);
-    if (
-      changed.length === 0 ||
-      changed.some(
-        (path) =>
-          path !== recordPath &&
-          path !== 'package.json' &&
-          path !== 'package-lock.json' &&
-          !path.endsWith('/package.json')
-      ) ||
-      (recordPath !== null && !changed.includes(recordPath))
-    ) {
-      throw new Error(`Release materialization changed unexpected files: ${changed.join(', ')}`);
-    }
-
-    const identity = {
-      ...process.env,
-      GIT_AUTHOR_EMAIL: 'release-app@users.noreply.github.com',
-      GIT_AUTHOR_NAME: 'fablebook-release-app[bot]',
-      GIT_COMMITTER_EMAIL: 'release-app@users.noreply.github.com',
-      GIT_COMMITTER_NAME: 'fablebook-release-app[bot]',
-    };
-    await git(['commit', '--no-gpg-sign', '-m', message], { cwd: worktree, env: identity });
-    return (await git(['rev-parse', 'HEAD'], { cwd: worktree })).stdout.trim();
-  } finally {
-    if (added) {
-      await git(['worktree', 'remove', '--force', worktree]).catch(() => undefined);
-    }
-    await rm(temporaryRoot, { force: true, recursive: true });
-  }
-};
-
-const writeBundle = async (path: string, refs: BundleRef[]): Promise<void> => {
-  for (const { name, oid } of refs) {
-    await git(['update-ref', name, oid, ZERO_OID]);
-  }
-  try {
-    await git(['bundle', 'create', path, ...refs.map(({ name }) => name)]);
-  } finally {
-    await Promise.all(refs.map(({ name, oid }) => git(['update-ref', '-d', name, oid])));
-  }
-};
-
-const importBundle = async (path: string): Promise<void> => {
-  await git([
-    'fetch',
-    '--no-tags',
-    path,
-    `+${ARTIFACT_PREFIX}*:${IMPORT_PREFIX}*`,
-  ]);
-};
-
-const importedOid = async (bundleRef: string): Promise<string> => {
-  if (!bundleRef.startsWith(ARTIFACT_PREFIX)) {
-    throw new Error(`Unexpected bundle ref: ${bundleRef}`);
-  }
-  const imported = `${IMPORT_PREFIX}${bundleRef.slice(ARTIFACT_PREFIX.length)}`;
-  return (await git(['rev-parse', imported])).stdout.trim();
-};
-
-const prepareOutput = async (output: string): Promise<string> => {
-  const directory = resolve(output);
-  await mkdir(directory, { recursive: true });
-  return directory;
-};
-
 export async function prepareCut(options: PrepareCutOptions): Promise<void> {
-  await ensureSeedRepository();
+  await ensureCleanReleaseRepository();
   const nextDevelopment = requireOption(options, 'next-development');
   const output = await prepareOutput(requireOption(options, 'output'));
   const token = requireGithubToken(options);
   const sourceOid = (await git(['rev-parse', 'HEAD'])).stdout.trim();
-  const sourceManifest = rootManifestValue(await manifestAt(sourceOid, 'package.json'));
-  if (typeof sourceManifest.version !== 'string') {
-    throw new Error('Cut source manifest has no version.');
-  }
-  const versions = deriveCutVersions(sourceManifest.version, nextDevelopment);
+  const versions = deriveCutVersions(await rootVersionAt(sourceOid), nextDevelopment);
   const bootstrap = await findDevelopmentBootstrap({
     line: versions.line,
     sourceOid,
@@ -1234,7 +625,12 @@ export async function prepareCut(options: PrepareCutOptions): Promise<void> {
   const attempt = randomUUID();
 
   const proposalOid = await materializeCommit({
-    changes,
+    files: [
+      {
+        content: renderReleaseRecord({ changes, version: versions.releaseVersion }),
+        path: releaseRecordPath(versions.releaseVersion),
+      },
+    ],
     message: proposalCommitMessage({
       attempt,
       line: versions.line,
@@ -1359,7 +755,7 @@ export function cutRefUpdates({
 }
 
 export async function applyCut(options: ApplyCutOptions): Promise<void> {
-  await ensureSeedRepository();
+  await ensureCleanReleaseRepository();
   const transitionPath = resolve(requireOption(options, 'transition'));
   const bundlePath = resolve(requireOption(options, 'bundle'));
   const transition = cutTransitionValue(await readJson(transitionPath));
@@ -1372,10 +768,11 @@ export async function applyCut(options: ApplyCutOptions): Promise<void> {
   }
 
   const repository = await getRepository(token);
-  await importBundle(bundlePath);
+  await importBundle(bundlePath, [
+    { name: transition.proposalBundleRef, oid: transition.proposalOid },
+    { name: transition.developmentBundleRef, oid: transition.developmentOid },
+  ]);
   await validateCutTransition(transition);
-  assert.equal(await importedOid(transition.proposalBundleRef), transition.proposalOid);
-  assert.equal(await importedOid(transition.developmentBundleRef), transition.developmentOid);
   await validateProposalCommit(transition.proposalOid, {
     changes: transition.changes,
     line: transition.line,
@@ -1524,12 +921,7 @@ const loadMaintenanceStates = async (token: string): Promise<MaintenanceState[]>
       'origin',
       `+refs/heads/releases/${line}:refs/remotes/origin/releases/${line}`,
     ]);
-    const releaseManifest = rootManifestValue(
-      await manifestAt(releaseOid, 'package.json'),
-    );
-    if (typeof releaseManifest.version !== 'string') {
-      throw new Error(`releases/${line} root package.json has no version.`);
-    }
+    const lineVersion = await rootVersionAt(releaseOid);
     const stagedRef = await getRef(token, `heads/staged/${line}`);
     const pulls = await listReleasePulls(token, line);
     const openPulls = pulls.filter(({ state }) => state === 'open');
@@ -1547,7 +939,7 @@ const loadMaintenanceStates = async (token: string): Promise<MaintenanceState[]>
     let staged: MaintenanceState['staged'] = null;
     if (stagedRef !== null) {
       await git(['fetch', '--no-tags', 'origin', `+refs/heads/staged/${line}:refs/remotes/origin/staged/${line}`]);
-      const metadata = parseProposalMessage(await commitMessage(stagedRef.oid));
+      const metadata = parseProposalMessage(await commitMessageAt(stagedRef.oid));
       if (metadata.line !== line) {
         throw new Error(`staged/${line} contains proposal metadata for ${metadata.line}.`);
       }
@@ -1587,7 +979,7 @@ const loadMaintenanceStates = async (token: string): Promise<MaintenanceState[]>
       completedOid: completed.oid,
       latestClosedPr,
       line,
-      lineVersion: releaseManifest.version,
+      lineVersion,
       openPr: openPull
         ? {
             bodyCurrent,
@@ -1607,7 +999,7 @@ const loadMaintenanceStates = async (token: string): Promise<MaintenanceState[]>
 export async function prepareMaintenance(
   options: PrepareMaintenanceOptions,
 ): Promise<void> {
-  await ensureSeedRepository();
+  await ensureCleanReleaseRepository();
   const output = await prepareOutput(requireOption(options, 'output'));
   const token = requireGithubToken(options);
   const states = await loadMaintenanceStates(token);
@@ -1670,7 +1062,16 @@ export async function prepareMaintenance(
 
     const attempt = randomUUID();
     const proposalOid = await materializeCommit({
-      ...(changes === undefined ? {} : { changes }),
+      ...(changes === undefined
+        ? {}
+        : {
+            files: [
+              {
+                content: renderReleaseRecord({ changes, version: plan.version }),
+                path: releaseRecordPath(plan.version),
+              },
+            ],
+          }),
       message: proposalCommitMessage({
         attempt,
         line: plan.line,
@@ -1709,21 +1110,10 @@ export async function prepareMaintenance(
   console.log(`Prepared ${actions.length} release proposal maintenance actions.`);
 }
 
-const assertExpectedRef = async (
-  token: string,
-  ref: string,
-  expectedOid: string | null,
-): Promise<void> => {
-  const live = await getRef(token, ref);
-  if ((live?.oid ?? null) !== expectedOid) {
-    throw new Error(`${ref} changed after maintenance preparation.`);
-  }
-};
-
 export async function applyMaintenance(
   options: ApplyMaintenanceOptions,
 ): Promise<void> {
-  await ensureSeedRepository();
+  await ensureCleanReleaseRepository();
   const transitionPath = resolve(requireOption(options, 'transition'));
   const transition = maintenanceTransitionValue(await readJson(transitionPath));
   const bundle = options.bundle ? resolve(options.bundle) : null;
@@ -1745,7 +1135,14 @@ export async function applyMaintenance(
     throw new Error('Maintenance transition requires its Git object bundle.');
   }
   if (bundle !== null) {
-    await importBundle(bundle);
+    await importBundle(
+      bundle,
+      transition.actions.flatMap((action) =>
+        'bundleRef' in action
+          ? [{ name: action.bundleRef, oid: action.proposalOid }]
+          : [],
+      ),
+    );
   }
 
   for (const action of transition.actions) {
@@ -1815,7 +1212,7 @@ export async function applyMaintenance(
         'origin',
         `+refs/heads/staged/${action.line}:refs/remotes/origin/staged/${action.line}`,
       ]);
-      const metadata = parseProposalMessage(await commitMessage(action.expectedStagedOid));
+      const metadata = parseProposalMessage(await commitMessageAt(action.expectedStagedOid));
       if (
         metadata.line !== action.line ||
         metadata.sourceOid !== action.releaseOid ||
@@ -1850,7 +1247,6 @@ export async function applyMaintenance(
       throw new Error(`${action.line} gained an open release PR after preparation.`);
     }
 
-    assert.equal(await importedOid(action.bundleRef), action.proposalOid);
     validateFullOid(action.proposalOid, `${action.line} proposal`);
     parseStableVersion(action.version);
     await validateProposalCommit(action.proposalOid, {
@@ -1900,83 +1296,10 @@ export async function applyMaintenance(
   console.log(`Applied ${transition.actions.length} release proposal maintenance actions.`);
 }
 
-export const proposalCommitParents = commitParents;
-export const proposalCommitMessageAt = commitMessage;
-export const proposalImportBundle = importBundle;
-export const proposalInitialReleaseChanges = initialReleaseChanges;
-export const proposalImportedOid = importedOid;
-export const proposalMaterializeCommit = materializeCommit;
-export const proposalPrepareOutput = prepareOutput;
-export const proposalUploadCommitObject = uploadCommitObject;
-export const proposalValidateVersionTree = validateVersionTree;
-
-export async function proposalRootVersionAt(oid: string): Promise<string> {
-  const manifest = rootManifestValue(await manifestAt(oid, 'package.json'));
-  if (typeof manifest.version !== 'string') {
-    throw new Error(`${oid} root package.json has no version.`);
-  }
-  return manifest.version;
-}
-
-export async function proposalWriteBundle(
-  path: string,
-  refs: Array<{ name: string; oid: string }>,
-): Promise<void> {
-  await writeBundle(path, refs);
-}
-
-export async function proposalAssertExpectedRef(
-  token: string,
-  ref: string,
-  expectedOid: string | null,
-): Promise<void> {
-  await assertExpectedRef(token, ref, expectedOid);
-}
-
-export async function prereleaseChanges(
-  token: string,
-  {
-    boundaryOid,
-    sourceOid,
-  }: {
-    boundaryOid: string;
-    sourceOid: string;
-  },
-): Promise<ReleaseChange[]> {
-  const { stdout: ancestry } = await git([
-    'rev-list',
-    '--first-parent',
-    sourceOid,
-  ]);
-  if (!ancestry.trim().split('\n').includes(boundaryOid)) {
-    throw new Error(
-      `${boundaryOid} is not on the main first-parent prerelease history.`,
-    );
-  }
-  const { stdout } = await git([
-    'rev-list',
-    '--first-parent',
-    '--reverse',
-    `${boundaryOid}..${sourceOid}`,
-  ]);
-  const commits = await Promise.all(
-    stdout
-      .trim()
-      .split('\n')
-      .filter(Boolean)
-      .map(async (oid) => ({
-        associatedPulls: await associatedPulls(token, oid),
-        oid,
-        subject: (await commitMessage(oid)).split('\n', 1)[0] ?? '',
-      })),
-  );
-  return derivePrereleaseChanges({ commits });
-}
-
 export async function checkPullRequest(
   pull: Pick<ValidatedPullRequest, 'base' | 'body' | 'head'>,
 ): Promise<void> {
-  await ensureSeedRepository();
+  await ensureCleanReleaseRepository();
   if (
     pull.base.repo.full_name !== PILOT_REPOSITORY ||
     pull.head.repo.full_name !== PILOT_REPOSITORY ||
@@ -1989,7 +1312,7 @@ export async function checkPullRequest(
   parseReleaseLine(line);
   validateFullOid(pull.base.sha, 'Release PR base');
   validateFullOid(pull.head.sha, 'Release PR head');
-  const metadata = parseProposalMessage(await commitMessage(pull.head.sha));
+  const metadata = parseProposalMessage(await commitMessageAt(pull.head.sha));
   await validateProposalCommit(pull.head.sha, {
     line,
     sourceOid: pull.base.sha,

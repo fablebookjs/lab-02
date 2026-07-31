@@ -39,18 +39,18 @@ import {
   withPullRequestMergeCommit,
   validatedGitCommitResponse,
   validatedPullRequestResponse,
-} from '../release-proposal/github.ts';
+} from '../release-repository/github.ts';
 import type {
   GitCommit,
   GitPullRequest,
-} from '../release-proposal/github.ts';
+} from '../release-repository/github.ts';
 import type { ReleaseAuthority } from '../../shared/release-publication/core.ts';
 import type { PatchbackItem } from '../../shared/patchback/core.ts';
+import { run } from '../../shared/process/run.ts';
 import {
   readJson,
   requireGithubToken,
   requireOption,
-  run,
   writeJson,
 } from '../controller-support.ts';
 

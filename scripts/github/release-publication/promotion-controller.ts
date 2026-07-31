@@ -1,21 +1,21 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 
-import { loadReleasePackageSet } from '../../shared/release-publication/package-set.ts';
+import { loadReleasePackageSet } from '../../shared/package-publication/package-set.ts';
 import {
   createPromotionManifest,
   promoteSealedPackageSet,
   validatePromotionManifest,
 } from '../../shared/release-publication/promotion.ts';
 import {
-  NPM_REGISTRY,
   PILOT_REPOSITORY,
 } from '../../shared/release-publication/core.ts';
+import { NPM_REGISTRY } from '../../shared/package-publication/core.ts';
 import { parseStableVersion } from '../../shared/release-proposal/core.ts';
+import { run } from '../../shared/process/run.ts';
 import {
   readJson,
   requireOption,
-  run,
   writeJson,
 } from '../controller-support.ts';
 
