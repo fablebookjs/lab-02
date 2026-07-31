@@ -40,7 +40,12 @@ test('direct prerelease authority paths feed the same publication signal', async
     workflow('publish-prerelease.yml'),
   ]);
 
-  assert.match(cut, /release-cut\/authority\.json/);
+  const applyStart = cut.indexOf('\n  apply:');
+  assert.ok(applyStart > 0);
+  const cutPreparation = cut.slice(0, applyStart);
+  const cutApplication = cut.slice(applyStart);
+  assert.doesNotMatch(cutPreparation, /release-cut\/authority\.json/);
+  assert.match(cutApplication, /release-cut\/authority\.json/);
   assert.doesNotMatch(cut, /bootstrap-authority\.json/);
   assert.match(cut, /name: prerelease-authority-\$\{\{ github\.run_id \}\}/);
 

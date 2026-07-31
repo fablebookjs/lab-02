@@ -16,6 +16,9 @@ import {
   parseProposalMessage,
 } from '../scripts/shared/release-proposal/core.ts';
 import {
+  cutPrereleaseAuthority,
+} from '../scripts/github/release-proposal/controller.ts';
+import {
   prereleaseProposalCommitMessage,
 } from '../scripts/shared/prerelease-proposal/core.ts';
 import { renderReleaseRecord } from '../scripts/shared/release-communication/records.ts';
@@ -391,17 +394,25 @@ test('prepare-cut creates two validated children and no repository refs', async 
       ).stdout.trim(),
       cut.developmentOid
     );
-    const authority: unknown = JSON.parse(
-      await readFile(join(artifact, 'authority.json'), 'utf8'),
+    await assert.rejects(
+      readFile(join(artifact, 'authority.json'), 'utf8'),
+      /ENOENT/,
     );
-    assert.deepEqual(authority, {
-      boundaryOid: cut.developmentOid,
+    const appliedDevelopmentOid = 'a'.repeat(40);
+    assert.notEqual(appliedDevelopmentOid, cut.developmentOid);
+    assert.deepEqual(cutPrereleaseAuthority({
+      developmentVersion: cut.developmentVersion,
+      line: cut.line,
+      snapshotOid: appliedDevelopmentOid,
+      sourceOid,
+    }), {
+      boundaryOid: appliedDevelopmentOid,
       changes: [],
       channel: 'next',
       cutLine: 'v1.0',
       repository: 'fablebookjs/lab-02',
       schema: 1,
-      snapshotOid: cut.developmentOid,
+      snapshotOid: appliedDevelopmentOid,
       sourceOid,
       version: '1.1.0-alpha.0',
     });

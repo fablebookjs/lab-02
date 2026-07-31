@@ -17,6 +17,7 @@ import type {
   PhaseEntrySnapshot,
 } from '../scripts/shared/prerelease-phase-entry/core.ts';
 import {
+  phaseEntryPrereleaseAuthority,
   phaseEntryRefUpdates,
 } from '../scripts/github/prerelease-phase-entry/controller.ts';
 import { ZERO_OID } from '../scripts/shared/release-proposal/core.ts';
@@ -161,6 +162,35 @@ test('phase entry atomically advances main and discards the proposal ref', () =>
         name: 'refs/heads/prerelease',
       },
     ],
+  );
+});
+
+test('phase-entry authority identifies the applied GitHub snapshot', () => {
+  const preparedSnapshotOid = oid('3');
+  const appliedSnapshotOid = oid('4');
+  assert.notEqual(preparedSnapshotOid, appliedSnapshotOid);
+  assert.deepEqual(
+    phaseEntryPrereleaseAuthority(
+      {
+        boundaryOid: oid('1'),
+        changes: [],
+        phase: 'beta',
+        sourceOid: oid('2'),
+        version: '3.2.0-beta.0',
+      },
+      appliedSnapshotOid,
+    ),
+    {
+      boundaryOid: oid('1'),
+      changes: [],
+      channel: 'next',
+      phase: 'beta',
+      repository: 'fablebookjs/lab-02',
+      schema: 1,
+      snapshotOid: appliedSnapshotOid,
+      sourceOid: oid('2'),
+      version: '3.2.0-beta.0',
+    },
   );
 });
 
