@@ -12,7 +12,12 @@ import {
   formatSummary,
   total,
 } from '@fablebook/lab-02-addon';
-import { add, normalizeLabel, normalizeLabels } from '@fablebook/lab-02-core';
+import {
+  add,
+  formatChapterNavigation,
+  normalizeLabel,
+  normalizeLabels,
+} from '@fablebook/lab-02-core';
 
 import {
   listPublicPackages,
@@ -132,4 +137,17 @@ test('count summaries report the number of values', () => {
 
 test('label collections share one locale-aware normalization pass', () => {
   assert.deepEqual(normalizeLabels([' I ', ' İ '], { locale: 'tr' }), ['ı', 'i']);
+});
+
+test('chapter navigation renders a trail or only the current chapter', () => {
+  const chapters = ['Introduction', 'Components', 'Buttons'];
+  assert.equal(
+    formatChapterNavigation(chapters),
+    'Introduction > Components > Buttons',
+  );
+  assert.equal(
+    formatChapterNavigation(chapters, { layout: 'current' }),
+    'Buttons',
+  );
+  assert.equal(formatChapterNavigation([], { layout: 'current' }), '');
 });
