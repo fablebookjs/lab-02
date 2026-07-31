@@ -23,7 +23,7 @@ const route = ({
   event,
   path,
 }: {
-  branch?: string;
+  branch?: string | null;
   conclusion?: string;
   event: string;
   path: string;
@@ -97,6 +97,11 @@ test('unsuccessful, unknown, maintenance-only, and wrong-branch runs visibly ski
       event: 'workflow_dispatch',
       path: '.github/workflows/enter-prerelease-phase.yml',
     }),
+    route({
+      branch: null,
+      event: 'workflow_dispatch',
+      path: '.github/workflows/cut-release-line.yml',
+    }),
   ];
   assert.ok(
     decisions.every(
@@ -107,6 +112,7 @@ test('unsuccessful, unknown, maintenance-only, and wrong-branch runs visibly ski
   assert.match(decisions[1]?.kind === 'skip' ? decisions[1].reason : '', /not a publication/);
   assert.match(decisions[2]?.kind === 'skip' ? decisions[2].reason : '', /maintenance/);
   assert.match(decisions[3]?.kind === 'skip' ? decisions[3].reason : '', /main/);
+  assert.match(decisions[4]?.kind === 'skip' ? decisions[4].reason : '', /without a branch/);
 });
 
 test('the handler boundary validates the completed workflow payload', () => {
@@ -142,6 +148,19 @@ test('the handler boundary validates the completed workflow payload', () => {
         },
       }),
     /conclusion is missing or unknown/,
+  );
+  assert.equal(
+    validatedWorkflowRunCompletion('workflow_run', {
+      action: 'completed',
+      workflow_run: {
+        conclusion: 'success',
+        event: 'workflow_dispatch',
+        head_branch: null,
+        id: 43,
+        path: '.github/workflows/cut-release-line.yml',
+      },
+    }).branch,
+    null,
   );
 });
 

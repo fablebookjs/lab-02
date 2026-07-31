@@ -5,7 +5,7 @@ export type PublicationAuthorityKind =
   | 'stable-pr';
 
 export type PublicationRouteInput = Readonly<{
-  branch: string;
+  branch: string | null;
   conclusion: string;
   event: string;
   path: string;
@@ -89,7 +89,7 @@ export function classifyPublicationRoute(
   if (source.branch !== undefined && input.branch !== source.branch) {
     return {
       kind: 'skip',
-      reason: `${source.authorityKind} must originate from main, not ${input.branch}.`,
+      reason: `${source.authorityKind} must originate from main, not ${input.branch ?? 'a run without a branch'}.`,
     };
   }
 

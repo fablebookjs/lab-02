@@ -40,7 +40,7 @@ export type ValidatedPullRequestDescription = {
 };
 
 export type ValidatedWorkflowRunCompletion = {
-  branch: string;
+  branch: AuthoritativeWorkflowRun['head_branch'];
   conclusion: WorkflowConclusion;
   event: AuthoritativeWorkflowRun['event'];
   path: AuthoritativeWorkflowRun['path'];
@@ -62,6 +62,13 @@ const requiredWorkflowString = (value: unknown, label: string): string => {
     throw new Error(`Completed workflow run ${label} is missing.`);
   }
   return value;
+};
+
+const workflowBranch = (
+  value: unknown,
+): AuthoritativeWorkflowRun['head_branch'] => {
+  if (value === null) return null;
+  return requiredWorkflowString(value, 'branch');
 };
 
 const workflowConclusion = (value: unknown): WorkflowConclusion => {
@@ -174,7 +181,7 @@ export function validatedWorkflowRunCompletion(
     throw new Error('Completed workflow run ID must be a positive integer.');
   }
   return {
-    branch: requiredWorkflowString(workflowRun['head_branch'], 'branch'),
+    branch: workflowBranch(workflowRun['head_branch']),
     conclusion: workflowConclusion(workflowRun['conclusion']),
     event: requiredWorkflowString(workflowRun['event'], 'event'),
     path: requiredWorkflowString(workflowRun['path'], 'path'),
