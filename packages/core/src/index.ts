@@ -23,3 +23,17 @@ export function normalizeLabels(
 ): string[] {
   return values.map((value) => normalizeLabel(value, options));
 }
+
+export interface ChapterNavigationOptions {
+  layout?: 'current' | 'trail';
+}
+
+export function formatChapterNavigation(
+  chapters: string[],
+  { layout = 'trail' }: ChapterNavigationOptions = {}
+): string {
+  if (layout === 'current') {
+    return chapters.at(-1) ?? '';
+  }
+  return chapters.join(' > ');
+}
