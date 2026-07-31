@@ -28,16 +28,45 @@ export function normalizeLabels(
   return values.map((value) => normalizeLabel(value, options));
 }
 
+export type ChapterProgressVariant = 'compact';
+
 export interface ChapterNavigationOptions {
   storyLayout?: 'current' | 'trail';
+  progressVariant?: ChapterProgressVariant;
+  currentChapter?: number;
 }
+
+const progressLabels: Record<ChapterProgressVariant, string> = {
+  'compact': 'Progress',
+};
+
+const trailSeparators: Partial<Record<ChapterProgressVariant, string>> = {
+
+};
+
+const untitledVariants = new Set<ChapterProgressVariant>([]);
 
 export function formatChapterNavigation(
   chapters: string[],
-  { storyLayout = 'trail' }: ChapterNavigationOptions = {}
+  options: ChapterNavigationOptions = {}
 ): string {
-  if (storyLayout === 'current') {
-    return chapters.at(-1) ?? '';
-  }
-  return chapters.join(' > ');
+  const layout = options.storyLayout ?? 'trail';
+  const variant = options.progressVariant;
+  const normalizedChapters =
+    variant && untitledVariants.has(variant)
+      ? chapters.map((chapter) => chapter.trim() || 'Untitled chapter')
+      : chapters;
+  const visibleChapters = normalizedChapters;
+  const separator = variant ? trailSeparators[variant] ?? ' > ' : ' > ';
+  const navigation =
+    layout === 'current'
+      ? visibleChapters.at(-1) ?? ''
+      : visibleChapters.join(separator);
+
+  if (!variant) return navigation;
+  const current = Math.min(
+    Math.max(options.currentChapter ?? visibleChapters.length, 0),
+    visibleChapters.length,
+  );
+  return `${navigation} · ${progressLabels[variant]} ${current}/${visibleChapters.length}`;
 }
