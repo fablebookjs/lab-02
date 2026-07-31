@@ -12,6 +12,16 @@ export type RunOptions = {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
+const commandDiagnostic = (error: unknown): string =>
+  isRecord(error)
+    ? [error['stdout'], error['stderr']]
+        .filter(
+          (value): value is string =>
+            typeof value === 'string' && value.length > 0,
+        )
+        .join('\n')
+    : '';
+
 export async function run(
   command: string,
   args: string[],
@@ -24,14 +34,7 @@ export async function run(
       maxBuffer: 20 * 1024 * 1024,
     });
   } catch (error) {
-    const output = isRecord(error)
-      ? [error['stdout'], error['stderr']]
-          .filter(
-            (value): value is string =>
-              typeof value === 'string' && value.length > 0,
-          )
-          .join('\n')
-      : '';
+    const output = commandDiagnostic(error);
     throw new Error(
       `${command} ${args.join(' ')} failed${output ? `\n${output}` : ''}`,
       { cause: error },
