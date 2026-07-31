@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   developmentCommitMessage,
+  deriveProposalAccountingBoundary,
   deriveCutVersions,
   nextReleaseVersion,
   parseDevelopmentCommitMessage,
@@ -24,7 +25,7 @@ import {
 } from '../scripts/github/release-proposal/controller.ts';
 
 const lineState = (overrides = {}) => ({
-  completedOid: null,
+  accountingOid: null,
   latestClosedPr: null,
   line: 'v1.0',
   lineVersion: '1.0.0-alpha.0',
@@ -151,6 +152,51 @@ test('the release-line root version chooses the stable proposal successor', () =
         version: '10.5.0',
       })
     )
+  );
+});
+
+test('proposal accounting selects the latest trusted first-parent snapshot', () => {
+  const completedOid = '1'.repeat(40);
+  const firstMergedOid = '2'.repeat(40);
+  const latestMergedOid = '4'.repeat(40);
+  const releaseHistory = [
+    '5'.repeat(40),
+    latestMergedOid,
+    '3'.repeat(40),
+    firstMergedOid,
+    completedOid,
+  ];
+
+  assert.equal(
+    deriveProposalAccountingBoundary({
+      completedOid,
+      mergedProposalOids: [firstMergedOid, latestMergedOid],
+      releaseHistory,
+    }),
+    latestMergedOid,
+  );
+  assert.equal(
+    deriveProposalAccountingBoundary({
+      completedOid: latestMergedOid,
+      mergedProposalOids: [latestMergedOid],
+      releaseHistory,
+    }),
+    latestMergedOid,
+  );
+  assert.equal(
+    deriveProposalAccountingBoundary({
+      completedOid: null,
+      mergedProposalOids: [],
+      releaseHistory,
+    }),
+    null,
+  );
+  assert.throws(() =>
+    deriveProposalAccountingBoundary({
+      completedOid: '9'.repeat(40),
+      mergedProposalOids: [],
+      releaseHistory,
+    }),
   );
 });
 
@@ -301,34 +347,41 @@ test('a fresh replacement proposal recovers PR creation after the previous PR cl
   });
 });
 
-test('a merged proposal advances from the line version before publication completes', () => {
+test('a merged proposal with no later work establishes the accounting boundary', () => {
   const releaseOid = '4'.repeat(40);
+  const proposalOid = '3'.repeat(40);
   const [action] = planProposalMaintenance([
     lineState({
+      accountingOid: releaseOid,
       latestClosedPr: {
-        mergeCommitOid: releaseOid,
+        headOid: proposalOid,
         merged: true,
         number: 16,
         version: '1.0.0',
       },
       lineVersion: '1.0.0',
       releaseOid,
+      staged: {
+        oid: proposalOid,
+        sourceOid: '2'.repeat(40),
+        version: '1.0.0',
+      },
     }),
   ]);
   assert.deepEqual(action, {
-    kind: 'create',
+    kind: 'dormant',
     line: 'v1.0',
-    reason: 'line has unreleased work',
-    version: '1.0.1',
+    openPr: null,
+    reason: 'line has no work after its accounted snapshot',
   });
 });
 
 test('late work advances from the merged line version without a completion gate', () => {
   const [action] = planProposalMaintenance([
     lineState({
-      completedOid: '4'.repeat(40),
+      accountingOid: '5'.repeat(40),
       latestClosedPr: {
-        mergeCommitOid: '5'.repeat(40),
+        headOid: '4'.repeat(40),
         merged: true,
         number: 17,
         version: '1.0.1',
@@ -340,24 +393,24 @@ test('late work advances from the merged line version without a completion gate'
   assert.deepEqual(action, {
     kind: 'create',
     line: 'v1.0',
-    reason: 'line has unreleased work',
+    reason: 'line has unaccounted work',
     version: '1.0.2',
   });
 });
 
-test('an older completed line goes dormant but new work activates it again', () => {
-  const completedOid = '5'.repeat(40);
+test('an accounted line goes dormant but new work activates it again', () => {
+  const accountingOid = '5'.repeat(40);
   const staged = {
     oid: '6'.repeat(40),
-    sourceOid: completedOid,
+    sourceOid: accountingOid,
     version: '1.0.1',
   };
   const dormant = planProposalMaintenance([
     lineState({
-      completedOid,
+      accountingOid,
       lineVersion: '1.0.0',
       openPr: { number: 20 },
-      releaseOid: completedOid,
+      releaseOid: accountingOid,
       staged,
     }),
     lineState({
@@ -371,7 +424,7 @@ test('an older completed line goes dormant but new work activates it again', () 
 
   const active = planProposalMaintenance([
     lineState({
-      completedOid,
+      accountingOid,
       lineVersion: '1.0.0',
       releaseOid: '8'.repeat(40),
     }),
@@ -384,43 +437,41 @@ test('an older completed line goes dormant but new work activates it again', () 
   assert.deepEqual(active, {
     kind: 'create',
     line: 'v1.0',
-    reason: 'line has unreleased work',
+    reason: 'line has unaccounted work',
     version: '1.0.1',
   });
 });
 
-test('the newest completed line remains active for its next patch', () => {
-  const completedOid = '9'.repeat(40);
+test('the newest line stays idle until real work follows its accounting boundary', () => {
+  const accountingOid = '9'.repeat(40);
   const [action] = planProposalMaintenance([
     lineState({
-      completedOid,
+      accountingOid,
       lineVersion: '1.0.3',
-      releaseOid: completedOid,
+      releaseOid: accountingOid,
     }),
   ]);
   assert.deepEqual(action, {
-    kind: 'create',
+    kind: 'none',
     line: 'v1.0',
-    reason: 'newest line stays active',
-    version: '1.0.4',
+    reason: 'line has no unaccounted work',
   });
 });
 
-test('the exact merged staged proposal is replaced before publication completes', () => {
-  const completedOid = '9'.repeat(40);
+test('the exact merged staged proposal advances once later work exists', () => {
+  const accountingOid = '9'.repeat(40);
   const completedProposalOid = '8'.repeat(40);
   const [action] = planProposalMaintenance([
     lineState({
-      completedOid,
+      accountingOid,
       latestClosedPr: {
         headOid: completedProposalOid,
-        mergeCommitOid: completedOid,
         merged: true,
         number: 18,
         version: '1.0.3',
       },
       lineVersion: '1.0.3',
-      releaseOid: '7'.repeat(40),
+      releaseOid: 'a'.repeat(40),
       staged: {
         oid: completedProposalOid,
         sourceOid: '6'.repeat(40),
@@ -437,21 +488,20 @@ test('the exact merged staged proposal is replaced before publication completes'
 });
 
 test('an unrelated staged version mismatch still fails closed after completion', () => {
-  const completedOid = '9'.repeat(40);
+  const accountingOid = '9'.repeat(40);
   assert.throws(
     () =>
       planProposalMaintenance([
         lineState({
-          completedOid,
+          accountingOid,
           latestClosedPr: {
             headOid: '8'.repeat(40),
-            mergeCommitOid: completedOid,
             merged: true,
             number: 18,
             version: '1.0.3',
           },
           lineVersion: '1.0.3',
-          releaseOid: completedOid,
+          releaseOid: 'a'.repeat(40),
           staged: {
             oid: '7'.repeat(40),
             sourceOid: '6'.repeat(40),

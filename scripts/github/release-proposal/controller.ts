@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 
 import {
   compareReleaseLines,
+  deriveProposalAccountingBoundary,
   deriveCutVersions,
   developmentCommitMessage,
   parsePrereleaseBootstrapCommitMessageIfPresent,
@@ -173,11 +174,10 @@ type MaintenanceTransition = {
 };
 
 type MaintenanceState = {
+  accountingOid: string | null;
   closedPrs: Array<{ body: string; number: number; state: string }>;
-  completedOid: string | null;
   latestClosedPr: {
     headOid: string;
-    mergeCommitOid: string | null;
     merged: boolean;
     number: number;
     version: string;
@@ -862,11 +862,11 @@ export async function applyCut(options: ApplyCutOptions): Promise<void> {
 
 const refOid = (ref: GitReference): string => ref.object.sha;
 
-const latestCompletedTag = async (
+const latestCompletedOid = async (
   token: string,
   line: string,
   tagRefs: GitReference[],
-): Promise<{ oid: string | null; version: string | null }> => {
+): Promise<string | null> => {
   const lineVersion = parseReleaseLine(line);
   const candidates = tagRefs
     .map((ref) => ({
@@ -889,13 +889,10 @@ const latestCompletedTag = async (
   for (const latest of candidates.reverse()) {
     const release = await getReleaseByTag(token, `v${latest.version}`);
     if (release !== null && release.draft === false) {
-      return {
-        oid: await resolveRefObject(token, latest.ref.object),
-        version: latest.version,
-      };
+      return resolveRefObject(token, latest.ref.object);
     }
   }
-  return { oid: null, version: null };
+  return null;
 };
 
 const loadMaintenanceStates = async (token: string): Promise<MaintenanceState[]> => {
@@ -928,13 +925,27 @@ const loadMaintenanceStates = async (token: string): Promise<MaintenanceState[]>
     if (openPulls.length > 1) {
       throw new Error(`${line} has more than one open canonical release PR.`);
     }
-    const latestClosedSummary = pulls
-      .filter(({ state }) => state === 'closed')
-      .sort((left, right) => right.number - left.number)[0];
-    const latestClosed = latestClosedSummary
-      ? await getPullRequest(token, latestClosedSummary.number)
-      : null;
-    const completed = await latestCompletedTag(token, line, tagRefs);
+    const closedPulls = await Promise.all(
+      pulls
+        .filter(({ state }) => state === 'closed')
+        .map(({ number }) => getPullRequest(token, number)),
+    );
+    const closedProposals = await Promise.all(
+      closedPulls.map(async (pull) => {
+        const proposal = parseProposalMessage(
+          (await getGitCommit(token, pull.head.sha)).message,
+        );
+        if (proposal.line !== line) {
+          throw new Error(
+            `Release PR #${pull.number} contains proposal metadata for ${proposal.line}.`,
+          );
+        }
+        return { proposal, pull };
+      }),
+    );
+    const latestClosed = closedProposals
+      .sort((left, right) => right.pull.number - left.pull.number)[0] ?? null;
+    const completedOid = await latestCompletedOid(token, line, tagRefs);
 
     let staged: MaintenanceState['staged'] = null;
     if (stagedRef !== null) {
@@ -948,21 +959,28 @@ const loadMaintenanceStates = async (token: string): Promise<MaintenanceState[]>
 
     let latestClosedPr: MaintenanceState['latestClosedPr'] = null;
     if (latestClosed !== null) {
-      const closedProposal = parseProposalMessage(
-        (await getGitCommit(token, latestClosed.head.sha)).message
-      );
-      const mergeCommitOid = latestClosed.merge_commit_sha;
-      if (latestClosed.merged_at !== null) {
-        validateFullOid(mergeCommitOid, `${line} merged proposal`);
-      }
       latestClosedPr = {
-        headOid: latestClosed.head.sha,
-        mergeCommitOid: mergeCommitOid,
-        merged: latestClosed.merged_at !== null,
-        number: latestClosed.number,
-        version: closedProposal.version,
+        headOid: latestClosed.pull.head.sha,
+        merged: latestClosed.pull.merged_at !== null,
+        number: latestClosed.pull.number,
+        version: latestClosed.proposal.version,
       };
     }
+    const mergedProposalOids: string[] = [];
+    for (const { pull } of closedProposals.filter(
+      ({ pull }) => pull.merged_at !== null,
+    )) {
+      validateFullOid(pull.merge_commit_sha, `${line} merged proposal`);
+      mergedProposalOids.push(pull.merge_commit_sha);
+    }
+    const releaseHistory = (
+      await git(['rev-list', '--first-parent', releaseOid])
+    ).stdout.trim().split('\n').filter(Boolean);
+    const accountingOid = deriveProposalAccountingBoundary({
+      completedOid,
+      mergedProposalOids,
+      releaseHistory,
+    });
     const openPull = openPulls[0] ?? null;
     const bodyIdentity = extractReleasePrIdentity(openPull?.body);
     const bodyCurrent =
@@ -973,10 +991,10 @@ const loadMaintenanceStates = async (token: string): Promise<MaintenanceState[]>
       bodyIdentity.version === staged.version;
 
     states.push({
+      accountingOid,
       closedPrs: pulls
         .filter(({ state }) => state === 'closed')
         .map(({ body, number, state }) => ({ body: body ?? '', number, state })),
-      completedOid: completed.oid,
       latestClosedPr,
       line,
       lineVersion,
@@ -1024,13 +1042,13 @@ export async function prepareMaintenance(
         `+refs/heads/releases/${plan.line}:refs/remotes/origin/releases/${plan.line}`,
       ]);
       changes =
-        state.completedOid === null
+        state.accountingOid === null
           ? await initialReleaseChanges(token, {
               line: plan.line,
               releaseOid: state.releaseOid,
             })
           : await releaseChanges(token, {
-              boundaryOid: state.completedOid,
+              boundaryOid: state.accountingOid,
               line: plan.line,
               releaseOid: state.releaseOid,
             });

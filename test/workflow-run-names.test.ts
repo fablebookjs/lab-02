@@ -30,7 +30,7 @@ const expectedRunNames = new Map([
   ],
   [
     'maintain-release-proposal.yml',
-    `run-name: "Release PR refresh · \${{ github.event_name == 'repository_dispatch' && github.event.action || github.event_name == 'workflow_run' && format('after {0}', github.event.workflow_run.display_title) || github.event_name }}"`,
+    `run-name: "Release PR refresh · \${{ github.event_name == 'workflow_run' && format('after {0}', github.event.workflow_run.display_title) || github.event_name }}"`,
   ],
   [
     'prerelease-proposal-check.yml',

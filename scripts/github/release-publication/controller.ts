@@ -385,22 +385,12 @@ export async function finalizeRelease(options: FinalizeReleaseOptions): Promise<
       `v${manifest.version}`,
       manifest.releaseBody,
     );
-    await githubRequest(`/repos/${PILOT_REPOSITORY}/dispatches`, {
-      body: { event_type: 'release-completed' },
-      method: 'POST',
-      token,
-    });
     console.log(`Verified already completed v${manifest.version}.`);
     return;
   }
   const tag = await ensureAnnotatedTag(token, manifest);
   await ensureGitHubRelease(token, manifest, tag, manifest.releaseBody);
-  await githubRequest(`/repos/${PILOT_REPOSITORY}/dispatches`, {
-    body: { event_type: 'release-completed' },
-    method: 'POST',
-    token,
-  });
-  console.log(`Completed ${tag} and notified release-proposal maintenance.`);
+  console.log(`Completed ${tag}.`);
 }
 
 const validateCompletedRelease = async (
