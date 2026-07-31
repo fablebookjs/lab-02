@@ -1,4 +1,5 @@
 name: 'Release: Protect approval'
+run-name: 'Release approval · PR #${{ github.event.pull_request.number }} · ${{ github.event.pull_request.title }}'
 
 on:
   pull_request:

@@ -1,4 +1,5 @@
 name: 'MANUAL - Release: Start new release line'
+run-name: 'MANUAL - Release: New release line · next development: ${{ inputs.next-development }}'
 
 on:
   workflow_dispatch:

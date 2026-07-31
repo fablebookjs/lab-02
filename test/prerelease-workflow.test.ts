@@ -50,7 +50,10 @@ test('direct prerelease authority paths feed the same publication signal', async
   assert.match(cut, /name: prerelease-authority-\$\{\{ github\.run_id \}\}/);
 
   assert.match(phase, /name: 'MANUAL - Prerelease: Enter phase'/);
-  assert.match(phase, /run-name: 'Enter \$\{\{ inputs\.phase \}\} prerelease phase'/);
+  assert.match(
+    phase,
+    /run-name: 'MANUAL - Prerelease: Enter phase · \$\{\{ inputs\.phase \}\}'/,
+  );
   assert.match(phase, /options:\n          - beta\n          - rc/);
   assert.match(phase, /group: release-proposal-writes/);
   assert.match(phase, /prerelease-phase-entry\/prepare\.ts/);
