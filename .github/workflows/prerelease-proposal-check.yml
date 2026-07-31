@@ -1,0 +1,43 @@
+name: 'Prerelease: Protect approval'
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - edited
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+permissions:
+  contents: read
+
+jobs:
+  current-source:
+    if: >-
+      github.repository == 'fablebookjs/lab-02' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'prerelease'
+    name: prerelease proposal uses current main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the proposed commit without persisted credentials
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Use Node.js 24
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+      - name: Bind the proposal to exact current main
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          script: |
+            const handler = require('./scripts/github/prerelease-proposal/check-pr.ts').default
+            return handler({ github, context, core, env: process.env })

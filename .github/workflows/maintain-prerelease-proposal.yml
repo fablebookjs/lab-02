@@ -1,0 +1,87 @@
+name: 'Prerelease: Keep prerelease PR current'
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: release-proposal-writes
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.repository == 'fablebookjs/lab-02' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out only the trusted main controller
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: main
+      - name: Use Node.js 24
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+      - name: Prepare the exact prerelease proposal transition
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OUTPUT: ${{ runner.temp }}/prerelease-proposal
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          script: |
+            const handler = require('./scripts/github/prerelease-proposal/prepare.ts').default
+            return handler({ github, context, core, env: process.env })
+      - name: Transfer the inert proposal transition
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: prerelease-proposal-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/prerelease-proposal/objects.bundle
+            ${{ runner.temp }}/prerelease-proposal/transition.json
+          retention-days: 1
+
+  apply:
+    needs: prepare
+    runs-on: ubuntu-latest
+    environment: release-github
+    steps:
+      - name: Check out only the trusted main controller
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: main
+      - name: Use Node.js 24
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+      - name: Download the prepared transition
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: prerelease-proposal-${{ github.run_id }}
+          path: ${{ runner.temp }}/prerelease-proposal
+      - name: Mint the repository-scoped release App token
+        id: release-app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Apply the guarded prerelease proposal transition
+        env:
+          BUNDLE: ${{ runner.temp }}/prerelease-proposal/objects.bundle
+          GITHUB_TOKEN: ${{ steps.release-app.outputs.token }}
+          TRANSITION: ${{ runner.temp }}/prerelease-proposal/transition.json
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          github-token: ${{ steps.release-app.outputs.token }}
+          script: |
+            const handler = require('./scripts/github/prerelease-proposal/apply.ts').default
+            return handler({ github, context, core, env: process.env })

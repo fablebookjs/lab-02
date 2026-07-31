@@ -114,6 +114,47 @@ trailer equal the PR's current base SHA. Live repository rules must require
 this check, require the branch to be up to date before merge, dismiss stale
 approvals, and allow release PRs to merge only with a merge commit.
 
+## Prerelease proposals and publication
+
+The prerelease lifecycle remains inactive until a managed release cut creates
+the next development line's `alpha.0` boundary. That cut transfers a sealed
+publication authority after its guarded GitHub mutation succeeds, so the new
+line's direct `alpha.0` publication proceeds independently from maintenance of
+the stable Release PR. The pre-system `3.1.0-alpha.0` has no such authority and
+is never imported or backfilled.
+
+After the managed boundary exists, every push to `main` runs **Prerelease: Keep
+prerelease PR current** in the shared release-proposal writer queue. It creates
+or wholly refreshes one canonical draft `prerelease` PR when product work
+exists, and removes stale proposal state when no work remains. The PR lists all
+scoped changes without QA tasks. `release-note:skip` entries remain part of the
+authority but are omitted from the eventual GitHub prerelease body.
+
+Marking the PR ready and merging it requires both the normal
+**build, test, and pack** check and **prerelease proposal uses current main**.
+The latter proves that the versioned proposal, generated body, source commit,
+and exact current `main` still agree. The merge produces one inert PR signal;
+the trusted controller then re-reads GitHub to derive publication authority
+without running pull-request code in a privileged context.
+
+**MANUAL - Prerelease: Enter phase** is the second authority path. Any
+maintainer who can dispatch Actions may select `beta` or `rc`. The guarded
+release App transition rejects backward movement, writes the target `.0`
+snapshot directly to `main`, closes a superseded ordinary Prerelease PR, and
+transfers that snapshot's publication authority. Dispatch itself is the
+authorization; there is no separate QA or environment approval.
+
+All three authority paths feed **Publish: Publish approved release**, the same
+already-trusted OIDC entrypoint as stable publication. It delegates to one
+serialized prerelease workflow that checks out the exact snapshot, runs the
+normal repository gate, packs the complete workspace set, and queries npm
+before each publication to `next`. A narrowly held package token reconciles
+`next`, then the release App creates or verifies the exact annotated tag and
+non-draft GitHub prerelease Release. Reruns visibly skip a prerelease whose
+packages, `next` tags, Git tag, and GitHub Release are already complete.
+Prereleases remain output-only: they never generate stable release files or
+migrations.
+
 ## Release and migration records
 
 Each staged stable proposal contains one generated release record at
@@ -176,12 +217,11 @@ used to verify that the authorized communication matches the released snapshot.
 
 **MANUAL - Publish: Promote to latest** is a separate workflow. Its only input
 is a completed stable version such as `1.0.0`. It resolves that version's
-annotated tag, derives the historical package set from the tagged snapshot
-without npm write authority, and then waits for approval on the `npm-promotion`
-environment. The approved job receives the package-scoped token and moves those
-packages to `latest` sequentially. All promotion runs share one queue; a rerun
-skips tags already at the requested version. Selecting an older completed
-version is the rollback mechanism.
+annotated tag and derives the historical package set from the tagged snapshot
+without npm write authority. The dispatched write job receives the
+package-scoped token and moves those packages to `latest` sequentially. All
+promotion runs share one queue; a rerun skips tags already at the requested
+version. Selecting an older completed version is the rollback mechanism.
 
 ## Patchback coordination
 
@@ -227,8 +267,9 @@ rules must require the `PR description has no unchecked tasks` check for `main`
 and the release branches. It adds no semantic patchback verification.
 
 Live setup configures both packages to trust
-`publish-stable-release.yml`, provide the App variables and secret through the
-existing `release-github` environment, and store the package-scoped granular
-promotion credential as `NPM_PROMOTION_TOKEN` only in a `main`-restricted,
-maintainer-approved `npm-promotion` environment. The live-setup ticket owns
-those external changes and the required current npm capability recheck.
+`publish-stable-release.yml`, which also calls the prerelease publisher,
+provides the App variables and secret through the existing `release-github`
+environment, and stores the package-scoped granular dist-tag credential as
+`NPM_PROMOTION_TOKEN` only in a `main`-restricted `npm-promotion` environment.
+The upstream merge, cut, or manual dispatch is the operator authorization; the
+environment adds branch and secret scope without another reviewer gate.

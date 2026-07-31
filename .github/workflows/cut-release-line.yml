@@ -35,6 +35,7 @@ jobs:
           node-version: 24
       - name: Materialize and validate both children of main
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           NEXT_DEVELOPMENT: ${{ inputs.next-development }}
           OUTPUT: ${{ runner.temp }}/release-cut
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
@@ -82,6 +83,7 @@ jobs:
       - name: Atomically cut the line and open its draft proposal
         env:
           BUNDLE: ${{ runner.temp }}/release-cut/objects.bundle
+          GITHUB_TOKEN: ${{ steps.release-app.outputs.token }}
           TRANSITION: ${{ runner.temp }}/release-cut/transition.json
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
         with:
@@ -89,3 +91,9 @@ jobs:
           script: |
             const handler = require('./scripts/github/release-proposal/apply-cut.ts').default
             return handler({ github, context, core, env: process.env })
+      - name: Transfer the new line's exact alpha.0 publication authority
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: prerelease-authority-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-cut/authority.json
+          retention-days: 1

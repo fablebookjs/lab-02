@@ -1,0 +1,280 @@
+name: 'Prerelease: Complete publication'
+
+on:
+  workflow_call:
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: prerelease-publication
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: >-
+      github.repository == 'fablebookjs/lab-02' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      complete: ${{ steps.completion.outputs.complete }}
+      publish: ${{ steps.authority.outputs.publish }}
+      snapshot: ${{ steps.authority.outputs.snapshot }}
+      version: ${{ steps.authority.outputs.version }}
+    steps:
+      - name: Check out only the trusted main controller
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          path: controller
+          persist-credentials: false
+          ref: main
+      - name: Use the trusted-publishing Node.js line
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Download the inert Prerelease PR identity
+        if: >-
+          github.event.workflow_run.name == 'Prerelease: Trigger publication'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          github-token: ${{ github.token }}
+          name: prerelease-pr-${{ github.event.workflow_run.id }}
+          path: ${{ runner.temp }}/prerelease-signal
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: Resolve ordinary publication authority from GitHub
+        id: ordinary
+        if: >-
+          github.event.workflow_run.name == 'Prerelease: Trigger publication'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OUTPUT: ${{ runner.temp }}/prerelease-publication
+          SIGNAL: ${{ runner.temp }}/prerelease-signal/prerelease-pr.json
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          script: |
+            const handler = require('./controller/scripts/github/prerelease-publication/resolve.ts').default
+            return handler({ github, context, core, env: process.env })
+      - name: Download direct publication authority
+        if: >-
+          github.event.workflow_run.name == 'MANUAL - Prerelease: Enter phase' ||
+          github.event.workflow_run.name == 'MANUAL - Release: Start new release line'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          github-token: ${{ github.token }}
+          name: prerelease-authority-${{ github.event.workflow_run.id }}
+          path: ${{ runner.temp }}/prerelease-publication
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: Inspect the exact publication authority
+        id: authority
+        if: >-
+          github.event.workflow_run.name != 'Prerelease: Trigger publication' ||
+          steps.ordinary.outputs.publish == 'true'
+        env:
+          AUTHORITY: ${{ runner.temp }}/prerelease-publication/authority.json
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          script: |
+            const handler = require('./controller/scripts/github/prerelease-publication/inspect-authority.ts').default
+            return handler({ github, context, core, env: process.env })
+      - name: Pin the publication packer
+        if: steps.authority.outputs.publish == 'true'
+        run: npm install --global npm@12.0.1 --ignore-scripts --no-audit --no-fund
+      - name: Check out the authorized snapshot without persisted credentials
+        if: steps.authority.outputs.publish == 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          path: snapshot
+          persist-credentials: false
+          ref: ${{ steps.authority.outputs.snapshot }}
+      - name: Install, compile, and test the authorized snapshot
+        if: steps.authority.outputs.publish == 'true'
+        working-directory: snapshot
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run check
+      - name: Pack the complete package set without publication authority
+        if: steps.authority.outputs.publish == 'true'
+        env:
+          AUTHORITY: ${{ runner.temp }}/prerelease-publication/authority.json
+          OUTPUT: ${{ runner.temp }}/prerelease-publication
+          SNAPSHOT: ${{ github.workspace }}/snapshot
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          script: |
+            const handler = require('./controller/scripts/github/prerelease-publication/prepare.ts').default
+            return handler({ github, context, core, env: process.env })
+      - name: Observe whether this exact prerelease is already complete
+        id: completion
+        if: steps.authority.outputs.publish == 'true'
+        env:
+          EXPECTED_SNAPSHOT: ${{ steps.authority.outputs.snapshot }}
+          EXPECTED_VERSION: ${{ steps.authority.outputs.version }}
+          GITHUB_TOKEN: ${{ github.token }}
+          MANIFEST: ${{ runner.temp }}/prerelease-publication/publication.json
+          TARBALLS: ${{ runner.temp }}/prerelease-publication/tarballs
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          script: |
+            const handler = require('./controller/scripts/github/prerelease-publication/check-completion.ts').default
+            return handler({ github, context, core, env: process.env })
+      - name: Transfer the inert publication manifest and tarballs
+        if: >-
+          steps.authority.outputs.publish == 'true' &&
+          steps.completion.outputs.complete != 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: prerelease-publication-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/prerelease-publication/publication.json
+            ${{ runner.temp }}/prerelease-publication/tarballs
+          retention-days: 1
+
+  publish:
+    needs: prepare
+    if: >-
+      needs.prepare.outputs.publish == 'true' &&
+      needs.prepare.outputs.complete != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out only the trusted main controller
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          path: controller
+          persist-credentials: false
+          ref: main
+      - name: Use npm with trusted publishing support
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org
+      - name: Pin the npm trusted-publishing client
+        run: npm install --global npm@12.0.1 --ignore-scripts --no-audit --no-fund
+      - name: Download the prepared package set
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: prerelease-publication-${{ github.run_id }}
+          path: ${{ runner.temp }}/prerelease-publication
+      - name: Consume the sealed plan and publish missing exact packages
+        env:
+          EXPECTED_SNAPSHOT: ${{ needs.prepare.outputs.snapshot }}
+          EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
+          MANIFEST: ${{ runner.temp }}/prerelease-publication/publication.json
+          TARBALLS: ${{ runner.temp }}/prerelease-publication/tarballs
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          script: |
+            const handler = require('./controller/scripts/github/prerelease-publication/publish.ts').default
+            return handler({ github, context, core, env: process.env })
+
+  reconcile-next:
+    needs:
+      - prepare
+      - publish
+    if: >-
+      needs.prepare.outputs.publish == 'true' &&
+      needs.prepare.outputs.complete != 'true' &&
+      needs.publish.result == 'success'
+    runs-on: ubuntu-latest
+    environment: npm-promotion
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out only the trusted main controller
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          path: controller
+          persist-credentials: false
+          ref: main
+      - name: Use npm with dist-tag support
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org
+      - name: Pin the npm dist-tag client
+        run: npm install --global npm@12.0.1 --ignore-scripts --no-audit --no-fund
+      - name: Download the prepared package set
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: prerelease-publication-${{ github.run_id }}
+          path: ${{ runner.temp }}/prerelease-publication
+      - name: Reconcile the complete package set on next
+        env:
+          EXPECTED_SNAPSHOT: ${{ needs.prepare.outputs.snapshot }}
+          EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
+          MANIFEST: ${{ runner.temp }}/prerelease-publication/publication.json
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_PROMOTION_TOKEN }}
+          TARBALLS: ${{ runner.temp }}/prerelease-publication/tarballs
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          script: |
+            const handler = require('./controller/scripts/github/prerelease-publication/reconcile-next.ts').default
+            return handler({ github, context, core, env: process.env })
+
+  finalize:
+    needs:
+      - prepare
+      - publish
+      - reconcile-next
+    if: >-
+      needs.prepare.outputs.publish == 'true' &&
+      needs.prepare.outputs.complete != 'true' &&
+      needs.publish.result == 'success' &&
+      needs.reconcile-next.result == 'success'
+    runs-on: ubuntu-latest
+    environment: release-github
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out only the trusted main controller
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          path: controller
+          persist-credentials: false
+          ref: main
+      - name: Use Node.js 24
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Download the completed publication manifest
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: prerelease-publication-${{ github.run_id }}
+          path: ${{ runner.temp }}/prerelease-publication
+      - name: Mint the repository-scoped release App token
+        id: release-app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+      - name: Complete the immutable GitHub prerelease
+        env:
+          EXPECTED_SNAPSHOT: ${{ needs.prepare.outputs.snapshot }}
+          EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
+          GITHUB_TOKEN: ${{ steps.release-app.outputs.token }}
+          MANIFEST: ${{ runner.temp }}/prerelease-publication/publication.json
+          TARBALLS: ${{ runner.temp }}/prerelease-publication/tarballs
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          github-token: ${{ steps.release-app.outputs.token }}
+          script: |
+            const handler = require('./controller/scripts/github/prerelease-publication/finalize.ts').default
+            return handler({ github, context, core, env: process.env })

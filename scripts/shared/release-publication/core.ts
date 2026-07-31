@@ -15,6 +15,7 @@ import {
   RELEASE_HIGHLIGHTS_START,
   validateReleasePrBody,
 } from '../release-proposal/body.ts';
+import { validateMaterializedVersion } from '../version/materialize.ts';
 
 export const NPM_REGISTRY = 'https://registry.npmjs.org/';
 export const PILOT_REPOSITORY = 'fablebookjs/lab-02';
@@ -74,7 +75,7 @@ export function assertOidcPublishEnvironment({
     npmToken ||
     (nodeAuthToken && nodeAuthToken !== SETUP_NODE_AUTH_PLACEHOLDER)
   ) {
-    throw new Error('Stable publication must use npm OIDC, not an ambient npm token.');
+    throw new Error('Package publication must use npm OIDC, not an ambient npm token.');
   }
 }
 
@@ -359,18 +360,18 @@ export function composeGitHubReleaseBody({
     source: releaseRecord,
     version,
   });
+  const publicChanges = normalized.changes.filter(
+    ({ releaseNoteSkip }) => !releaseNoteSkip
+  );
   if (
     JSON.stringify(
-      normalized.changes.map(({ title, url }) => ({ title, url }))
+      publicChanges.map(({ title, url }) => ({ title, url }))
     ) !== JSON.stringify(recordChanges)
   ) {
     throw new Error(
       `Generated v${version} release record contradicts its authorized communication.`
     );
   }
-  const publicChanges = normalized.changes.filter(
-    ({ releaseNoteSkip }) => !releaseNoteSkip
-  );
   const renderedChanges = publicChanges
     .map(({ title, url }) => `- [${title}](${url})`)
     .join('\n');
@@ -416,59 +417,7 @@ const packageVersion = (
   return published;
 };
 
-type PublicationInput = {
-  channel: string;
-  document: unknown;
-  integrity: string;
-  name: string;
-  version: string;
-};
-
-export function publicationDisposition({
-  channel,
-  document,
-  integrity,
-  name,
-  version,
-}: PublicationInput): 'publish' | 'skip' {
-  stableVersionOnLine(version, channel.replace(/^v-/, 'v'));
-  const exact = exactPublication({ document, integrity, name, version });
-  if (!exact) {
-    const tags = isRecord(document) ? document['dist-tags'] : undefined;
-    if (isRecord(tags) && tags[channel] === version) {
-      throw new Error(`${name} has ${channel} at an absent version ${version}.`);
-    }
-    return 'publish';
-  }
-  const tags = isRecord(document) ? document['dist-tags'] : undefined;
-  if (!isRecord(tags) || tags[channel] !== version) {
-    throw new Error(`${name}@${version} exists but ${channel} points elsewhere.`);
-  }
-  return 'skip';
-}
-
-export function exactPublication({
-  document,
-  integrity,
-  name,
-  version,
-}: Omit<PublicationInput, 'channel'>): boolean {
-  parseStableVersion(version);
-  if (!/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(integrity ?? '')) {
-    throw new Error(`Prepared integrity is invalid for ${name}@${version}.`);
-  }
-  const published = packageVersion(document, name, version);
-  if (published === null) {
-    return false;
-  }
-  const dist = published['dist'];
-  if (!isRecord(dist) || dist['integrity'] !== integrity) {
-    throw new Error(`${name}@${version} exists with different package contents.`);
-  }
-  return true;
-}
-
-export function promotionDisposition({
+export function registryIntegrity({
   document,
   name,
   version,
@@ -476,13 +425,15 @@ export function promotionDisposition({
   document: unknown;
   name: string;
   version: string;
-}): 'skip' | 'update' {
-  parseStableVersion(version);
+}): string | null {
+  validateMaterializedVersion(version);
   const published = packageVersion(document, name, version);
-  const dist = published?.['dist'];
-  if (published === null || !isRecord(dist) || typeof dist['integrity'] !== 'string') {
-    throw new Error(`${name}@${version} is not a complete published package.`);
+  if (published === null) {
+    return null;
   }
-  const tags = isRecord(document) ? document['dist-tags'] : undefined;
-  return isRecord(tags) && tags['latest'] === version ? 'skip' : 'update';
+  const dist = published['dist'];
+  if (!isRecord(dist) || typeof dist['integrity'] !== 'string') {
+    throw new Error(`${name}@${version} has no valid registry integrity.`);
+  }
+  return dist['integrity'];
 }
