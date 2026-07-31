@@ -60,19 +60,20 @@ import {
   writeJson,
 } from '../controller-support.ts';
 import {
-  assertExpectedRef,
   commitMessageAt,
   commitParents,
   ensureCleanReleaseRepository,
-  importedOid,
+  publicPackagesAt,
+  rootVersionAt,
+  validateFullOid,
+  validateVersionTree,
+} from '../../shared/prepared-commit/inspection.ts';
+import {
+  assertExpectedRef,
   importBundle,
   materializeCommit,
   prepareOutput,
-  publicPackagesAt,
-  rootVersionAt,
   uploadCommitObject,
-  validateFullOid,
-  validateVersionTree,
   writeBundle,
 } from '../prepared-commit/mechanics.ts';
 import {
@@ -767,10 +768,11 @@ export async function applyCut(options: ApplyCutOptions): Promise<void> {
   }
 
   const repository = await getRepository(token);
-  await importBundle(bundlePath);
+  await importBundle(bundlePath, [
+    { name: transition.proposalBundleRef, oid: transition.proposalOid },
+    { name: transition.developmentBundleRef, oid: transition.developmentOid },
+  ]);
   await validateCutTransition(transition);
-  assert.equal(await importedOid(transition.proposalBundleRef), transition.proposalOid);
-  assert.equal(await importedOid(transition.developmentBundleRef), transition.developmentOid);
   await validateProposalCommit(transition.proposalOid, {
     changes: transition.changes,
     line: transition.line,
@@ -1133,7 +1135,14 @@ export async function applyMaintenance(
     throw new Error('Maintenance transition requires its Git object bundle.');
   }
   if (bundle !== null) {
-    await importBundle(bundle);
+    await importBundle(
+      bundle,
+      transition.actions.flatMap((action) =>
+        'bundleRef' in action
+          ? [{ name: action.bundleRef, oid: action.proposalOid }]
+          : [],
+      ),
+    );
   }
 
   for (const action of transition.actions) {
@@ -1238,7 +1247,6 @@ export async function applyMaintenance(
       throw new Error(`${action.line} gained an open release PR after preparation.`);
     }
 
-    assert.equal(await importedOid(action.bundleRef), action.proposalOid);
     validateFullOid(action.proposalOid, `${action.line} proposal`);
     parseStableVersion(action.version);
     await validateProposalCommit(action.proposalOid, {

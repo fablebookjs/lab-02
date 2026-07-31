@@ -26,7 +26,7 @@ import {
   manifestAt,
   rootVersionAt,
   validateVersionTree,
-} from '../prepared-commit/mechanics.ts';
+} from '../../shared/prepared-commit/inspection.ts';
 import {
   githubRequest,
   PILOT_REPOSITORY,

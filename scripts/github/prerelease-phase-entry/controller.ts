@@ -35,16 +35,17 @@ import {
   writeJson,
 } from '../controller-support.ts';
 import {
-  assertExpectedRef,
   commitMessageAt,
   commitParents,
-  importedOid,
+  rootVersionAt,
+  validateVersionTree,
+} from '../../shared/prepared-commit/inspection.ts';
+import {
+  assertExpectedRef,
   importBundle,
   materializeCommit,
   prepareOutput,
-  rootVersionAt,
   uploadCommitObject,
-  validateVersionTree,
   writeBundle,
 } from '../prepared-commit/mechanics.ts';
 import {
@@ -646,11 +647,9 @@ export async function applyPhaseEntry(
     if (bundle === undefined) {
       throw new Error('A new phase entry requires its Git object bundle.');
     }
-    await importBundle(resolve(bundle));
-    assert.equal(
-      await importedOid(action.bundleRef),
-      action.snapshotOid,
-    );
+    await importBundle(resolve(bundle), [
+      { name: action.bundleRef, oid: action.snapshotOid },
+    ]);
     await validatePhaseEntrySnapshot(action);
     const planned = planPhaseEntry({
       currentVersion: await rootVersionAt(action.sourceOid),

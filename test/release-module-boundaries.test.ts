@@ -29,3 +29,34 @@ test('release features do not import sibling controller internals', async () => 
   }
   assert.deepEqual(violations, []);
 });
+
+test('neutral GitHub release mechanics depend only on shared code and the repository adapter', async () => {
+  const githubRoot = join(repositoryRoot, 'scripts/github');
+  const mechanicsRoots = [
+    'package-publication',
+    'prepared-commit',
+    'release-history',
+    'release-repository',
+  ];
+  const violations: string[] = [];
+  for (const directory of mechanicsRoots) {
+    for (const file of await typescriptFiles(join(githubRoot, directory))) {
+      const source = await readFile(file, 'utf8');
+      const imports = [...source.matchAll(/from\s+['"]([^'"]+)['"]/g)].map(
+        (match) => match[1] ?? '',
+      );
+      for (const specifier of imports) {
+        if (
+          specifier.startsWith('node:') ||
+          specifier.startsWith('./') ||
+          specifier.startsWith('../../shared/') ||
+          specifier.startsWith('../release-repository/')
+        ) {
+          continue;
+        }
+        violations.push(`${relative(repositoryRoot, file)} -> ${specifier}`);
+      }
+    }
+  }
+  assert.deepEqual(violations, []);
+});

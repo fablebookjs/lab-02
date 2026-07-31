@@ -33,16 +33,17 @@ import {
   writeJson,
 } from '../controller-support.ts';
 import {
-  assertExpectedRef,
   commitMessageAt,
   commitParents,
-  importedOid,
+  rootVersionAt,
+  validateVersionTree,
+} from '../../shared/prepared-commit/inspection.ts';
+import {
+  assertExpectedRef,
   importBundle,
   materializeCommit,
   prepareOutput,
-  rootVersionAt,
   uploadCommitObject,
-  validateVersionTree,
   writeBundle,
 } from '../prepared-commit/mechanics.ts';
 import {
@@ -568,8 +569,9 @@ export async function applyPrereleaseProposal(
   if (bundle === undefined) {
     throw new Error('Prepared prerelease proposal requires its Git object bundle.');
   }
-  await importBundle(resolve(bundle));
-  assert.equal(await importedOid(action.bundleRef), action.proposalOid);
+  await importBundle(resolve(bundle), [
+    { name: action.bundleRef, oid: action.proposalOid },
+  ]);
   await validateProposalCommit(action.proposalOid, {
     boundaryOid: action.boundaryOid,
     sourceOid: action.mainOid,
