@@ -321,10 +321,10 @@ export function planProposalMaintenance(lines: readonly ProposalState[]) {
   return lines.map((state) => {
     parseReleaseLine(state.line);
     const expectedVersion = nextReleaseVersion(state.line, state.lineVersion);
-    const hasUnreleasedWork =
+    const hasUnaccountedWork =
       state.accountingOid === null || state.releaseOid !== state.accountingOid;
 
-    if (!hasUnreleasedWork) {
+    if (!hasUnaccountedWork) {
       if (state.staged !== null || state.openPr !== null) {
         return {
           kind: 'dormant',
