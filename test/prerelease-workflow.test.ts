@@ -40,7 +40,8 @@ test('direct prerelease authority paths feed the same publication signal', async
     workflow('publish-prerelease.yml'),
   ]);
 
-  assert.match(cut, /bootstrap-authority\.json/);
+  assert.match(cut, /release-cut\/authority\.json/);
+  assert.doesNotMatch(cut, /bootstrap-authority\.json/);
   assert.match(cut, /name: prerelease-authority-\$\{\{ github\.run_id \}\}/);
 
   assert.match(phase, /name: 'MANUAL - Prerelease: Enter phase'/);
@@ -51,10 +52,7 @@ test('direct prerelease authority paths feed the same publication signal', async
   assert.match(phase, /prerelease-phase-entry\/apply\.ts/);
   assert.match(phase, /name: prerelease-authority-\$\{\{ github\.run_id \}\}/);
 
-  assert.match(
-    publication,
-    /name: Normalize the release-cut publication authority[\s\S]*github\.event\.workflow_run\.name == 'MANUAL - Release: Start new release line'[\s\S]*BOOTSTRAP_AUTHORITY: \$\{\{ runner\.temp \}\}\/prerelease-publication\/bootstrap-authority\.json[\s\S]*AUTHORITY: \$\{\{ runner\.temp \}\}\/prerelease-publication\/authority\.json[\s\S]*mv -- "\$BOOTSTRAP_AUTHORITY" "\$AUTHORITY"/,
-  );
+  assert.doesNotMatch(publication, /bootstrap-authority|Normalize the release-cut/);
 });
 
 test('one sealed workflow publishes every accepted prerelease authority', async () => {
