@@ -1,4 +1,5 @@
 name: 'Release: Prepare patchback PR'
+run-name: 'Patchback prep · after ${{ github.event.workflow_run.display_title }}'
 
 on:
   workflow_run:

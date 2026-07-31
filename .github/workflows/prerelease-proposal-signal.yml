@@ -1,4 +1,5 @@
 name: 'Prerelease: Trigger publication'
+run-name: 'Prerelease publish signal · PR #${{ github.event.pull_request.number }} · ${{ github.event.pull_request.title }}'
 
 on:
   pull_request_target:

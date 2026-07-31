@@ -1,5 +1,5 @@
 name: 'MANUAL - Publish: Promote to latest'
-run-name: 'Promote ${{ inputs.version }} to latest'
+run-name: 'MANUAL - Publish: Promote to latest · ${{ inputs.version }}'
 
 on:
   workflow_dispatch:

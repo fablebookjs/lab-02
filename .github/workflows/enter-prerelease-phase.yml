@@ -1,5 +1,5 @@
 name: 'MANUAL - Prerelease: Enter phase'
-run-name: 'Enter ${{ inputs.phase }} prerelease phase'
+run-name: 'MANUAL - Prerelease: Enter phase · ${{ inputs.phase }}'
 
 on:
   workflow_dispatch:
