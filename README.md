@@ -144,16 +144,19 @@ snapshot directly to `main`, closes a superseded ordinary Prerelease PR, and
 transfers that snapshot's publication authority. Dispatch itself is the
 authorization; there is no separate QA or environment approval.
 
-All three authority paths feed **Publish: Publish approved release**, the same
-already-trusted OIDC entrypoint as stable publication. It delegates to one
-serialized prerelease workflow that checks out the exact snapshot, runs the
-normal repository gate, packs the complete workspace set, and queries npm
-before each publication to `next`. A narrowly held package token reconciles
-`next`, then the release App creates or verifies the exact annotated tag and
-non-draft GitHub prerelease Release. Reruns visibly skip a prerelease whose
-packages, `next` tags, Git tag, and GitHub Release are already complete.
-Prereleases remain output-only: they never generate stable release files or
-migrations.
+All three authority paths feed **Publish: Publish approved release**. Its one
+trusted TypeScript router classifies the completed workflow path, event,
+conclusion, branch, and run ID, then calls the prerelease publisher with only
+the explicit authority kind and upstream run ID. Unknown, unsuccessful,
+maintenance-only, and wrong-branch completions visibly stop with a skip reason.
+The serialized prerelease publisher independently obtains and validates its
+single `authority.json`, checks out the exact snapshot, runs the normal
+repository gate, packs the complete workspace set, and queries npm before each
+publication to `next`. A narrowly held package token reconciles `next`, then
+the release App creates or verifies the exact annotated tag and non-draft
+GitHub prerelease Release. Reruns visibly skip a prerelease whose packages,
+`next` tags, Git tag, and GitHub Release are already complete. Prereleases
+remain output-only: they never generate stable release files or migrations.
 
 ## Release and migration records
 
@@ -194,11 +197,12 @@ does not copy the migration instructions into the release body.
 
 ## Stable publication and promotion
 
-Merging a canonical release PR wakes **Publish: Publish approved release**. Its
-first job re-reads the PR and proves that its two-parent merge commit contains
-the exact reviewed proposal. That uncredentialed job checks out the immutable
-snapshot, installs, compiles, tests, and packs the dynamically discovered
-package set.
+Merging a canonical release PR wakes **Publish: Publish approved release**. The
+same trusted router calls the stable publisher with only `stable-pr` and the
+upstream run ID. The stable authority resolver re-reads the PR and proves that
+its two-parent merge commit contains the exact reviewed proposal. That
+uncredentialed job checks out the immutable snapshot, installs, compiles,
+tests, and packs the dynamically discovered package set.
 
 A fresh OIDC-only job queries npm before each package write. It publishes a
 missing package directly under the line channel such as `v-1.0`, skips only an
@@ -266,10 +270,11 @@ fails while its description contains an unchecked Markdown task. Live branch
 rules must require the `PR description has no unchecked tasks` check for `main`
 and the release branches. It adds no semantic patchback verification.
 
-Live setup configures both packages to trust
-`publish-stable-release.yml`, which also calls the prerelease publisher,
-provides the App variables and secret through the existing `release-github`
-environment, and stores the package-scoped granular dist-tag credential as
-`NPM_PROMOTION_TOKEN` only in a `main`-restricted `npm-promotion` environment.
+Live setup configures both packages to trust `publish-stable-release.yml`,
+which remains the sole workflow-run and OIDC entrypoint while routing to the
+stable or prerelease reusable publisher. It provides the App variables and
+secret through the existing `release-github` environment, and stores the
+package-scoped granular dist-tag credential as `NPM_PROMOTION_TOKEN` only in a
+`main`-restricted `npm-promotion` environment.
 The upstream merge, cut, or manual dispatch is the operator authorization; the
 environment adds branch and secret scope without another reviewer gate.

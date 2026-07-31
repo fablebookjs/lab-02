@@ -375,7 +375,7 @@ test('finalization verifies a completed release from only the sealed plan', asyn
 
 test('privileged stable jobs receive no release snapshot checkout', async () => {
   const workflow = await readFile(
-    join(repositoryRoot, '.github/workflows/publish-stable-release.yml'),
+    join(repositoryRoot, '.github/workflows/complete-stable-publication.yml'),
     'utf8',
   );
   const publishStart = workflow.indexOf('\n  publish:');

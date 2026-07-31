@@ -1,0 +1,180 @@
+name: 'Release: Complete stable publication'
+
+on:
+  workflow_call:
+    inputs:
+      authority-kind:
+        required: true
+        type: string
+      upstream-run-id:
+        required: true
+        type: number
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.resolve.outputs.publish }}
+      snapshot: ${{ steps.resolve.outputs.snapshot }}
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - name: Check out only the trusted main controller
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          path: controller
+          persist-credentials: false
+          ref: main
+      - name: Use the trusted-publishing Node.js line
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Download the inert release pull request identity
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          github-token: ${{ github.token }}
+          name: release-pr-${{ inputs.upstream-run-id }}
+          path: ${{ runner.temp }}/release-signal
+          run-id: ${{ inputs.upstream-run-id }}
+      - name: Resolve the exact authorized snapshot from GitHub
+        id: resolve
+        env:
+          AUTHORITY_KIND: ${{ inputs.authority-kind }}
+          OUTPUT: ${{ runner.temp }}/release-publication
+          SIGNAL: ${{ runner.temp }}/release-signal/release-pr.json
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          script: |
+            const handler = require('./controller/scripts/github/release-publication/resolve.ts').default
+            return handler({ github, context, core, env: process.env })
+      - name: Pin the publication packer
+        if: steps.resolve.outputs.publish == 'true'
+        run: npm install --global npm@12.0.1 --ignore-scripts --no-audit --no-fund
+      - name: Check out the authorized snapshot without persisted credentials
+        if: steps.resolve.outputs.publish == 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          path: snapshot
+          persist-credentials: false
+          ref: ${{ steps.resolve.outputs.snapshot }}
+      - name: Install, compile, and test the authorized snapshot
+        if: steps.resolve.outputs.publish == 'true'
+        working-directory: snapshot
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run check
+      - name: Pack the complete package set without publication authority
+        if: steps.resolve.outputs.publish == 'true'
+        env:
+          AUTHORITY: ${{ runner.temp }}/release-publication/authority.json
+          OUTPUT: ${{ runner.temp }}/release-publication
+          SNAPSHOT: ${{ github.workspace }}/snapshot
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          script: |
+            const handler = require('./controller/scripts/github/release-publication/prepare.ts').default
+            return handler({ github, context, core, env: process.env })
+      - name: Transfer the inert publication manifest and tarballs
+        if: steps.resolve.outputs.publish == 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: stable-publication-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/release-publication/publication.json
+            ${{ runner.temp }}/release-publication/tarballs
+          retention-days: 1
+
+  publish:
+    needs: prepare
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out only the trusted main controller
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          path: controller
+          persist-credentials: false
+          ref: main
+      - name: Use npm with trusted publishing support
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org
+      - name: Pin the npm trusted-publishing client
+        run: npm install --global npm@12.0.1 --ignore-scripts --no-audit --no-fund
+      - name: Download the prepared package set
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: stable-publication-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-publication
+      - name: Consume the sealed plan and publish missing exact packages
+        env:
+          EXPECTED_SNAPSHOT: ${{ needs.prepare.outputs.snapshot }}
+          EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
+          MANIFEST: ${{ runner.temp }}/release-publication/publication.json
+          TARBALLS: ${{ runner.temp }}/release-publication/tarballs
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          script: |
+            const handler = require('./controller/scripts/github/release-publication/publish.ts').default
+            return handler({ github, context, core, env: process.env })
+
+  finalize:
+    needs:
+      - prepare
+      - publish
+    runs-on: ubuntu-latest
+    environment: release-github
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out only the trusted main controller
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          path: controller
+          persist-credentials: false
+          ref: main
+      - name: Use Node.js 24
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Download the completed publication manifest
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: stable-publication-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-publication
+      - name: Mint the repository-scoped release App token
+        id: release-app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+      - name: Complete the immutable release from the sealed plan
+        env:
+          EXPECTED_SNAPSHOT: ${{ needs.prepare.outputs.snapshot }}
+          EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
+          MANIFEST: ${{ runner.temp }}/release-publication/publication.json
+          TARBALLS: ${{ runner.temp }}/release-publication/tarballs
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          github-token: ${{ steps.release-app.outputs.token }}
+          script: |
+            const handler = require('./controller/scripts/github/release-publication/finalize.ts').default
+            return handler({ github, context, core, env: process.env })
