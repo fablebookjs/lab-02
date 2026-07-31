@@ -12,11 +12,17 @@ export type ImportBoundaryDiagnostic = {
   specifier?: string;
 };
 
-type Zone = 'github' | 'shared';
+type Zone = 'api' | 'github' | 'shared';
 type Source = { canonical: string; logical: string; zone: Zone };
 
 const executableExtensions = new Set(['.cjs', '.cts', '.js', '.jsx', '.mjs', '.mts', '.tsx']);
 const alternateLoaders = new Set(['createRequire', 'register', 'registerHooks']);
+const zones: readonly Zone[] = ['api', 'github', 'shared'];
+const allowedTargets: Readonly<Record<Zone, readonly Zone[]>> = {
+  api: ['api', 'shared'],
+  github: ['github', 'shared'],
+  shared: ['shared'],
+};
 
 const isWithin = (parent: string, child: string): boolean => {
   const path = relative(parent, child);
@@ -46,18 +52,208 @@ function point(sourceFile: ts.SourceFile, node: ts.Node): { column: number; line
   return { column: location.character + 1, line: location.line + 1 };
 }
 
+const hasNamedImport = (
+  sourceFile: ts.SourceFile,
+  module: string,
+  name: string,
+): boolean =>
+  sourceFile.statements.some((statement) => {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteralLike(statement.moduleSpecifier) ||
+      statement.moduleSpecifier.text !== module
+    ) {
+      return false;
+    }
+    const bindings = statement.importClause?.namedBindings;
+    return (
+      bindings !== undefined &&
+      ts.isNamedImports(bindings) &&
+      bindings.elements.some(
+        (element) =>
+          (element.propertyName ?? element.name).text === name && element.name.text === name,
+      )
+    );
+  });
+
+const hasSupportedApiPathTable = (sourceFile: ts.SourceFile): boolean =>
+  sourceFile.statements.some((statement) => {
+    if (!ts.isVariableStatement(statement)) return false;
+    if ((statement.declarationList.flags & ts.NodeFlags.Const) === 0) return false;
+    const declaration = statement.declarationList.declarations.find(
+      (candidate) =>
+        ts.isIdentifier(candidate.name) &&
+        candidate.name.text === 'supportedWorkspacePackageApiPaths',
+    );
+    if (
+      declaration === undefined ||
+      declaration.initializer === undefined ||
+      !ts.isArrayLiteralExpression(declaration.initializer)
+    ) {
+      return false;
+    }
+    const versions = declaration.initializer.elements.flatMap((element) => {
+      if (!ts.isStringLiteralLike(element)) return [];
+      const match = /^scripts\/api\/v([1-9][0-9]*)\/workspace-packages\.ts$/.exec(element.text);
+      const version = match?.[1];
+      return version === undefined ? [] : [Number(version)];
+    });
+    return (
+      versions.length === declaration.initializer.elements.length &&
+      versions.length > 0 &&
+      versions.every((version, index) => index === 0 || version < (versions[index - 1] ?? 0))
+    );
+  });
+
+const releasePackageSetLoader = (node: ts.Node): ts.FunctionDeclaration | undefined => {
+  let parent: ts.Node | undefined = node.parent;
+  while (parent !== undefined) {
+    if (ts.isFunctionLike(parent)) {
+      return ts.isFunctionDeclaration(parent) && parent.name?.text === 'loadReleasePackageSet'
+        ? parent
+        : undefined;
+    }
+    parent = parent.parent;
+  }
+  return undefined;
+};
+
+const supportedApiPathLoop = (
+  node: ts.Node,
+  loader: ts.FunctionDeclaration,
+): ts.ForOfStatement | undefined => {
+  let parent: ts.Node | undefined = node.parent;
+  while (parent !== undefined && parent !== loader) {
+    if (ts.isForOfStatement(parent)) {
+      const declarations = ts.isVariableDeclarationList(parent.initializer)
+        ? parent.initializer.declarations
+        : undefined;
+      const declaration = declarations?.[0];
+      if (
+        declarations?.length === 1 &&
+        declaration !== undefined &&
+        ts.isIdentifier(declaration.name) &&
+        declaration.name.text === 'relativeEntrypoint' &&
+        ts.isIdentifier(parent.expression) &&
+        parent.expression.text === 'supportedWorkspacePackageApiPaths'
+      ) {
+        return parent;
+      }
+    }
+    parent = parent.parent;
+  }
+  return undefined;
+};
+
+const loopDerivesSelectedEntrypoint = (loop: ts.ForOfStatement): boolean => {
+  let matches = 0;
+  const visit = (node: ts.Node): void => {
+    if (ts.isFunctionLike(node)) return;
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+      const initializer = node.initializer;
+      const firstArgument =
+        initializer !== undefined && ts.isCallExpression(initializer)
+          ? initializer.arguments[0]
+          : undefined;
+      const secondArgument =
+        initializer !== undefined && ts.isCallExpression(initializer)
+          ? initializer.arguments[1]
+          : undefined;
+      if (
+        node.name.text === 'selectedEntrypoint' &&
+        initializer !== undefined &&
+        ts.isCallExpression(initializer) &&
+        ts.isIdentifier(initializer.expression) &&
+        initializer.expression.text === 'join' &&
+        initializer.arguments.length === 2 &&
+        firstArgument !== undefined &&
+        ts.isIdentifier(firstArgument) &&
+        firstArgument.text === 'snapshotRoot' &&
+        secondArgument !== undefined &&
+        ts.isIdentifier(secondArgument) &&
+        secondArgument.text === 'relativeEntrypoint'
+      ) {
+        matches += 1;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(loop.statement);
+  return matches === 1;
+};
+
+const isAllowedReleasePackageSetImport = (
+  scriptsRoot: string,
+  source: Source,
+  sourceFile: ts.SourceFile,
+  node: ts.CallExpression,
+): boolean => {
+  const logical = relative(scriptsRoot, source.logical).split(sep).join('/');
+  const loader = releasePackageSetLoader(node);
+  if (
+    source.zone !== 'shared' ||
+    logical !== 'shared/release-publication/package-set.ts' ||
+    loader === undefined ||
+    loader.parameters.length !== 2
+  ) {
+    return false;
+  }
+  const snapshotParameter = loader.parameters[0];
+  const versionParameter = loader.parameters[1];
+  if (
+    snapshotParameter === undefined ||
+    !ts.isIdentifier(snapshotParameter.name) ||
+    snapshotParameter.name.text !== 'snapshotRoot' ||
+    versionParameter === undefined ||
+    !ts.isIdentifier(versionParameter.name) ||
+    versionParameter.name.text !== 'expectedVersion' ||
+    !hasNamedImport(sourceFile, 'node:path', 'join') ||
+    !hasNamedImport(sourceFile, 'node:url', 'pathToFileURL') ||
+    !hasSupportedApiPathTable(sourceFile)
+  ) {
+    return false;
+  }
+  const loop = supportedApiPathLoop(node, loader);
+  if (loop === undefined || !loopDerivesSelectedEntrypoint(loop)) return false;
+
+  const argument = node.arguments[0];
+  if (
+    node.arguments.length !== 1 ||
+    argument === undefined ||
+    !ts.isPropertyAccessExpression(argument) ||
+    argument.name.text !== 'href' ||
+    !ts.isCallExpression(argument.expression) ||
+    !ts.isIdentifier(argument.expression.expression) ||
+    argument.expression.expression.text !== 'pathToFileURL' ||
+    argument.expression.arguments.length !== 1
+  ) {
+    return false;
+  }
+  const selectedEntrypoint = argument.expression.arguments[0];
+  return (
+    selectedEntrypoint !== undefined &&
+    ts.isIdentifier(selectedEntrypoint) &&
+    selectedEntrypoint.text === 'selectedEntrypoint'
+  );
+};
+
 export function checkZeroInstallImports(
   scriptsRootInput: string,
 ): ImportBoundaryDiagnostic[] {
   const scriptsRoot = resolve(scriptsRootInput);
-  const sharedRoot = resolve(scriptsRoot, 'shared');
-  const githubRoot = resolve(scriptsRoot, 'github');
-  const canonicalShared = realpathSync(sharedRoot);
-  const canonicalGithub = realpathSync(githubRoot);
+  const roots: Record<Zone, string> = {
+    api: resolve(scriptsRoot, 'api'),
+    github: resolve(scriptsRoot, 'github'),
+    shared: resolve(scriptsRoot, 'shared'),
+  };
+  const canonicalRoots: Record<Zone, string> = {
+    api: realpathSync(roots.api),
+    github: realpathSync(roots.github),
+    shared: realpathSync(roots.shared),
+  };
   const sources: Source[] = [];
   const unsupported: Array<{ logical: string; zone: Zone }> = [];
-  enumerate(sharedRoot, 'shared', sources, unsupported);
-  enumerate(githubRoot, 'github', sources, unsupported);
+  for (const zone of zones) enumerate(roots[zone], zone, sources, unsupported);
   const knownTargets = new Set(sources.map(({ canonical }) => canonical));
   const diagnostics: ImportBoundaryDiagnostic[] = [];
   const seen = new Set<string>();
@@ -143,9 +339,9 @@ export function checkZeroInstallImports(
       return;
     }
 
-    const allowed =
-      isWithin(canonicalShared, canonicalTarget) ||
-      (source.zone === 'github' && isWithin(canonicalGithub, canonicalTarget));
+    const allowed = allowedTargets[source.zone].some((zone) =>
+      isWithin(canonicalRoots[zone], canonicalTarget),
+    );
     if (!allowed) {
       add(
         source,
@@ -168,7 +364,7 @@ export function checkZeroInstallImports(
   };
 
   for (const source of sources) {
-    const canonicalZone = source.zone === 'shared' ? canonicalShared : canonicalGithub;
+    const canonicalZone = canonicalRoots[source.zone];
     if (!isWithin(canonicalZone, source.canonical)) {
       add(
         source,
@@ -222,7 +418,7 @@ export function checkZeroInstallImports(
             sourceFile,
             node,
             'TOP_LEVEL_AWAIT',
-            'the synchronous github-script require bridge cannot load top-level await',
+            'zero-install modules must not use top-level await',
           );
         }
       }
@@ -277,6 +473,8 @@ export function checkZeroInstallImports(
             (ts.isStringLiteralLike(argument) || ts.isNoSubstitutionTemplateLiteral(argument))
           ) {
             inspectSpecifier(source, sourceFile, argument, argument.text);
+          } else if (isAllowedReleasePackageSetImport(scriptsRoot, source, sourceFile, node)) {
+            // The selected entrypoint is the sole computed import in the zero-install graph.
           } else {
             add(
               source,

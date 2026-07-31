@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
@@ -11,9 +12,19 @@ import {
   formatSummary,
   total,
 } from '@fablebook/lab-02-addon';
-import { add, normalizeLabel, normalizeLabels } from '@fablebook/lab-02-core';
+import {
+  add,
+  formatChapterNavigation,
+  multiply,
+  normalizeLabel,
+  normalizeLabels,
+} from '@fablebook/lab-02-core';
 
-import { listPublicPackages, repositoryRoot } from '../scripts/shared/workspace/packages.ts';
+import {
+  listPublicPackages,
+  listWorkspacePackages,
+  repositoryRoot,
+} from '../scripts/shared/workspace/packages.ts';
 
 const packages = await listPublicPackages();
 const rootManifest: unknown = JSON.parse(
@@ -28,6 +39,56 @@ test('the complete public workspace set is discovered in stable order', () => {
     packages.map(({ name }) => name),
     ['@fablebook/lab-02-addon', '@fablebook/lab-02-core']
   );
+});
+
+test('the workspace catalog includes private packages in location order', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'lab-02-workspaces-'));
+  try {
+    await Promise.all([
+      mkdir(join(root, 'packages/a-private'), { recursive: true }),
+      mkdir(join(root, 'packages/z-public'), { recursive: true }),
+    ]);
+    await Promise.all([
+      writeFile(
+        join(root, 'package.json'),
+        JSON.stringify({ private: true, workspaces: ['packages/*'] }),
+      ),
+      writeFile(
+        join(root, 'packages/a-private/package.json'),
+        JSON.stringify({ name: 'private-tooling', private: true, version: '1.0.0' }),
+      ),
+      writeFile(
+        join(root, 'packages/z-public/package.json'),
+        JSON.stringify({ name: '@fablebook/lab-02-public', version: '1.0.0' }),
+      ),
+    ]);
+
+    const catalog = await listWorkspacePackages(root);
+    assert.deepEqual(
+      catalog.map(({ location, name, private: isPrivate, version }) => ({
+        location,
+        name,
+        version,
+        private: isPrivate,
+      })),
+      [
+        {
+          location: 'packages/a-private',
+          name: 'private-tooling',
+          version: '1.0.0',
+          private: true,
+        },
+        {
+          location: 'packages/z-public',
+          name: '@fablebook/lab-02-public',
+          version: '1.0.0',
+          private: false,
+        },
+      ],
+    );
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
 });
 
 test('all public packages and internal dependencies use the lockstep version', () => {
@@ -49,6 +110,7 @@ test('all public packages and internal dependencies use the lockstep version', (
 
 test('the compiled addon exercises the compiled core package', () => {
   assert.equal(add(2, 3), 5);
+  assert.equal(multiply(2, 3), 6);
   assert.equal(total([1, 2, 3]), 6);
   assert.equal(formatSummary(' Demo ', [2, 3]), 'demo:5');
 });
@@ -77,4 +139,17 @@ test('count summaries report the number of values', () => {
 
 test('label collections share one locale-aware normalization pass', () => {
   assert.deepEqual(normalizeLabels([' I ', ' İ '], { locale: 'tr' }), ['ı', 'i']);
+});
+
+test('chapter navigation renders a trail or only the current chapter', () => {
+  const chapters = ['Introduction', 'Components', 'Buttons'];
+  assert.equal(
+    formatChapterNavigation(chapters),
+    'Introduction > Components > Buttons',
+  );
+  assert.equal(
+    formatChapterNavigation(chapters, { storyLayout: 'current' }),
+    'Buttons',
+  );
+  assert.equal(formatChapterNavigation([], { storyLayout: 'current' }), '');
 });

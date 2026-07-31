@@ -1,8 +1,8 @@
-import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 
+import { loadReleasePackageSet } from '../../shared/release-publication/package-set.ts';
 import {
   listPublicPackages,
   type PublicPackage,
@@ -12,18 +12,22 @@ import {
   composeGitHubReleaseBody,
   deriveReleaseAuthority,
   deriveReleaseCommunication,
-  exactPublication,
   lineChannel,
   NPM_REGISTRY,
   PILOT_REPOSITORY,
-  promotionDisposition,
-  publicationDisposition,
+  registryIntegrity,
   validateReleaseCommunication,
 } from '../../shared/release-publication/core.ts';
 import type {
   ReleaseAuthority,
   ReleaseCommunication,
 } from '../../shared/release-publication/core.ts';
+import {
+  reconcilePublicationPlan,
+  type PublicationManifest,
+  type PublicationPackage,
+  validatePublicationManifest,
+} from '../../shared/release-publication/publication.ts';
 import {
   loadMigrationRecords,
   releaseRecordPath,
@@ -48,27 +52,12 @@ import {
   writeJson,
 } from '../controller-support.ts';
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-const PACKAGE_PREFIX = '@fablebook/lab-02-';
-
-type PublicationPackage = {
-  filename: string;
-  integrity: string;
-  location: string;
-  name: string;
-};
-
-type PublicationManifest = ReleaseAuthority & {
-  packages: PublicationPackage[];
-  releaseCommunication: ReleaseCommunication;
-  repository: typeof PILOT_REPOSITORY;
-  schema: 2;
-};
 
 type ReleaseAuthorityDocument = ReleaseAuthority & {
   releaseCommunication: ReleaseCommunication;
 };
 
-type AnnotatedTag = {
+export type AnnotatedTag = {
   object: {
     sha: string;
     type: 'commit';
@@ -98,16 +87,18 @@ export type PreparePublicationOptions = {
 };
 
 export type PublishPackagesOptions = {
-  'github-token': string;
+  'expected-snapshot': string;
+  'expected-version': string;
   manifest: string;
-  snapshot: string;
   tarballs: string;
 };
 
 export type FinalizeReleaseOptions = {
+  'expected-snapshot': string;
+  'expected-version': string;
   'github-token': string;
   manifest: string;
-  snapshot: string;
+  tarballs: string;
 };
 
 export type ResolvePromotionOptions = {
@@ -117,12 +108,6 @@ export type ResolvePromotionOptions = {
 
 export type PromotionResolution = {
   snapshot: string;
-};
-
-export type PromoteLatestOptions = {
-  'github-token': string;
-  snapshot: string;
-  version: string;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -161,7 +146,10 @@ const ensureTrustedMain = (): void => {
 const gitHead = async (root: string): Promise<string> =>
   (await run('git', ['rev-parse', 'HEAD'], { cwd: root })).stdout.trim();
 
-const validateSnapshot = async (root: string, expectedOid: string): Promise<void> => {
+export const validatePublicationSnapshot = async (
+  root: string,
+  expectedOid: string,
+): Promise<void> => {
   validateOid(expectedOid, 'Expected snapshot');
   if ((await gitHead(root)) !== expectedOid) {
     throw new Error('The checked-out snapshot does not match release authority.');
@@ -252,42 +240,6 @@ const authorityDocumentValue = (input: unknown): ReleaseAuthorityDocument => {
   };
 };
 
-const compareAuthority = (
-  actual: ReleaseAuthority,
-  expected: ReleaseAuthority,
-): void => {
-  const fields: Array<keyof ReleaseAuthority> = [
-    'channel',
-    'line',
-    'proposalOid',
-    'pullRequest',
-    'snapshotOid',
-    'sourceOid',
-    'version',
-  ];
-  for (const field of fields) {
-    if (actual[field] !== expected[field]) {
-      throw new Error(`Release authority changed at ${field}.`);
-    }
-  }
-};
-
-const readLiveAuthority = async (
-  token: string,
-  pullRequest: number,
-): Promise<ReleaseAuthority> => {
-  const pull = await getPullRequest(token, pullRequest);
-  const mergeCommitOid = pull.merge_commit_sha;
-  if (mergeCommitOid === null) {
-    throw new Error('Merged release pull request has no merge commit OID.');
-  }
-  const [headCommit, mergeCommit] = await Promise.all([
-    getGitCommit(token, pull.head.sha),
-    getGitCommit(token, mergeCommitOid),
-  ]);
-  return deriveReleaseAuthority({ headCommit, mergeCommit, pull });
-};
-
 const readLiveRelease = async (
   token: string,
   pullRequest: number,
@@ -356,96 +308,31 @@ const integrityFor = async (path: string): Promise<string> => {
   return `sha512-${hash.digest('base64')}`;
 };
 
-const publicationPackageValue = (value: unknown): PublicationPackage => {
-  if (!isRecord(value)) {
-    throw new Error('Publication package entry must be an object.');
-  }
-  return {
-    filename: stringValue(value['filename'], 'Publication package filename'),
-    integrity: stringValue(value['integrity'], 'Publication package integrity'),
-    location: stringValue(value['location'], 'Publication package location'),
-    name: stringValue(value['name'], 'Publication package name'),
-  };
-};
-
-const validateManifest = (input: unknown): PublicationManifest => {
-  if (
-    !isRecord(input) ||
-    input['schema'] !== 2 ||
-    input['repository'] !== PILOT_REPOSITORY ||
-    !Array.isArray(input['packages']) ||
-    input['packages'].length === 0
-  ) {
-    throw new Error('Publication manifest is outside the accepted pilot schema.');
-  }
-  const authority = authorityValue(input, 'Publication manifest');
-  const manifest: PublicationManifest = {
-    ...authority,
-    packages: input['packages'].map(publicationPackageValue),
-    releaseCommunication: validateReleaseCommunication(
-      input['releaseCommunication'],
-      authority.version,
-    ),
-    repository: PILOT_REPOSITORY,
-    schema: 2,
-  };
-  const names = new Set();
-  const filenames = new Set();
-  const locations = new Set();
-  for (const pkg of manifest.packages) {
-    if (
-      typeof pkg.name !== 'string' ||
-      !pkg.name.startsWith(PACKAGE_PREFIX) ||
-      !/^packages\/[a-z0-9-]+$/.test(pkg.location ?? '') ||
-      basename(pkg.filename ?? '') !== pkg.filename ||
-      !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(pkg.integrity ?? '') ||
-      names.has(pkg.name) ||
-      filenames.has(pkg.filename) ||
-      locations.has(pkg.location)
-    ) {
-      throw new Error('Publication manifest contains an invalid package entry.');
-    }
-    names.add(pkg.name);
-    filenames.add(pkg.filename);
-    locations.add(pkg.location);
-  }
-  return manifest;
-};
-
-const comparePackageSet = (
-  manifest: PublicationManifest,
-  packages: PublicPackage[],
-): void => {
-  assert.deepEqual(
-    manifest.packages.map(({ location, name }) => ({ location, name })),
-    packages.map(({ location, name }) => ({ location, name }))
-  );
-};
-
-export async function preparePublication(
-  options: PreparePublicationOptions,
-): Promise<void> {
-  const authority = authorityDocumentValue(
-    await readJson(resolve(requireOption(options, 'authority'))),
-  );
-  const snapshot = resolve(requireOption(options, 'snapshot'));
-  const output = resolve(requireOption(options, 'output'));
-  await validateSnapshot(snapshot, authority.snapshotOid);
-  const packages = await validatePackageSet(snapshot, authority.version);
+export async function packPublicationPackageSet(
+  snapshot: string,
+  output: string,
+  version: string,
+): Promise<{
+  packages: PublicationPackage[];
+  tarballs: string;
+}> {
+  const packages = await loadReleasePackageSet(snapshot, version);
   const tarballs = join(output, 'tarballs');
   await mkdir(tarballs, { recursive: true });
 
-  const packedPackages: Array<{
-    filename: string;
-    integrity: string;
-    location: string;
-    name: string;
-  }> = [];
+  const packedPackages: PublicationPackage[] = [];
   for (const pkg of packages) {
     const { stdout } = await run(
       npm,
-      ['pack', '--json', '--ignore-scripts', '--pack-destination', tarballs, pkg.directory],
-      { cwd: snapshot }
+      [
+        'pack',
+        '--json',
+        '--ignore-scripts',
+        '--pack-destination',
+        tarballs,
+        join(snapshot, pkg.location),
+      ],
+      { cwd: snapshot },
     );
     const packResult: unknown = JSON.parse(stdout);
     const packedValue =
@@ -459,7 +346,9 @@ export async function preparePublication(
     }
     const files = new Set<string>(
       packedValue['files'].map((file) => {
-        if (!isRecord(file)) throw new Error('npm pack file entry must be an object.');
+        if (!isRecord(file)) {
+          throw new Error('npm pack file entry must be an object.');
+        }
         return stringValue(file['path'], 'npm pack file path');
       }),
     );
@@ -471,7 +360,7 @@ export async function preparePublication(
     };
     if (
       packed.name !== pkg.name ||
-      packed.version !== authority.version ||
+      packed.version !== version ||
       basename(packed.filename) !== packed.filename ||
       !files.has('dist/index.js') ||
       !files.has('dist/index.d.ts') ||
@@ -487,22 +376,59 @@ export async function preparePublication(
     packedPackages.push({
       filename: packed.filename,
       integrity,
-      location: pkg.location,
       name: pkg.name,
     });
   }
+  return { packages: packedPackages, tarballs };
+}
 
-  const manifest = validateManifest({
-    ...authority,
-    packages: packedPackages,
-    repository: PILOT_REPOSITORY,
-    schema: 2,
+export async function preparePublication(
+  options: PreparePublicationOptions,
+): Promise<void> {
+  const authority = authorityDocumentValue(
+    await readJson(resolve(requireOption(options, 'authority'))),
+  );
+  const snapshot = resolve(requireOption(options, 'snapshot'));
+  const output = resolve(requireOption(options, 'output'));
+  await validatePublicationSnapshot(snapshot, authority.snapshotOid);
+  const packed = await packPublicationPackageSet(
+    snapshot,
+    output,
+    authority.version,
+  );
+
+  const releaseRecord = await readFile(
+    join(snapshot, releaseRecordPath(authority.version)),
+    'utf8'
+  );
+  const migrationRecords = await loadMigrationRecords(snapshot, authority.line);
+  const { releaseCommunication, ...releaseAuthority } = authority;
+  const releaseBody = composeGitHubReleaseBody({
+    communication: releaseCommunication,
+    migrationRecords,
+    releaseRecord,
+    version: authority.version,
   });
+  const manifest = await validatePublicationManifest(
+    {
+      ...releaseAuthority,
+      packages: packed.packages,
+      releaseBody,
+      repository: PILOT_REPOSITORY,
+      schema: 3,
+    },
+    packed.tarballs,
+    {
+      repository: PILOT_REPOSITORY,
+      snapshotOid: authority.snapshotOid,
+      version: authority.version,
+    },
+  );
   await writeJson(join(output, 'publication.json'), manifest);
   console.log(`Prepared ${manifest.packages.length} packages for ${manifest.version}.`);
 }
 
-const registryDocument = async (name: string): Promise<unknown> => {
+export const readRegistryDocument = async (name: string): Promise<unknown> => {
   const url = new URL(encodeURIComponent(name), NPM_REGISTRY);
   url.searchParams.set('fablebook_read', `${Date.now()}-${Math.random()}`);
   const response = await fetch(url, {
@@ -538,58 +464,22 @@ const waitFor = async <Value>(
 };
 
 const loadPublication = async (
-  options: { manifest: string; snapshot: string },
-): Promise<{
-  manifest: PublicationManifest;
-  packages: PublicPackage[];
-  snapshot: string;
-}> => {
-  const manifest = validateManifest(
-    await readJson(resolve(requireOption(options, 'manifest')))
+  options: {
+    'expected-snapshot': string;
+    'expected-version': string;
+    manifest: string;
+    tarballs: string;
+  },
+): Promise<PublicationManifest> =>
+  validatePublicationManifest(
+    await readJson(resolve(requireOption(options, 'manifest'))),
+    resolve(requireOption(options, 'tarballs')),
+    {
+      repository: PILOT_REPOSITORY,
+      snapshotOid: requireOption(options, 'expected-snapshot'),
+      version: requireOption(options, 'expected-version'),
+    },
   );
-  const snapshot = resolve(requireOption(options, 'snapshot'));
-  await validateSnapshot(snapshot, manifest.snapshotOid);
-  const packages = await validatePackageSet(snapshot, manifest.version);
-  comparePackageSet(manifest, packages);
-  return { manifest, packages, snapshot };
-};
-
-const verifyTarballs = async (
-  manifest: PublicationManifest,
-  tarballs: string,
-): Promise<void> => {
-  for (const pkg of manifest.packages) {
-    if ((await integrityFor(join(tarballs, pkg.filename))) !== pkg.integrity) {
-      throw new Error(`Transferred tarball integrity failed for ${pkg.name}.`);
-    }
-  }
-};
-
-const observePublication = async (
-  manifest: PublicationManifest,
-  pkg: PublicationPackage,
-): Promise<{ disposition: 'publish' | 'skip'; document: unknown }> => {
-  const document = await registryDocument(pkg.name);
-  const disposition = publicationDisposition({
-    channel: manifest.channel,
-    document,
-    integrity: pkg.integrity,
-    name: pkg.name,
-    version: manifest.version,
-  });
-  return { disposition, document };
-};
-
-const observeExactPublication = async (
-  manifest: PublicationManifest,
-  pkg: PublicationPackage,
-): Promise<boolean> =>
-  exactPublication({
-    document: await registryDocument(pkg.name),
-    integrity: pkg.integrity,
-    name: pkg.name,
-    version: manifest.version,
-  });
 
 export async function publishPackages(options: PublishPackagesOptions): Promise<void> {
   ensureTrustedMain();
@@ -597,59 +487,36 @@ export async function publishPackages(options: PublishPackagesOptions): Promise<
     nodeAuthToken: process.env['NODE_AUTH_TOKEN'],
     npmToken: process.env['NPM_TOKEN'],
   });
-  const { manifest } = await loadPublication(options);
+  const manifest = await loadPublication(options);
   const tarballs = resolve(requireOption(options, 'tarballs'));
-  await verifyTarballs(manifest, tarballs);
-  const githubToken = requireGithubToken(options);
-  compareAuthority(await readLiveAuthority(githubToken, manifest.pullRequest), manifest);
-  if (await releaseCompletionState(githubToken, manifest)) {
-    for (const pkg of manifest.packages) {
-      if (!(await observeExactPublication(manifest, pkg))) {
-        throw new Error(`Completed release is missing ${pkg.name}@${manifest.version}.`);
-      }
-    }
-    console.log(`Verified already completed v${manifest.version}.`);
-    return;
-  }
-
-  for (const pkg of manifest.packages) {
-    const observed = await observePublication(manifest, pkg);
-    if (observed.disposition === 'skip') {
-      console.log(`Verified existing ${pkg.name}@${manifest.version}.`);
-      continue;
-    }
-    await run(
-      npm,
-      [
-        'publish',
-        join(tarballs, pkg.filename),
-        '--access',
-        'public',
-        '--ignore-scripts',
-        '--registry',
-        NPM_REGISTRY,
-        '--tag',
-        manifest.channel,
-      ],
-      { cwd: tarballs }
-    );
-    await waitFor(async () => {
-      const next = await observePublication(manifest, pkg);
-      if (next.disposition !== 'skip') {
-        throw new Error(`${pkg.name}@${manifest.version} is not visible yet.`);
-      }
-      return next;
-    });
-    console.log(`Published ${pkg.name}@${manifest.version} on ${manifest.channel}.`);
-  }
-
-  for (const pkg of manifest.packages) {
-    const observed = await observePublication(manifest, pkg);
-    if (observed.disposition !== 'skip') {
-      throw new Error(`${pkg.name}@${manifest.version} did not complete publication.`);
-    }
-  }
-  console.log(`Verified the complete ${manifest.version} package set on ${manifest.channel}.`);
+  await reconcilePublicationPlan(manifest, {
+    observeIntegrity: async (pkg, version) =>
+      registryIntegrity({
+        document: await readRegistryDocument(pkg.name),
+        name: pkg.name,
+        version,
+      }),
+    publish: async (pkg, channel) => {
+      await run(
+        npm,
+        [
+          'publish',
+          join(tarballs, pkg.filename),
+          '--access',
+          'public',
+          '--ignore-scripts',
+          '--registry',
+          NPM_REGISTRY,
+          '--tag',
+          channel,
+        ],
+        { cwd: tarballs },
+      );
+    },
+    wait: (milliseconds) =>
+      new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds)),
+  });
+  console.log(`Published the complete ${manifest.version} package set on ${manifest.channel}.`);
 }
 
 const annotatedTagValue = (value: unknown): AnnotatedTag => {
@@ -670,7 +537,7 @@ const annotatedTagValue = (value: unknown): AnnotatedTag => {
   };
 };
 
-const readAnnotatedTag = async (
+export const readAnnotatedTag = async (
   token: string,
   tag: string,
 ): Promise<AnnotatedTag | null> => {
@@ -686,7 +553,7 @@ const readAnnotatedTag = async (
   );
 };
 
-const assertTagTarget = (
+export const assertTagTarget = (
   tagObject: AnnotatedTag,
   tag: string,
   snapshotOid: string,
@@ -700,9 +567,9 @@ const assertTagTarget = (
   }
 };
 
-const ensureAnnotatedTag = async (
+export const ensureAnnotatedTag = async (
   token: string,
-  manifest: PublicationManifest,
+  manifest: Pick<PublicationManifest, 'snapshotOid' | 'version'>,
 ): Promise<string> => {
   const tag = `v${manifest.version}`;
   let tagObject = await readAnnotatedTag(token, tag);
@@ -741,11 +608,12 @@ const ensureAnnotatedTag = async (
   return tag;
 };
 
-const ensureGitHubRelease = async (
+export const ensureGitHubRelease = async (
   token: string,
-  manifest: PublicationManifest,
+  manifest: Pick<PublicationManifest, 'snapshotOid'>,
   tag: string,
   body: string,
+  prerelease = false,
 ): Promise<void> => {
   let release = await getReleaseByTag(token, tag);
   if (release === null) {
@@ -755,7 +623,7 @@ const ensureGitHubRelease = async (
           body,
           draft: false,
           name: tag,
-          prerelease: false,
+          prerelease,
           tag_name: tag,
           target_commitish: manifest.snapshotOid,
         },
@@ -770,9 +638,10 @@ const ensureGitHubRelease = async (
   if (
     release.tag_name !== tag ||
     release.draft !== false ||
-    release.prerelease !== false
+    release.prerelease !== prerelease ||
+    release.body !== body
   ) {
-    throw new Error(`GitHub Release ${tag} contradicts the completed stable release.`);
+    throw new Error(`GitHub Release ${tag} contradicts the completed release.`);
   }
 };
 
@@ -805,26 +674,15 @@ const releaseCompletionState = async (
 
 export async function finalizeRelease(options: FinalizeReleaseOptions): Promise<void> {
   ensureTrustedMain();
-  const { manifest, snapshot } = await loadPublication(options);
+  const manifest = await loadPublication(options);
   const token = requireGithubToken(options);
-  compareAuthority(await readLiveAuthority(token, manifest.pullRequest), manifest);
-  const releaseRecord = await readFile(
-    join(snapshot, releaseRecordPath(manifest.version)),
-    'utf8'
-  );
-  const migrationRecords = await loadMigrationRecords(snapshot, manifest.line);
-  const releaseBody = composeGitHubReleaseBody({
-    communication: manifest.releaseCommunication,
-    migrationRecords,
-    releaseRecord,
-    version: manifest.version,
-  });
   if (await releaseCompletionState(token, manifest)) {
-    for (const pkg of manifest.packages) {
-      if (!(await observeExactPublication(manifest, pkg))) {
-        throw new Error(`Completed release is missing ${pkg.name}@${manifest.version}.`);
-      }
-    }
+    await ensureGitHubRelease(
+      token,
+      manifest,
+      `v${manifest.version}`,
+      manifest.releaseBody,
+    );
     await githubRequest(`/repos/${PILOT_REPOSITORY}/dispatches`, {
       body: { event_type: 'release-completed' },
       method: 'POST',
@@ -833,14 +691,8 @@ export async function finalizeRelease(options: FinalizeReleaseOptions): Promise<
     console.log(`Verified already completed v${manifest.version}.`);
     return;
   }
-  for (const pkg of manifest.packages) {
-    const observed = await observePublication(manifest, pkg);
-    if (observed.disposition !== 'skip') {
-      throw new Error(`Cannot finalize incomplete package ${pkg.name}@${manifest.version}.`);
-    }
-  }
   const tag = await ensureAnnotatedTag(token, manifest);
-  await ensureGitHubRelease(token, manifest, tag, releaseBody);
+  await ensureGitHubRelease(token, manifest, tag, manifest.releaseBody);
   await githubRequest(`/repos/${PILOT_REPOSITORY}/dispatches`, {
     body: { event_type: 'release-completed' },
     method: 'POST',
@@ -882,59 +734,4 @@ export async function resolvePromotion(
   const outputs: PromotionResolution = { snapshot: snapshotOid };
   console.log(`Resolved completed v${version} at ${snapshotOid}.`);
   return outputs;
-}
-
-const observePromotion = async (
-  version: string,
-  pkg: PublicPackage,
-): Promise<'skip' | 'update'> => {
-  const document = await registryDocument(pkg.name);
-  return promotionDisposition({ document, name: pkg.name, version });
-};
-
-export async function promoteLatest(options: PromoteLatestOptions): Promise<void> {
-  ensureTrustedMain();
-  const version = requireOption(options, 'version');
-  parseStableVersion(version);
-  if (!process.env['NODE_AUTH_TOKEN']) {
-    throw new Error('Promotion requires the package-scoped npm promotion credential.');
-  }
-  const token = requireGithubToken(options);
-  const snapshotOid = await validateCompletedRelease(token, version);
-  const snapshot = resolve(requireOption(options, 'snapshot'));
-  await validateSnapshot(snapshot, snapshotOid);
-  const packages = await validatePackageSet(snapshot, version);
-
-  const plan: Array<{
-    disposition: 'skip' | 'update';
-    pkg: PublicPackage;
-  }> = [];
-  for (const pkg of packages) {
-    plan.push({ disposition: await observePromotion(version, pkg), pkg });
-  }
-
-  for (const { disposition, pkg } of plan) {
-    if (disposition === 'skip') {
-      console.log(`Verified existing ${pkg.name}@${version} latest tag.`);
-      continue;
-    }
-    await run(
-      npm,
-      ['dist-tag', 'add', `${pkg.name}@${version}`, 'latest', '--registry', NPM_REGISTRY],
-      { cwd: snapshot }
-    );
-    await waitFor(async () => {
-      if ((await observePromotion(version, pkg)) !== 'skip') {
-        throw new Error(`${pkg.name} latest is not visible at ${version} yet.`);
-      }
-    });
-    console.log(`Moved ${pkg.name} latest to ${version}.`);
-  }
-
-  for (const pkg of packages) {
-    if ((await observePromotion(version, pkg)) !== 'skip') {
-      throw new Error(`${pkg.name} latest did not converge to ${version}.`);
-    }
-  }
-  console.log(`Promoted the complete ${version} package set to latest.`);
 }
