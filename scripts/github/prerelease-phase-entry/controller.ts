@@ -575,21 +575,35 @@ const assertCanonicalPrereleaseState = async (
   }
 };
 
-const writeAuthority = async (
-  output: string,
-  action: PhaseEntryAction,
-): Promise<void> => {
-  await writeJson(join(output, 'authority.json'), {
+export function phaseEntryPrereleaseAuthority(
+  action: Pick<
+    PhaseEntryActionBase,
+    'boundaryOid' | 'changes' | 'phase' | 'sourceOid' | 'version'
+  >,
+  snapshotOid: string,
+) {
+  return {
     boundaryOid: action.boundaryOid,
     changes: action.changes,
     channel: 'next',
     phase: action.phase,
     repository: PILOT_REPOSITORY,
     schema: 1,
-    snapshotOid: action.snapshotOid,
+    snapshotOid,
     sourceOid: action.sourceOid,
     version: action.version,
-  });
+  };
+}
+
+const writeAuthority = async (
+  output: string,
+  action: PhaseEntryAction,
+  snapshotOid: string,
+): Promise<void> => {
+  await writeJson(
+    join(output, 'authority.json'),
+    phaseEntryPrereleaseAuthority(action, snapshotOid),
+  );
 };
 
 export async function applyPhaseEntry(
@@ -613,6 +627,7 @@ export async function applyPhaseEntry(
   );
   await assertCanonicalPrereleaseState(token, action);
 
+  let appliedSnapshotOid = action.snapshotOid;
   if (action.kind === 'establish') {
     const bundle = options.bundle;
     if (bundle === undefined) {
@@ -633,7 +648,7 @@ export async function applyPhaseEntry(
       kind: 'establish',
       version: action.version,
     });
-    const uploaded = await proposalUploadCommitObject(
+    appliedSnapshotOid = await proposalUploadCommitObject(
       token,
       action.snapshotOid,
     );
@@ -651,7 +666,7 @@ export async function applyPhaseEntry(
       phaseEntryRefUpdates({
         currentMainOid: action.currentMainOid,
         expectedStagedOid: action.expectedStagedOid,
-        snapshotOid: uploaded,
+        snapshotOid: appliedSnapshotOid,
       }),
     );
     if (action.openPr !== undefined) {
@@ -663,10 +678,10 @@ export async function applyPhaseEntry(
     console.log(`Reconciled existing phase entry ${action.version}.`);
   }
 
-  await writeAuthority(output, action);
+  await writeAuthority(output, action, appliedSnapshotOid);
   return {
     established: action.kind === 'establish',
-    snapshot: action.snapshotOid,
+    snapshot: appliedSnapshotOid,
     version: action.version,
   };
 }

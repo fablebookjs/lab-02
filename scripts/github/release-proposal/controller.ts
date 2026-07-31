@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 import {
   compareReleaseLines,
@@ -1291,18 +1291,31 @@ export async function prepareCut(options: PrepareCutOptions): Promise<void> {
     schema: 1,
     sourceOid,
   });
-  await writeJson(join(output, 'authority.json'), {
-    boundaryOid: developmentOid,
+  console.log(`Prepared ${versions.line} from ${sourceOid}.`);
+}
+
+export function cutPrereleaseAuthority({
+  developmentVersion,
+  line,
+  snapshotOid,
+  sourceOid,
+}: {
+  developmentVersion: string;
+  line: string;
+  snapshotOid: string;
+  sourceOid: string;
+}) {
+  return {
+    boundaryOid: snapshotOid,
     changes: [],
     channel: 'next',
-    cutLine: versions.line,
+    cutLine: line,
     repository: PILOT_REPOSITORY,
     schema: 1,
-    snapshotOid: developmentOid,
+    snapshotOid,
     sourceOid,
-    version: versions.developmentVersion,
-  });
-  console.log(`Prepared ${versions.line} from ${sourceOid}.`);
+    version: developmentVersion,
+  };
 }
 
 export function cutRefUpdates({
@@ -1438,6 +1451,15 @@ export async function applyCut(options: ApplyCutOptions): Promise<void> {
   } else if (openPulls.length !== 1) {
     throw new Error(`${transition.line} has more than one open canonical release PR.`);
   }
+  await writeJson(
+    join(dirname(transitionPath), 'authority.json'),
+    cutPrereleaseAuthority({
+      developmentVersion: transition.developmentVersion,
+      line: transition.line,
+      snapshotOid: uploadedDevelopmentOid,
+      sourceOid: transition.sourceOid,
+    }),
+  );
   console.log(`Cut ${transition.line} and opened its draft ${transition.releaseVersion} proposal.`);
 }
 
