@@ -37,7 +37,7 @@ export interface ChapterNavigationOptions {
 }
 
 const progressLabels: Record<ChapterProgressVariant, string> = {
-  'compact': 'Progress',
+  'compact': 'Reading progress',
 };
 
 const trailSeparators: Partial<Record<ChapterProgressVariant, string>> = {
