@@ -9,8 +9,10 @@ import {
   count,
   formatAverageSummary,
   formatCountSummary,
+  formatMinimumSummary,
   formatRangeSummary,
   formatSummary,
+  minimum,
   range,
   total,
 } from '@fablebook/lab-02-addon';
@@ -150,6 +152,14 @@ test('range summaries report the spread of populated values', () => {
   assert.equal(range([]), undefined);
   assert.equal(formatRangeSummary(' Scores ', [2, 4, 8]), 'scores:6');
   assert.equal(formatRangeSummary(' Scores ', []), 'scores:n/a');
+});
+
+test('minimum summaries report the lowest populated value', () => {
+  assert.equal(minimum([8, 2, 4]), 2);
+  assert.equal(minimum([]), undefined);
+  assert.equal(formatMinimumSummary(' Scores ', [8, 2, 4]), 'scores:2');
+  assert.equal(formatMinimumSummary(' Scores ', []), 'scores:n/a');
+  assert.equal(formatMinimumSummary(' I ', [8, 2, 4], { locale: 'tr' }), 'ı:2');
 });
 
 test('label collections share one locale-aware normalization pass', () => {
