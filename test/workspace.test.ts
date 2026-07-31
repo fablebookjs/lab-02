@@ -9,7 +9,9 @@ import {
   count,
   formatAverageSummary,
   formatCountSummary,
+  formatRangeSummary,
   formatSummary,
+  range,
   total,
 } from '@fablebook/lab-02-addon';
 import {
@@ -141,6 +143,13 @@ test('count summaries report the number of values', () => {
   assert.equal(count([]), 0);
   assert.equal(formatCountSummary(' Items ', [2, 4, 8]), 'items:3');
   assert.equal(formatCountSummary(' I ', [2, 4, 8], { locale: 'tr' }), 'ı:3');
+});
+
+test('range summaries report the spread of populated values', () => {
+  assert.equal(range([2, 4, 8]), 6);
+  assert.equal(range([]), undefined);
+  assert.equal(formatRangeSummary(' Scores ', [2, 4, 8]), 'scores:6');
+  assert.equal(formatRangeSummary(' Scores ', []), 'scores:n/a');
 });
 
 test('label collections share one locale-aware normalization pass', () => {

@@ -1,6 +1,7 @@
 import {
   add,
   normalizeLabel,
+  subtract,
   type LabelNormalizationOptions,
 } from '@fablebook/lab-02-core';
 
@@ -14,6 +15,12 @@ export function average(values: number[]): number | undefined {
 
 export function count(values: number[]): number {
   return values.length;
+}
+
+export function range(values: number[]): number | undefined {
+  return values.length === 0
+    ? undefined
+    : subtract(Math.max(...values), Math.min(...values));
 }
 
 export function formatSummary(
@@ -38,4 +45,12 @@ export function formatCountSummary(
   options: LabelNormalizationOptions = {}
 ): string {
   return `${normalizeLabel(label, options)}:${count(values)}`;
+}
+
+export function formatRangeSummary(
+  label: string,
+  values: number[],
+  options: LabelNormalizationOptions = {}
+): string {
+  return `${normalizeLabel(label, options)}:${range(values) ?? 'n/a'}`;
 }
