@@ -10,6 +10,6 @@ test('chapter navigation progress variants remain coherent', () => {
       progressVariant: 'compact',
       currentChapter: 1,
     }),
-    'Start >  · Reading progress 1/2',
+    'Start > Untitled chapter · Reading progress 1/2',
   );
 });
