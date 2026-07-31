@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -91,16 +91,22 @@ test('native v1 projects, validates, filters, and orders the release package set
 });
 
 test('the current repository snapshot exercises its native v1 interface through the loader', async () => {
-  assert.deepEqual(await loadReleasePackageSet(repositoryRoot, '3.1.0-alpha.0'), [
+  const rootManifest: unknown = JSON.parse(
+    await readFile(join(repositoryRoot, 'package.json'), 'utf8'),
+  );
+  assert.ok(rootManifest !== null && typeof rootManifest === 'object');
+  assert.ok('version' in rootManifest && typeof rootManifest.version === 'string');
+
+  assert.deepEqual(await loadReleasePackageSet(repositoryRoot, rootManifest.version), [
     {
       location: 'packages/addon',
       name: '@fablebook/lab-02-addon',
-      version: '3.1.0-alpha.0',
+      version: rootManifest.version,
     },
     {
       location: 'packages/core',
       name: '@fablebook/lab-02-core',
-      version: '3.1.0-alpha.0',
+      version: rootManifest.version,
     },
   ]);
 });
