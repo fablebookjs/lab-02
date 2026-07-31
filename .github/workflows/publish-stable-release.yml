@@ -22,7 +22,7 @@ jobs:
       github.ref == 'refs/heads/main' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'pull_request_target' &&
-      github.event.workflow_run.name == 'Release: Trigger proposal maintenance'
+      github.event.workflow_run.path == '.github/workflows/release-proposal-signal.yml'
     runs-on: ubuntu-latest
     outputs:
       publish: ${{ steps.resolve.outputs.publish }}
@@ -189,7 +189,7 @@ jobs:
       github.repository == 'fablebookjs/lab-02' &&
       github.ref == 'refs/heads/main' &&
       github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.name != 'Release: Trigger proposal maintenance'
+      github.event.workflow_run.path != '.github/workflows/release-proposal-signal.yml'
     permissions:
       actions: read
       contents: read

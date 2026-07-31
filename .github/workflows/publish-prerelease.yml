@@ -39,7 +39,7 @@ jobs:
           package-manager-cache: false
       - name: Download the inert Prerelease PR identity
         if: >-
-          github.event.workflow_run.name == 'Prerelease: Trigger publication'
+          github.event.workflow_run.path == '.github/workflows/prerelease-proposal-signal.yml'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           github-token: ${{ github.token }}
@@ -49,7 +49,7 @@ jobs:
       - name: Resolve ordinary publication authority from GitHub
         id: ordinary
         if: >-
-          github.event.workflow_run.name == 'Prerelease: Trigger publication'
+          github.event.workflow_run.path == '.github/workflows/prerelease-proposal-signal.yml'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           OUTPUT: ${{ runner.temp }}/prerelease-publication
@@ -61,8 +61,8 @@ jobs:
             return handler({ github, context, core, env: process.env })
       - name: Download direct publication authority
         if: >-
-          github.event.workflow_run.name == 'MANUAL - Prerelease: Enter phase' ||
-          github.event.workflow_run.name == 'MANUAL - Release: Start new release line'
+          github.event.workflow_run.path == '.github/workflows/enter-prerelease-phase.yml' ||
+          github.event.workflow_run.path == '.github/workflows/cut-release-line.yml'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           github-token: ${{ github.token }}
@@ -72,7 +72,7 @@ jobs:
       - name: Inspect the exact publication authority
         id: authority
         if: >-
-          github.event.workflow_run.name != 'Prerelease: Trigger publication' ||
+          github.event.workflow_run.path != '.github/workflows/prerelease-proposal-signal.yml' ||
           steps.ordinary.outputs.publish == 'true'
         env:
           AUTHORITY: ${{ runner.temp }}/prerelease-publication/authority.json
