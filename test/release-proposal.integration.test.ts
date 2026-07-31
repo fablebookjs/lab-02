@@ -392,7 +392,7 @@ test('prepare-cut creates two validated children and no repository refs', async 
       cut.developmentOid
     );
     const authority: unknown = JSON.parse(
-      await readFile(join(artifact, 'bootstrap-authority.json'), 'utf8'),
+      await readFile(join(artifact, 'authority.json'), 'utf8'),
     );
     assert.deepEqual(authority, {
       boundaryOid: cut.developmentOid,

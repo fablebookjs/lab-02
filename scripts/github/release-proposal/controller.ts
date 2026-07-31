@@ -1291,7 +1291,7 @@ export async function prepareCut(options: PrepareCutOptions): Promise<void> {
     schema: 1,
     sourceOid,
   });
-  await writeJson(join(output, 'bootstrap-authority.json'), {
+  await writeJson(join(output, 'authority.json'), {
     boundaryOid: developmentOid,
     changes: [],
     channel: 'next',
