@@ -23,6 +23,10 @@ export function range(values: number[]): number | undefined {
     : subtract(Math.max(...values), Math.min(...values));
 }
 
+export function minimum(values: number[]): number | undefined {
+  return values.length === 0 ? undefined : Math.min(...values);
+}
+
 export function formatSummary(
   label: string,
   values: number[],
@@ -53,4 +57,12 @@ export function formatRangeSummary(
   options: LabelNormalizationOptions = {}
 ): string {
   return `${normalizeLabel(label, options)}:${range(values) ?? 'n/a'}`;
+}
+
+export function formatMinimumSummary(
+  label: string,
+  values: number[],
+  options: LabelNormalizationOptions = {}
+): string {
+  return `${normalizeLabel(label, options)}:${minimum(values) ?? 'n/a'}`;
 }
