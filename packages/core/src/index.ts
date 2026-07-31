@@ -36,8 +36,12 @@ export function formatChapterNavigation(
   chapters: string[],
   { storyLayout = 'trail' }: ChapterNavigationOptions = {}
 ): string {
+  const visibleChapters = chapters
+    .map((chapter) => chapter.trim())
+    .filter((chapter) => chapter.length > 0);
+
   if (storyLayout === 'current') {
-    return chapters.at(-1) ?? '';
+    return visibleChapters.at(-1) ?? '';
   }
-  return chapters.join(' > ');
+  return visibleChapters.join(' > ');
 }

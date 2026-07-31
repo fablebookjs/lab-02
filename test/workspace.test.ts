@@ -158,4 +158,14 @@ test('chapter navigation renders a trail or only the current chapter', () => {
     'Buttons',
   );
   assert.equal(formatChapterNavigation([], { storyLayout: 'current' }), '');
+  assert.equal(
+    formatChapterNavigation([' Introduction ', '', ' Buttons ']),
+    'Introduction > Buttons',
+  );
+  assert.equal(
+    formatChapterNavigation(['Introduction', ' ', 'Buttons', ''], {
+      storyLayout: 'current',
+    }),
+    'Buttons',
+  );
 });
