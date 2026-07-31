@@ -70,7 +70,11 @@ test('independently visible workflows use purpose-first run names', async () => 
 });
 
 test('workflows without distinct run metadata retain their static names', async () => {
-  for (const name of ['publish-prerelease.yml', 'repair-release-proposals.yml']) {
+  for (const name of [
+    'complete-stable-publication.yml',
+    'publish-prerelease.yml',
+    'repair-release-proposals.yml',
+  ]) {
     const source = await readFile(join(workflows, name), 'utf8');
     assert.doesNotMatch(source, /^run-name:/m, `${name} should not override its run name`);
   }

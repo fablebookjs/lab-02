@@ -1,6 +1,11 @@
 import type { components } from '@octokit/openapi-webhooks-types';
 
 type AuthoritativePullRequest = components['schemas']['pull-request-webhook'];
+type AuthoritativeWorkflowRunCompletion =
+  components['schemas']['webhook-workflow-run-completed'];
+type AuthoritativeWorkflowRun =
+  AuthoritativeWorkflowRunCompletion['workflow_run'];
+type WorkflowConclusion = NonNullable<AuthoritativeWorkflowRun['conclusion']>;
 
 export type ValidatedPullRequest = {
   base: {
@@ -34,6 +39,14 @@ export type ValidatedPullRequestDescription = {
   };
 };
 
+export type ValidatedWorkflowRunCompletion = {
+  branch: string;
+  conclusion: WorkflowConclusion;
+  event: AuthoritativeWorkflowRun['event'];
+  path: AuthoritativeWorkflowRun['path'];
+  runId: AuthoritativeWorkflowRun['id'];
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -42,6 +55,30 @@ const requiredString = (value: unknown, label: string): string => {
     throw new Error(`Pull request ${label} is missing.`);
   }
   return value;
+};
+
+const requiredWorkflowString = (value: unknown, label: string): string => {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`Completed workflow run ${label} is missing.`);
+  }
+  return value;
+};
+
+const workflowConclusion = (value: unknown): WorkflowConclusion => {
+  switch (value) {
+    case 'action_required':
+    case 'cancelled':
+    case 'failure':
+    case 'neutral':
+    case 'skipped':
+    case 'stale':
+    case 'startup_failure':
+    case 'success':
+    case 'timed_out':
+      return value;
+    default:
+      throw new Error('Completed workflow run conclusion is missing or unknown.');
+  }
 };
 
 const pullRequestPayload = (payload: unknown): Record<string, unknown> => {
@@ -116,5 +153,31 @@ export function validatedPullRequest(payload: unknown): ValidatedPullRequest {
       sha: requiredString(head['sha'], 'head SHA'),
     },
     number,
+  };
+}
+
+export function validatedWorkflowRunCompletion(
+  eventName: string,
+  payload: unknown,
+): ValidatedWorkflowRunCompletion {
+  if (
+    eventName !== 'workflow_run' ||
+    !isRecord(payload) ||
+    payload['action'] !== 'completed' ||
+    !isRecord(payload['workflow_run'])
+  ) {
+    throw new Error('Completed workflow_run event data is missing.');
+  }
+  const workflowRun = payload['workflow_run'];
+  const runId = workflowRun['id'];
+  if (typeof runId !== 'number' || !Number.isSafeInteger(runId) || runId <= 0) {
+    throw new Error('Completed workflow run ID must be a positive integer.');
+  }
+  return {
+    branch: requiredWorkflowString(workflowRun['head_branch'], 'branch'),
+    conclusion: workflowConclusion(workflowRun['conclusion']),
+    event: requiredWorkflowString(workflowRun['event'], 'event'),
+    path: requiredWorkflowString(workflowRun['path'], 'path'),
+    runId,
   };
 }

@@ -39,6 +39,12 @@ import {
   parseDevelopmentVersion,
   parseReleaseLine,
 } from '../../shared/release-proposal/core.ts';
+import {
+  isPrereleaseAuthorityKind,
+} from '../../shared/publication-routing/core.ts';
+import type {
+  PublicationAuthorityKind,
+} from '../../shared/publication-routing/core.ts';
 import { run } from '../../shared/process/run.ts';
 import {
   readJson,
@@ -69,6 +75,7 @@ type PrereleaseAuthorityDocument = PrereleaseAuthority & {
 };
 
 export type ResolvePrereleasePublicationOptions = {
+  'authority-kind': string;
   'github-token': string;
   output: string;
   signal: string;
@@ -89,6 +96,7 @@ export type PreparePrereleasePublicationOptions = {
 };
 
 export type InspectPrereleaseAuthorityOptions = {
+  'authority-kind': string;
   authority: string;
 };
 
@@ -220,6 +228,36 @@ const authorityValue = (input: unknown): PrereleaseAuthorityDocument => {
   };
 };
 
+const prereleaseAuthorityKind = (value: unknown): Exclude<
+  PublicationAuthorityKind,
+  'stable-pr'
+> => {
+  if (!isPrereleaseAuthorityKind(value)) {
+    throw new Error(`Unsupported prerelease authority kind: ${String(value)}`);
+  }
+  return value;
+};
+
+const authorityDocumentKind = (
+  authority: PrereleaseAuthorityDocument,
+): Exclude<PublicationAuthorityKind, 'stable-pr'> => {
+  if ('cutLine' in authority) return 'release-cut-bootstrap';
+  if ('phase' in authority) return 'phase-entry';
+  return 'ordinary-prerelease-pr';
+};
+
+const validateAuthorityKind = (
+  authority: PrereleaseAuthorityDocument,
+  expected: Exclude<PublicationAuthorityKind, 'stable-pr'>,
+): void => {
+  const actual = authorityDocumentKind(authority);
+  if (actual !== expected) {
+    throw new Error(
+      `Prerelease authority document is ${actual}, not routed ${expected}.`,
+    );
+  }
+};
+
 const readLivePrerelease = async (
   token: string,
   pullRequest: number,
@@ -262,6 +300,14 @@ export async function resolvePrereleasePublication(
   options: ResolvePrereleasePublicationOptions,
 ): Promise<PrereleasePublicationResolution> {
   ensureTrustedMain();
+  const authorityKind = prereleaseAuthorityKind(
+    requireOption(options, 'authority-kind'),
+  );
+  if (authorityKind !== 'ordinary-prerelease-pr') {
+    throw new Error(
+      `Ordinary prerelease resolver cannot consume ${authorityKind}.`,
+    );
+  }
   const signal = await readJson(resolve(requireOption(options, 'signal')));
   if (!isRecord(signal)) {
     throw new Error(
@@ -282,6 +328,7 @@ export async function resolvePrereleasePublication(
   }
 
   const authority = await readLivePrerelease(token, pullRequest);
+  validateAuthorityKind(authority, authorityKind);
   const output = resolve(requireOption(options, 'output'));
   await mkdir(output, { recursive: true });
   await writeJson(join(output, 'authority.json'), {
@@ -307,9 +354,13 @@ export async function inspectPrereleaseAuthority(
   version: string;
 }> {
   ensureTrustedMain();
+  const authorityKind = prereleaseAuthorityKind(
+    requireOption(options, 'authority-kind'),
+  );
   const authority = authorityValue(
     await readJson(resolve(requireOption(options, 'authority'))),
   );
+  validateAuthorityKind(authority, authorityKind);
   console.log(
     `Accepted prerelease ${authority.version} authority at ${authority.snapshotOid}.`,
   );

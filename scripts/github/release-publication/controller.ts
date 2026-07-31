@@ -60,6 +60,7 @@ type ReleaseAuthorityDocument = ReleaseAuthority & {
 };
 
 export type ResolvePublicationOptions = {
+  'authority-kind': string;
   'github-token': string;
   output: string;
   signal: string;
@@ -206,6 +207,12 @@ export async function resolvePublication(
   options: ResolvePublicationOptions,
 ): Promise<PublicationResolution> {
   ensureTrustedMain();
+  const authorityKind = requireOption(options, 'authority-kind');
+  if (authorityKind !== 'stable-pr') {
+    throw new Error(
+      `Stable publication resolver cannot consume ${authorityKind}.`,
+    );
+  }
   const signal = await readJson(resolve(requireOption(options, 'signal')));
   const output = resolve(requireOption(options, 'output'));
   if (!isRecord(signal)) {

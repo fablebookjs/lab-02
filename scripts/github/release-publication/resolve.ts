@@ -12,6 +12,7 @@ export default async function handler({
   github,
 }: GitHubHandlerRuntime): Promise<void> {
   const outputs = await resolvePublication({
+    'authority-kind': requireEnvironment(env, 'AUTHORITY_KIND'),
     'github-token': await authenticatedToken(github),
     output: requireEnvironment(env, 'OUTPUT'),
     signal: requireEnvironment(env, 'SIGNAL'),

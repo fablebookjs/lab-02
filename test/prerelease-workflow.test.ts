@@ -64,8 +64,9 @@ test('direct prerelease authority paths feed the same publication signal', async
 });
 
 test('one sealed workflow publishes every accepted prerelease authority', async () => {
-  const [entrypoint, source] = await Promise.all([
+  const [entrypoint, stable, source] = await Promise.all([
     workflow('publish-stable-release.yml'),
+    workflow('complete-stable-publication.yml'),
     workflow('publish-prerelease.yml'),
   ]);
   const publishStart = source.indexOf('\n  publish:');
@@ -80,26 +81,27 @@ test('one sealed workflow publishes every accepted prerelease authority', async 
   assert.match(entrypoint, /'Prerelease: Trigger publication'/);
   assert.match(entrypoint, /'MANUAL - Prerelease: Enter phase'/);
   assert.match(entrypoint, /'MANUAL - Release: Start new release line'/);
+  assert.match(entrypoint, /publication-routing\/classify\.ts/);
+  assert.match(entrypoint, /name: Publication skipped/);
+  assert.match(entrypoint, /outputs\.skip-reason/);
+  assert.match(entrypoint, /uses: \.\/\.github\/workflows\/complete-stable-publication\.yml/);
   assert.match(entrypoint, /uses: \.\/\.github\/workflows\/publish-prerelease\.yml/);
+  assert.match(entrypoint, /authority-kind: \$\{\{ needs\.route\.outputs\.authority-kind \}\}/);
+  assert.match(entrypoint, /upstream-run-id: \$\{\{ fromJSON\(needs\.route\.outputs\.upstream-run-id\) \}\}/);
   assert.match(entrypoint, /id-token: write/);
-  assert.match(
-    entrypoint,
-    /workflow_run\.path == '\.github\/workflows\/release-proposal-signal\.yml'/,
-  );
-  assert.match(
-    source,
-    /workflow_run\.path == '\.github\/workflows\/prerelease-proposal-signal\.yml'/,
-  );
-  assert.match(
-    source,
-    /workflow_run\.path == '\.github\/workflows\/enter-prerelease-phase\.yml'/,
-  );
-  assert.match(
-    source,
-    /workflow_run\.path == '\.github\/workflows\/cut-release-line\.yml'/,
-  );
-  assert.doesNotMatch(`${entrypoint}\n${source}`, /workflow_run\.name/);
+  assert.doesNotMatch(entrypoint, /workflow_run\.(path|event|conclusion|head_branch)/);
+  assert.doesNotMatch(`${stable}\n${source}`, /workflow_run/);
+  assert.match(stable, /workflow_call:/);
+  assert.match(stable, /authority-kind:/);
+  assert.match(stable, /upstream-run-id:/);
+  assert.match(stable, /name: release-pr-\$\{\{ inputs\.upstream-run-id \}\}/);
+  assert.match(stable, /AUTHORITY_KIND: \$\{\{ inputs\.authority-kind \}\}/);
   assert.match(source, /workflow_call:/);
+  assert.match(source, /authority-kind:/);
+  assert.match(source, /upstream-run-id:/);
+  assert.match(source, /name: prerelease-pr-\$\{\{ inputs\.upstream-run-id \}\}/);
+  assert.match(source, /name: prerelease-authority-\$\{\{ inputs\.upstream-run-id \}\}/);
+  assert.match(source, /AUTHORITY_KIND: \$\{\{ inputs\.authority-kind \}\}/);
   assert.match(source, /group: prerelease-publication/);
   assert.match(source, /inspect-authority\.ts/);
   assert.match(source, /npm ci --ignore-scripts --no-audit --no-fund\n          npm run check/);
@@ -125,11 +127,13 @@ test('one sealed workflow publishes every accepted prerelease authority', async 
 test('activated workflows stay pinned to Node 24 and immutable Actions', async () => {
   const names = [
     'cut-release-line.yml',
+    'complete-stable-publication.yml',
     'enter-prerelease-phase.yml',
     'maintain-prerelease-proposal.yml',
     'prerelease-proposal-check.yml',
     'prerelease-proposal-signal.yml',
     'publish-prerelease.yml',
+    'publish-stable-release.yml',
   ];
   for (const name of names) {
     const source = await workflow(name);

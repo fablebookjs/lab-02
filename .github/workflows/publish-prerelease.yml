@@ -2,6 +2,13 @@ name: 'Prerelease: Complete publication'
 
 on:
   workflow_call:
+    inputs:
+      authority-kind:
+        required: true
+        type: string
+      upstream-run-id:
+        required: true
+        type: number
 
 permissions:
   actions: read
@@ -16,8 +23,7 @@ jobs:
   prepare:
     if: >-
       github.repository == 'fablebookjs/lab-02' &&
-      github.ref == 'refs/heads/main' &&
-      github.event.workflow_run.conclusion == 'success'
+      github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
       complete: ${{ steps.completion.outputs.complete }}
@@ -39,18 +45,19 @@ jobs:
           package-manager-cache: false
       - name: Download the inert Prerelease PR identity
         if: >-
-          github.event.workflow_run.path == '.github/workflows/prerelease-proposal-signal.yml'
+          inputs.authority-kind == 'ordinary-prerelease-pr'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           github-token: ${{ github.token }}
-          name: prerelease-pr-${{ github.event.workflow_run.id }}
+          name: prerelease-pr-${{ inputs.upstream-run-id }}
           path: ${{ runner.temp }}/prerelease-signal
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ inputs.upstream-run-id }}
       - name: Resolve ordinary publication authority from GitHub
         id: ordinary
         if: >-
-          github.event.workflow_run.path == '.github/workflows/prerelease-proposal-signal.yml'
+          inputs.authority-kind == 'ordinary-prerelease-pr'
         env:
+          AUTHORITY_KIND: ${{ inputs.authority-kind }}
           GITHUB_TOKEN: ${{ github.token }}
           OUTPUT: ${{ runner.temp }}/prerelease-publication
           SIGNAL: ${{ runner.temp }}/prerelease-signal/prerelease-pr.json
@@ -61,20 +68,21 @@ jobs:
             return handler({ github, context, core, env: process.env })
       - name: Download direct publication authority
         if: >-
-          github.event.workflow_run.path == '.github/workflows/enter-prerelease-phase.yml' ||
-          github.event.workflow_run.path == '.github/workflows/cut-release-line.yml'
+          inputs.authority-kind == 'phase-entry' ||
+          inputs.authority-kind == 'release-cut-bootstrap'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           github-token: ${{ github.token }}
-          name: prerelease-authority-${{ github.event.workflow_run.id }}
+          name: prerelease-authority-${{ inputs.upstream-run-id }}
           path: ${{ runner.temp }}/prerelease-publication
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ inputs.upstream-run-id }}
       - name: Inspect the exact publication authority
         id: authority
         if: >-
-          github.event.workflow_run.path != '.github/workflows/prerelease-proposal-signal.yml' ||
+          inputs.authority-kind != 'ordinary-prerelease-pr' ||
           steps.ordinary.outputs.publish == 'true'
         env:
+          AUTHORITY_KIND: ${{ inputs.authority-kind }}
           AUTHORITY: ${{ runner.temp }}/prerelease-publication/authority.json
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
         with:
