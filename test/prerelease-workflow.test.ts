@@ -79,6 +79,23 @@ test('one sealed workflow publishes every accepted prerelease authority', async 
   assert.match(entrypoint, /'MANUAL - Release: Start new release line'/);
   assert.match(entrypoint, /uses: \.\/\.github\/workflows\/publish-prerelease\.yml/);
   assert.match(entrypoint, /id-token: write/);
+  assert.match(
+    entrypoint,
+    /workflow_run\.path == '\.github\/workflows\/release-proposal-signal\.yml'/,
+  );
+  assert.match(
+    source,
+    /workflow_run\.path == '\.github\/workflows\/prerelease-proposal-signal\.yml'/,
+  );
+  assert.match(
+    source,
+    /workflow_run\.path == '\.github\/workflows\/enter-prerelease-phase\.yml'/,
+  );
+  assert.match(
+    source,
+    /workflow_run\.path == '\.github\/workflows\/cut-release-line\.yml'/,
+  );
+  assert.doesNotMatch(`${entrypoint}\n${source}`, /workflow_run\.name/);
   assert.match(source, /workflow_call:/);
   assert.match(source, /group: prerelease-publication/);
   assert.match(source, /inspect-authority\.ts/);
