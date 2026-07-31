@@ -335,9 +335,6 @@ test('finalization verifies a completed release from only the sealed plan', asyn
           tag_name: 'v1.0.0',
         });
       }
-      if (url.endsWith('/dispatches') && method === 'POST') {
-        return new Response(null, { status: 204 });
-      }
       throw new Error(`Unexpected finalization request: ${method} ${url}`);
     };
 
@@ -350,6 +347,7 @@ test('finalization verifies a completed release from only the sealed plan', asyn
     });
 
     assert.equal(requests.filter(({ url }) => url.includes('/releases/')).length, 2);
+    assert.equal(requests.filter(({ url }) => url.endsWith('/dispatches')).length, 0);
     assert.ok(requests.every(({ url }) => url.startsWith('https://api.github.com/')));
     assert.ok(requests.every(({ url }) => !url.includes('/pulls/') && !url.includes('npmjs')));
   } finally {
@@ -388,4 +386,20 @@ test('privileged stable jobs receive no release snapshot checkout', async () => 
   assert.match(privilegedJobs, /EXPECTED_SNAPSHOT/);
   assert.match(privilegedJobs, /EXPECTED_VERSION/);
   assert.match(privilegedJobs, /TARBALLS/);
+});
+
+test('stable completion does not wake release-proposal maintenance', async () => {
+  const [maintenanceWorkflow, publicationController] = await Promise.all([
+    readFile(
+      join(repositoryRoot, '.github/workflows/maintain-release-proposal.yml'),
+      'utf8',
+    ),
+    readFile(
+      join(repositoryRoot, 'scripts/github/release-publication/controller.ts'),
+      'utf8',
+    ),
+  ]);
+
+  assert.doesNotMatch(maintenanceWorkflow, /repository_dispatch|release-completed/);
+  assert.doesNotMatch(publicationController, /release-completed|\/dispatches/);
 });

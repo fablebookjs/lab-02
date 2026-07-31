@@ -44,10 +44,9 @@ const developmentTrailerNames: readonly string[] = [
 const prereleaseBootstrapTrailer = 'Prerelease-Bootstrap';
 
 export type ProposalState = {
-  completedOid: string | null;
+  accountingOid: string | null;
   latestClosedPr: {
     headOid: string;
-    mergeCommitOid: string | null;
     merged: boolean;
     number: number;
     version: string;
@@ -66,6 +65,30 @@ export type ProposalState = {
     version: string;
   } | null;
 };
+
+export function deriveProposalAccountingBoundary({
+  completedOid,
+  mergedProposalOids,
+  releaseHistory,
+}: {
+  completedOid: string | null;
+  mergedProposalOids: readonly string[];
+  releaseHistory: readonly string[];
+}): string | null {
+  const history = new Set(releaseHistory);
+  const candidates = new Set([
+    ...(completedOid === null ? [] : [completedOid]),
+    ...mergedProposalOids,
+  ]);
+
+  for (const oid of candidates) {
+    if (!history.has(oid)) {
+      throw new Error(`Proposal accounting snapshot ${oid} is not on release-line history.`);
+    }
+  }
+
+  return releaseHistory.find((oid) => candidates.has(oid)) ?? null;
+}
 
 const integer = (match: RegExpExecArray, index: number): number => {
   const value = match[index];
@@ -295,25 +318,22 @@ export function planProposalMaintenance(lines: readonly ProposalState[]) {
     return [];
   }
 
-  const newestLine = [...lines].map(({ line }) => line).sort(compareReleaseLines).at(-1);
-
   return lines.map((state) => {
     parseReleaseLine(state.line);
     const expectedVersion = nextReleaseVersion(state.line, state.lineVersion);
     const hasUnreleasedWork =
-      state.completedOid === null || state.releaseOid !== state.completedOid;
-    const active = state.line === newestLine || hasUnreleasedWork;
+      state.accountingOid === null || state.releaseOid !== state.accountingOid;
 
-    if (!active) {
+    if (!hasUnreleasedWork) {
       if (state.staged !== null || state.openPr !== null) {
         return {
           kind: 'dormant',
           line: state.line,
           openPr: state.openPr,
-          reason: 'older line has no work after its completed snapshot',
+          reason: 'line has no work after its accounted snapshot',
         };
       }
-      return { kind: 'none', line: state.line, reason: 'line is dormant' };
+      return { kind: 'none', line: state.line, reason: 'line has no unaccounted work' };
     }
 
     if (state.openPr !== null) {
@@ -412,7 +432,7 @@ export function planProposalMaintenance(lines: readonly ProposalState[]) {
     return {
       kind: 'create',
       line: state.line,
-      reason: hasUnreleasedWork ? 'line has unreleased work' : 'newest line stays active',
+      reason: 'line has unaccounted work',
       version: expectedVersion,
     };
   });
