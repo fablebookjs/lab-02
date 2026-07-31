@@ -44,7 +44,7 @@ const trailSeparators: Partial<Record<ChapterProgressVariant, string>> = {
   'compact': ' > ',
 };
 
-const untitledVariants = new Set<ChapterProgressVariant>([]);
+const untitledVariants = new Set<ChapterProgressVariant>(['compact']);
 
 export function formatChapterNavigation(
   chapters: string[],
