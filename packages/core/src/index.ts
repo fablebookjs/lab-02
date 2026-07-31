@@ -41,7 +41,7 @@ const progressLabels: Record<ChapterProgressVariant, string> = {
 };
 
 const trailSeparators: Partial<Record<ChapterProgressVariant, string>> = {
-
+  'compact': ' > ',
 };
 
 const untitledVariants = new Set<ChapterProgressVariant>([]);
