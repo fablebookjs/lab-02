@@ -69,6 +69,13 @@ jobs:
           name: prerelease-authority-${{ github.event.workflow_run.id }}
           path: ${{ runner.temp }}/prerelease-publication
           run-id: ${{ github.event.workflow_run.id }}
+      - name: Normalize the release-cut publication authority
+        if: >-
+          github.event.workflow_run.name == 'MANUAL - Release: Start new release line'
+        env:
+          BOOTSTRAP_AUTHORITY: ${{ runner.temp }}/prerelease-publication/bootstrap-authority.json
+          AUTHORITY: ${{ runner.temp }}/prerelease-publication/authority.json
+        run: mv -- "$BOOTSTRAP_AUTHORITY" "$AUTHORITY"
       - name: Inspect the exact publication authority
         id: authority
         if: >-

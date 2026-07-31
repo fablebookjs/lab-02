@@ -34,9 +34,10 @@ test('ordinary prerelease proposal entrypoints use trusted main and one writer q
 });
 
 test('direct prerelease authority paths feed the same publication signal', async () => {
-  const [cut, phase] = await Promise.all([
+  const [cut, phase, publication] = await Promise.all([
     workflow('cut-release-line.yml'),
     workflow('enter-prerelease-phase.yml'),
+    workflow('publish-prerelease.yml'),
   ]);
 
   assert.match(cut, /bootstrap-authority\.json/);
@@ -49,6 +50,11 @@ test('direct prerelease authority paths feed the same publication signal', async
   assert.match(phase, /prerelease-phase-entry\/prepare\.ts/);
   assert.match(phase, /prerelease-phase-entry\/apply\.ts/);
   assert.match(phase, /name: prerelease-authority-\$\{\{ github\.run_id \}\}/);
+
+  assert.match(
+    publication,
+    /name: Normalize the release-cut publication authority[\s\S]*github\.event\.workflow_run\.name == 'MANUAL - Release: Start new release line'[\s\S]*BOOTSTRAP_AUTHORITY: \$\{\{ runner\.temp \}\}\/prerelease-publication\/bootstrap-authority\.json[\s\S]*AUTHORITY: \$\{\{ runner\.temp \}\}\/prerelease-publication\/authority\.json[\s\S]*mv -- "\$BOOTSTRAP_AUTHORITY" "\$AUTHORITY"/,
+  );
 });
 
 test('one sealed workflow publishes every accepted prerelease authority', async () => {
