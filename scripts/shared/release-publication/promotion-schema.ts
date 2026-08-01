@@ -1,16 +1,11 @@
 import { parseStableVersion } from '../release-proposal/core.ts';
 import { PILOT_REPOSITORY } from '../repository.ts';
+import type { PublicationBinding } from '../package-publication/publication.ts';
 
 export type PromotionManifest = Readonly<{
   packages: readonly string[];
   repository: typeof PILOT_REPOSITORY;
   schema: 1;
-  snapshotOid: string;
-  version: string;
-}>;
-
-export type PromotionBinding = Readonly<{
-  repository: string;
   snapshotOid: string;
   version: string;
 }>;
@@ -79,7 +74,7 @@ const requireExactKeys = (value: Record<string, unknown>): void => {
 
 export function validatePromotionManifest(
   value: unknown,
-  expected: PromotionBinding,
+  expected: PublicationBinding,
 ): PromotionManifest {
   if (!isRecord(value)) {
     throw new Error('Promotion manifest must be an object.');

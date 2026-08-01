@@ -1,4 +1,5 @@
 import {
+  type PublicationBinding,
   type PublicationPackage,
   validatePublicationPackages,
 } from '../package-publication/publication.ts';
@@ -16,12 +17,6 @@ export type PublicationManifest = ReleaseAuthority &
     repository: typeof PILOT_REPOSITORY;
     schema: 3;
   }>;
-
-export type PublicationBinding = Readonly<{
-  repository: string;
-  snapshotOid: string;
-  version: string;
-}>;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);

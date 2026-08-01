@@ -8,6 +8,7 @@ import {
 } from '../prerelease-proposal/core.ts';
 import { cleanReleaseTitle } from '../release-communication/records.ts';
 import { parseDevelopmentVersion } from '../release-proposal/core.ts';
+import type { ReleaseCommitView } from '../release-proposal/core.ts';
 import type { ManualPrereleasePhase } from '../prerelease-phase-entry/core.ts';
 import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../repository.ts';
 
@@ -26,25 +27,10 @@ export type OrdinaryPrereleaseAuthority = PrereleaseAuthorityBase & {
   pullRequest: number;
 };
 
-export type PhaseEntryPrereleaseAuthority = PrereleaseAuthorityBase & {
-  phase: ManualPrereleasePhase;
-};
-
-export type BootstrapPrereleaseAuthority = PrereleaseAuthorityBase & {
-  cutLine: string;
-};
-
 export type PrereleaseAuthority =
-  | BootstrapPrereleaseAuthority
+  | (PrereleaseAuthorityBase & { cutLine: string })
   | OrdinaryPrereleaseAuthority
-  | PhaseEntryPrereleaseAuthority;
-
-type GitCommit = {
-  message?: string;
-  parents?: Array<{ sha: string }>;
-  sha: string;
-  tree?: { sha: string };
-};
+  | (PrereleaseAuthorityBase & { phase: ManualPrereleasePhase });
 
 type PrereleasePull = {
   base: { ref: string; repo: { full_name: string }; sha: string };
@@ -71,8 +57,8 @@ export function derivePrereleaseAuthority({
   mergeCommit,
   pull,
 }: {
-  headCommit: GitCommit;
-  mergeCommit: GitCommit;
+  headCommit: ReleaseCommitView;
+  mergeCommit: ReleaseCommitView;
   pull: PrereleasePull;
 }): OrdinaryPrereleaseAuthority {
   if (!Number.isSafeInteger(pull.number) || pull.number <= 0) {

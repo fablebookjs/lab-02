@@ -1,4 +1,5 @@
 import {
+  type PublicationBinding,
   type PublicationPackage,
   validatePublicationPackages,
 } from '../package-publication/publication.ts';
@@ -24,12 +25,6 @@ type PrereleasePublicationBase = PrereleaseAuthorityBase &
 
 export type PrereleasePublicationManifest = PrereleaseAuthority &
   PrereleasePublicationBase;
-
-export type PrereleasePublicationBinding = Readonly<{
-  repository: string;
-  snapshotOid: string;
-  version: string;
-}>;
 
 export type NextOperations = Readonly<{
   addNext: (name: string, version: string) => Promise<void>;
@@ -101,7 +96,7 @@ const hasExactKeys = (
 export async function validatePrereleasePublicationManifest(
   input: unknown,
   artifactRoot: string,
-  expected: PrereleasePublicationBinding,
+  expected: PublicationBinding,
 ): Promise<PrereleasePublicationManifest> {
   parseDevelopmentVersion(expected.version);
   oidValue(expected.snapshotOid, 'Expected prerelease snapshot');

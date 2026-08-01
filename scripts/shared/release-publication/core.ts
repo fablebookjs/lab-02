@@ -3,11 +3,13 @@ import {
   parseReleaseLine,
   parseStableVersion,
 } from '../release-proposal/core.ts';
+import type { ReleaseCommitView } from '../release-proposal/core.ts';
 import {
   cleanReleaseTitle,
   migrationRecordDirectory,
   parseReleaseRecordChanges,
 } from '../release-communication/records.ts';
+import type { ReleaseChange } from '../release-communication/records.ts';
 import { PILOT_REPOSITORY } from '../repository.ts';
 import {
   extractReleasePrIdentity,
@@ -26,25 +28,12 @@ export type ReleaseAuthority = {
   version: string;
 };
 
-export type CommunicationChange = {
-  key: string;
-  qaSkip: boolean;
-  releaseNoteSkip: boolean;
-  title: string;
-  url: string;
-};
+export type CommunicationChange = Omit<ReleaseChange, 'oid'>;
 
 export type ReleaseCommunication = {
   changes: CommunicationChange[];
   kind: 'initial' | 'maintenance' | 'patch';
   releaseHighlights: string | null;
-};
-
-type GitCommit = {
-  message?: string;
-  parents?: Array<{ sha: string }>;
-  sha: string;
-  tree?: { sha: string };
 };
 
 type ReleasePull = {
@@ -85,8 +74,8 @@ export function deriveReleaseAuthority({
   mergeCommit,
   pull,
 }: {
-  headCommit: GitCommit;
-  mergeCommit: GitCommit;
+  headCommit: ReleaseCommitView;
+  mergeCommit: ReleaseCommitView;
   pull: ReleasePull;
 }): ReleaseAuthority {
   if (!Number.isSafeInteger(pull?.number) || pull.number <= 0) {

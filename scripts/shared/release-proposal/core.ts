@@ -23,6 +23,13 @@ export type ReleaseLine = {
   minor: number;
 };
 
+export type ReleaseCommitView = {
+  message?: string;
+  parents?: Array<{ sha: string }>;
+  sha: string;
+  tree?: { sha: string };
+};
+
 type ProposalCommit = {
   attempt: string;
   line: string;

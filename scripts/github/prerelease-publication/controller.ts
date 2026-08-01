@@ -20,10 +20,10 @@ import {
 import {
   reconcileNextPackageSet,
   validatePrereleasePublicationManifest,
-} from '../../shared/prerelease-publication/publication.ts';
+} from '../../shared/prerelease-publication/manifest-schema.ts';
 import type {
   PrereleasePublicationManifest,
-} from '../../shared/prerelease-publication/publication.ts';
+} from '../../shared/prerelease-publication/manifest-schema.ts';
 import {
   assertOidcPublishEnvironment,
   NPM_REGISTRY,

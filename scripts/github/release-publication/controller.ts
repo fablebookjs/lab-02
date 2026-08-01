@@ -24,7 +24,7 @@ import {
 import {
   type PublicationManifest,
   validatePublicationManifest,
-} from '../../shared/release-publication/publication.ts';
+} from '../../shared/release-publication/manifest-schema.ts';
 import {
   loadMigrationRecords,
   releaseRecordPath,

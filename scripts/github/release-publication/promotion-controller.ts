@@ -7,7 +7,7 @@ import {
   createPromotionManifest,
   promoteSealedPackageSet,
   validatePromotionManifest,
-} from '../../shared/release-publication/promotion.ts';
+} from '../../shared/release-publication/promotion-schema.ts';
 import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../../shared/repository.ts';
 import { requireOption } from '../../shared/cli/options.ts';
 import { NPM_REGISTRY } from '../../shared/package-publication/core.ts';

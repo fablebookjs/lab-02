@@ -26,6 +26,12 @@ export type PublicationPlan = Readonly<{
   version: string;
 }>;
 
+export type PublicationBinding = Readonly<{
+  repository: string;
+  snapshotOid: string;
+  version: string;
+}>;
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 

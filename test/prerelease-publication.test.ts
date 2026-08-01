@@ -13,7 +13,7 @@ import {
 import {
   reconcileNextPackageSet,
   validatePrereleasePublicationManifest,
-} from '../scripts/shared/prerelease-publication/publication.ts';
+} from '../scripts/shared/prerelease-publication/manifest-schema.ts';
 import { renderPrereleasePrBody } from '../scripts/shared/prerelease-proposal/body.ts';
 import { prereleaseProposalCommitMessage } from '../scripts/shared/prerelease-proposal/core.ts';
 
