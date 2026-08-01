@@ -29,6 +29,10 @@ import { repositoryRoot } from '../../shared/workspace/packages.ts';
 import { run } from '../../shared/process/run.ts';
 import type { RunOptions } from '../../shared/process/run.ts';
 import {
+  PILOT_REPOSITORY,
+  PRIMARY_BRANCH,
+} from '../../shared/repository.ts';
+import {
   readJson,
   requireGithubToken,
   requireOption,
@@ -58,7 +62,6 @@ import {
   getRef,
   getRepository,
   listPrereleasePulls,
-  PILOT_REPOSITORY,
   updateRefs,
 } from '../release-repository/github.ts';
 
@@ -128,7 +131,7 @@ export function phaseEntryRefUpdates({
     createRefUpdate({
       afterOid: snapshotOid,
       beforeOid: currentMainOid,
-      name: 'refs/heads/main',
+      name: `refs/heads/${PRIMARY_BRANCH}`,
     }),
     ...(expectedStagedOid === null
       ? []
@@ -563,7 +566,7 @@ export async function preparePhaseEntry(
 const ensureTrustedMain = (): void => {
   if (
     process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
-    process.env['GITHUB_REF'] !== 'refs/heads/main'
+    process.env['GITHUB_REF'] !== `refs/heads/${PRIMARY_BRANCH}`
   ) {
     throw new Error('Phase entry is restricted to trusted main.');
   }
@@ -636,7 +639,7 @@ export async function applyPhaseEntry(
   await getRepository(token);
   await assertExpectedRef(
     token,
-    'heads/main',
+    `heads/${PRIMARY_BRANCH}`,
     action.currentMainOid,
   );
   await assertCanonicalPrereleaseState(token, action);
@@ -666,7 +669,7 @@ export async function applyPhaseEntry(
     );
     await assertExpectedRef(
       token,
-      'heads/main',
+      `heads/${PRIMARY_BRANCH}`,
       action.currentMainOid,
     );
     await assertCanonicalPrereleaseState(token, action);

@@ -20,6 +20,7 @@ import { materializeVersion } from '../../shared/version/materialize.ts';
 import { repositoryRoot } from '../../shared/workspace/packages.ts';
 import { run } from '../../shared/process/run.ts';
 import type { RunOptions } from '../../shared/process/run.ts';
+import { PILOT_REPOSITORY } from '../../shared/repository.ts';
 import {
   commitMessageAt,
   commitParents,
@@ -29,7 +30,6 @@ import {
 } from '../../shared/prepared-commit/inspection.ts';
 import {
   githubRequest,
-  PILOT_REPOSITORY,
   validatedPullRequestResponse,
   withPullRequestMergeCommit,
 } from '../release-repository/github.ts';

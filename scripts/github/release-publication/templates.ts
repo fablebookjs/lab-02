@@ -5,10 +5,8 @@ import {
   parseReleaseRecordChanges,
 } from '../../shared/release-communication/records.ts';
 import { parseStableVersion } from '../../shared/release-proposal/core.ts';
-import {
-  PILOT_REPOSITORY,
-  validateReleaseCommunication,
-} from '../../shared/release-publication/core.ts';
+import { validateReleaseCommunication } from '../../shared/release-publication/core.ts';
+import { PILOT_REPOSITORY } from '../../shared/repository.ts';
 
 const renderMigrationSection = (
   records: Array<{ filename: string; title: string }>,

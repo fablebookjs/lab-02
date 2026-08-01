@@ -9,8 +9,8 @@ import {
 import { cleanReleaseTitle } from '../release-communication/records.ts';
 import { parseDevelopmentVersion } from '../release-proposal/core.ts';
 import type { ManualPrereleasePhase } from '../prerelease-phase-entry/core.ts';
+import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../repository.ts';
 
-export const PILOT_REPOSITORY = 'fablebookjs/lab-02';
 export const PRERELEASE_CHANNEL = 'next';
 
 export type PrereleaseAuthorityBase = {
@@ -83,7 +83,7 @@ export function derivePrereleaseAuthority({
     pull.merged_at === null ||
     pull.base.repo.full_name !== PILOT_REPOSITORY ||
     pull.head.repo.full_name !== PILOT_REPOSITORY ||
-    pull.base.ref !== 'main' ||
+    pull.base.ref !== PRIMARY_BRANCH ||
     pull.head.ref !== 'prerelease'
   ) {
     throw new Error(

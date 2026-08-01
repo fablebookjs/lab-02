@@ -9,7 +9,8 @@ import {
 } from '../../shared/release-publication/promotion.ts';
 import {
   PILOT_REPOSITORY,
-} from '../../shared/release-publication/core.ts';
+  PRIMARY_BRANCH,
+} from '../../shared/repository.ts';
 import { NPM_REGISTRY } from '../../shared/package-publication/core.ts';
 import { parseStableVersion } from '../../shared/release-proposal/core.ts';
 import { run } from '../../shared/process/run.ts';
@@ -37,7 +38,7 @@ export type PromoteLatestOptions = {
 const ensureTrustedMain = (): void => {
   if (
     process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
-    process.env['GITHUB_REF'] !== 'refs/heads/main'
+    process.env['GITHUB_REF'] !== `refs/heads/${PRIMARY_BRANCH}`
   ) {
     throw new Error('Promotion authority is restricted to trusted main in the pilot repository.');
   }

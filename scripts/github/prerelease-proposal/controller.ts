@@ -25,6 +25,10 @@ import { derivePrereleaseChanges } from '../../shared/release-communication/reco
 import { repositoryRoot } from '../../shared/workspace/packages.ts';
 import { run } from '../../shared/process/run.ts';
 import type { RunOptions } from '../../shared/process/run.ts';
+import {
+  PILOT_REPOSITORY,
+  PRIMARY_BRANCH,
+} from '../../shared/repository.ts';
 import type { ValidatedPullRequest } from '../events.ts';
 import {
   readJson,
@@ -57,7 +61,6 @@ import {
   getRef,
   getRepository,
   listPrereleasePulls,
-  PILOT_REPOSITORY,
   updatePullRequestBody,
   updateRefs,
 } from '../release-repository/github.ts';
@@ -484,7 +487,7 @@ export async function preparePrereleaseProposal(
 const ensureTrustedMain = (): void => {
   if (
     process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
-    process.env['GITHUB_REF'] !== 'refs/heads/main'
+    process.env['GITHUB_REF'] !== `refs/heads/${PRIMARY_BRANCH}`
   ) {
     throw new Error(
       'Prerelease proposal application is restricted to trusted main.',
@@ -518,7 +521,7 @@ export async function applyPrereleaseProposal(
   const token = requireGithubToken(options);
   const action = transition.action;
   await getRepository(token);
-  await assertExpectedRef(token, 'heads/main', action.mainOid);
+  await assertExpectedRef(token, `heads/${PRIMARY_BRANCH}`, action.mainOid);
   await assertExpectedRef(
     token,
     'heads/prerelease',
@@ -581,7 +584,7 @@ export async function applyPrereleaseProposal(
     token,
     action.proposalOid,
   );
-  await assertExpectedRef(token, 'heads/main', action.mainOid);
+  await assertExpectedRef(token, `heads/${PRIMARY_BRANCH}`, action.mainOid);
   await assertExpectedRef(
     token,
     'heads/prerelease',
@@ -622,7 +625,7 @@ export async function checkPrereleasePullRequest(
   if (
     pull.base.repo.full_name !== PILOT_REPOSITORY ||
     pull.head.repo.full_name !== PILOT_REPOSITORY ||
-    pull.base.ref !== 'main' ||
+    pull.base.ref !== PRIMARY_BRANCH ||
     pull.head.ref !== 'prerelease'
   ) {
     throw new Error('This is not the canonical same-repository Prerelease PR.');

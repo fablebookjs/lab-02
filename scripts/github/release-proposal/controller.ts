@@ -17,6 +17,10 @@ import {
   ZERO_OID,
 } from '../../shared/release-proposal/core.ts';
 import {
+  PILOT_REPOSITORY,
+  PRIMARY_BRANCH,
+} from '../../shared/repository.ts';
+import {
   closePullRequest,
   createDraftReleasePr,
   createRefUpdate,
@@ -28,7 +32,6 @@ import {
   listMatchingRefs,
   listPrereleasePulls,
   listReleasePulls,
-  PILOT_REPOSITORY,
   resolveRefObject,
   updatePullRequestBody,
   updateRefs,
@@ -739,7 +742,7 @@ export function cutRefUpdates({
     createRefUpdate({
       afterOid: developmentOid,
       beforeOid: sourceOid,
-      name: 'refs/heads/main',
+      name: `refs/heads/${PRIMARY_BRANCH}`,
     }),
     ...(expectedPrereleaseOid === null
       ? []
@@ -762,7 +765,7 @@ export async function applyCut(options: ApplyCutOptions): Promise<void> {
   const token = requireGithubToken(options);
   if (
     process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
-    process.env['GITHUB_REF'] !== 'refs/heads/main'
+    process.env['GITHUB_REF'] !== `refs/heads/${PRIMARY_BRANCH}`
   ) {
     throw new Error('Cut transition is outside the trusted pilot context.');
   }
@@ -787,7 +790,7 @@ export async function applyCut(options: ApplyCutOptions): Promise<void> {
   const uploadedProposalOid = await uploadCommitObject(token, transition.proposalOid);
   const uploadedDevelopmentOid = await uploadCommitObject(token, transition.developmentOid);
 
-  const main = await getRef(token, 'heads/main');
+  const main = await getRef(token, `heads/${PRIMARY_BRANCH}`);
   if (main?.oid !== transition.sourceOid) {
     throw new Error('main advanced after cut preparation; no refs were changed.');
   }
@@ -1138,7 +1141,7 @@ export async function applyMaintenance(
   const token = requireGithubToken(options);
   if (
     process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
-    process.env['GITHUB_REF'] !== 'refs/heads/main'
+    process.env['GITHUB_REF'] !== `refs/heads/${PRIMARY_BRANCH}`
   ) {
     throw new Error('Maintenance transition is outside the trusted pilot context.');
   }

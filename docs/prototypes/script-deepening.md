@@ -21,6 +21,10 @@ GitHub Release completion and rendering as the representative slice.
   templates.
 - Replace duplicated exact-tag and GitHub-Release observation with one neutral
   mechanic used by both controllers.
+- Give pilot repository identity and its primary branch one shared semantic
+  owner, while keeping derived refs visible at their call sites.
+- Reuse one generic regular-expression escaping invariant where exact generated
+  URLs must be recognized.
 - Keep stable and prerelease policy, controller flow, and error wording local.
 - Inline the single-use stable renderer options type.
 - Add contextual JSDoc and a small root terminology table.
@@ -37,24 +41,39 @@ npm run check
 
 ## Measurements
 
-The production-TypeScript counts cover the five changed existing modules and
-the three new modules. “Executable” is a simple proxy: raw lines minus blank
-lines and comment-only lines.
+The publication-slice counts cover the five changed existing modules and the
+three new publication/template modules. “Executable” is a simple proxy: raw
+lines minus blank lines and comment-only lines.
 
 | Measure | Before | Prototype | Change |
 |---|---:|---:|---:|
-| Raw production TypeScript lines | 1,932 | 2,164 | +232 |
+| Raw production TypeScript lines | 1,932 | 2,166 | +234 |
 | Blank lines | 115 | 142 | +27 |
 | Comment-only lines | 0 | 113 | +113 |
-| Executable-line proxy | 1,817 | 1,909 | +92 |
-| Shared stable/prerelease core lines | 625 | 520 | -105 |
+| Executable-line proxy | 1,817 | 1,911 | +94 |
+| Shared stable/prerelease core lines | 625 | 518 | -107 |
 | Duplicate controller completion blocks | 53 | 37 | -16 |
-| Export declarations in the affected module set | 30 | 32 | +2 |
+| Named export declarations | 57 | 57 | 0 |
 
 The raw increase is real. The embedded utility contributes 93 lines, including
 its 31-line MIT notice, while new contextual documentation contributes most of
-the remaining comment-only increase. The affected pre-existing production files
-shrink from 1,932 to 1,899 lines; the three explicit new owners add 265 lines.
+the remaining comment-only increase. The five pre-existing publication files
+shrink from 1,932 to 1,901 lines; the three explicit new owners add 265 lines.
+
+The separate constant consolidation is deliberately measured across its wider
+mechanical reach:
+
+| Measure | Before | Prototype | Change |
+|---|---:|---:|---:|
+| Repository-identity definitions | 7 | 1 | -6 |
+| Direct primary-branch literals in the changed production set | 33 | 0 | -33 |
+| Raw production TypeScript lines in that set | 9,535 | 9,576 | +41 |
+| Named export declarations in that set | 212 | 211 | -1 |
+
+Across every changed production TypeScript file, raw LOC rises from 9,440 to
+9,713 (+273), the executable-line proxy rises from 8,877 to 9,010 (+133), and
+named exports rise from 212 to 213 (+1). Constant ownership improves without
+creating a total-LOC or total-surface win.
 
 ## Observations
 
@@ -69,8 +88,8 @@ shrink from 1,932 to 1,899 lines; the three explicit new owners add 265 lines.
   of a general release domain core.
 - **Interface depth improves locally, not globally.** The mechanic hides a
   meaningful coordination rule and `dedent` hides nontrivial indentation logic.
-  However, the affected export surface grows by two declarations; this is not an
-  entity-count reduction.
+  The publication-slice export count stays flat, but the complete prototype
+  still adds one named export; this is not an entity-count reduction.
 - **LOC does not improve overall.** The slice trades more total code for clearer
   ownership, reusable mechanics, attributed template ergonomics, and guidance.
   It should not be presented as a line-count reduction.

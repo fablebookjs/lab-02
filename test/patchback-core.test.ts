@@ -7,7 +7,6 @@ import {
   PATCHBACK_BODY_MARKER,
   PATCHBACK_BODY_SCHEMA_VERSION,
   PATCHBACK_FULL_OID_PATTERN_SOURCE,
-  PATCHBACK_REPOSITORY,
   patchbackCommitMessage,
   patchbackExamplesComment,
   patchbackIdentity,
@@ -18,6 +17,7 @@ import {
   renderPatchbackBody,
 } from '../scripts/shared/patchback/core.ts';
 import { renderReleaseRecord } from '../scripts/shared/release-communication/records.ts';
+import { PILOT_REPOSITORY } from '../scripts/shared/repository.ts';
 
 const containsUncheckedMarkdownTask = (body: unknown): boolean =>
   /^\s*[-*+]\s+\[ \](?:\s|$)/m.test(String(body ?? ''));
@@ -46,7 +46,7 @@ Use the new API.
 `;
 
 test('patchback protocol constants describe one shared generated surface', () => {
-  assert.equal(PATCHBACK_REPOSITORY, 'fablebookjs/lab-02');
+  assert.equal(PILOT_REPOSITORY, 'fablebookjs/lab-02');
   assert.equal(
     PATCHBACK_BODY_MARKER,
     `<!-- fablebook-patchback-coordination:v${PATCHBACK_BODY_SCHEMA_VERSION} -->`

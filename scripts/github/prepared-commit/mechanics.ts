@@ -12,10 +12,10 @@ import { materializeVersion } from '../../shared/version/materialize.ts';
 import { repositoryRoot } from '../../shared/workspace/packages.ts';
 import { run } from '../../shared/process/run.ts';
 import type { RunOptions } from '../../shared/process/run.ts';
+import { PILOT_REPOSITORY } from '../../shared/repository.ts';
 import {
   getRef,
   githubRequest,
-  PILOT_REPOSITORY,
   validatedGitCommitResponse,
 } from '../release-repository/github.ts';
 import type { GitCommit } from '../release-repository/github.ts';

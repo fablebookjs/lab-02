@@ -6,11 +6,11 @@ import { NPM_REGISTRY } from '../../shared/package-publication/core.ts';
 import { loadReleasePackageSet } from '../../shared/package-publication/package-set.ts';
 import type { PublicationPackage } from '../../shared/package-publication/publication.ts';
 import { run } from '../../shared/process/run.ts';
+import { PILOT_REPOSITORY } from '../../shared/repository.ts';
 import {
   getRef,
   getReleaseByTag,
   githubRequest,
-  PILOT_REPOSITORY,
   validatedReleaseResponse,
 } from '../release-repository/github.ts';
 
