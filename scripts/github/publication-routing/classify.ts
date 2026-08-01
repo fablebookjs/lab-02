@@ -1,4 +1,4 @@
-import { classifyPublicationRoute } from '../../shared/publication-routing/core.ts';
+import { classifyPublicationRoute } from './core.ts';
 import { validatedWorkflowRunCompletion } from '../events.ts';
 import { setNamedOutputs } from '../runtime.ts';
 import type { GitHubHandlerRuntime } from '../runtime.ts';

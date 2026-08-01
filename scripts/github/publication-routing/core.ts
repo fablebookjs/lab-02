@@ -1,3 +1,5 @@
+import { PRIMARY_BRANCH } from '../../shared/repository.ts';
+
 export type PublicationAuthorityKind =
   | 'ordinary-prerelease-pr'
   | 'phase-entry'
@@ -23,14 +25,20 @@ export type PublicationRouteDecision =
       reason: string;
     }>;
 
-type PublicationSource = Readonly<{
+export type PublicationResolution =
+  | { publish: false }
+  | {
+      publish: true;
+      snapshot: string;
+      version: string;
+    };
+
+const PUBLICATION_SOURCES: readonly Readonly<{
   authorityKind: PublicationAuthorityKind;
   branch?: typeof PRIMARY_BRANCH;
   event: 'pull_request_target' | 'workflow_dispatch';
   path: string;
-}>;
-
-const PUBLICATION_SOURCES: readonly PublicationSource[] = [
+}>[] = [
   {
     authorityKind: 'stable-pr',
     event: 'pull_request_target',
@@ -106,4 +114,3 @@ export const isPrereleaseAuthorityKind = (
   value === 'ordinary-prerelease-pr' ||
   value === 'phase-entry' ||
   value === 'release-cut-bootstrap';
-import { PRIMARY_BRANCH } from '../repository.ts';

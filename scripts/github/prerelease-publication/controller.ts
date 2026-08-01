@@ -43,10 +43,11 @@ import { requireOption } from '../../shared/cli/options.ts';
 import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import {
   isPrereleaseAuthorityKind,
-} from '../../shared/publication-routing/core.ts';
+} from '../publication-routing/core.ts';
 import type {
   PublicationAuthorityKind,
-} from '../../shared/publication-routing/core.ts';
+  PublicationResolution,
+} from '../publication-routing/core.ts';
 import { run } from '../../shared/process/run.ts';
 import { requireControllerGitHubToken } from '../controller-inputs.ts';
 import {
@@ -77,14 +78,6 @@ export type ResolvePrereleasePublicationOptions = {
   output: string;
   signal: string;
 };
-
-export type PrereleasePublicationResolution =
-  | { publish: false }
-  | {
-      publish: true;
-      snapshot: string;
-      version: string;
-    };
 
 export type PreparePrereleasePublicationOptions = {
   authority: string;
@@ -295,7 +288,7 @@ const ensureTrustedMain = (): void => {
 
 export async function resolvePrereleasePublication(
   options: ResolvePrereleasePublicationOptions,
-): Promise<PrereleasePublicationResolution> {
+): Promise<PublicationResolution> {
   ensureTrustedMain();
   const authorityKind = prereleaseAuthorityKind(
     requireOption(options, 'authority-kind'),

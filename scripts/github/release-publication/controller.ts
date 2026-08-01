@@ -41,6 +41,7 @@ import {
   isCanonicalReleasePull,
 } from '../release-repository/github.ts';
 import { requireControllerGitHubToken } from '../controller-inputs.ts';
+import type { PublicationResolution } from '../publication-routing/core.ts';
 import {
   assertTagTarget,
   ensureAnnotatedTag,
@@ -62,14 +63,6 @@ export type ResolvePublicationOptions = {
   output: string;
   signal: string;
 };
-
-export type PublicationResolution =
-  | { publish: false }
-  | {
-      publish: true;
-      snapshot: string;
-      version: string;
-    };
 
 export type PreparePublicationOptions = {
   authority: string;
