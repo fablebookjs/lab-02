@@ -24,8 +24,8 @@ import {
 import { renderReleaseRecord } from '../scripts/shared/release-communication/records.ts';
 import {
   EMPTY_RELEASE_HIGHLIGHTS,
-  renderReleasePrBody,
 } from '../scripts/shared/release-proposal/body.ts';
+import { renderReleasePrBody } from '../scripts/github/release-proposal/templates.ts';
 import { repositoryRoot } from '../scripts/shared/workspace/packages.ts';
 
 const execute = promisify(execFile);
@@ -323,10 +323,6 @@ test('prepare-cut creates two validated children and no repository refs', async 
     assert.equal((await git(['rev-parse', 'main'], repository)).stdout.trim(), sourceOid);
     assert.equal((await git(['branch', '--list'], repository)).stdout.trim(), '* main');
 
-    const releasePrTemplate = await readFile(
-      join(repository, '.github', 'release-templates', 'release-pr-initial.md'),
-      'utf8'
-    );
     const validReleaseBody = renderReleasePrBody({
       changes,
       line: cut.line,
@@ -336,7 +332,6 @@ test('prepare-cut creates two validated children and no repository refs', async 
       ],
       proposalOid: cut.proposalOid,
       releaseOid: cut.sourceOid,
-      template: releasePrTemplate,
       version: cut.releaseVersion,
     }).replace(
       EMPTY_RELEASE_HIGHLIGHTS,

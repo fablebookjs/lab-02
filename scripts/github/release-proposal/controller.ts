@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { resolveHeadOid } from '../../shared/git/repository.ts';
 
@@ -58,7 +57,6 @@ import { requireOption } from '../../shared/cli/options.ts';
 import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import {
   extractReleasePrIdentity,
-  renderReleasePrBody,
   selectLatestMatchingReleasePrBody,
   validateReleasePrBody,
 } from '../../shared/release-proposal/body.ts';
@@ -92,6 +90,7 @@ import {
   parseMaintenanceTransition,
 } from './transition-schema.ts';
 import type { CutTransition } from './transition-schema.ts';
+import { renderReleasePrBody } from './templates.ts';
 const ARTIFACT_PREFIX = 'refs/release-pilot/artifact/';
 
 type ProposalBodyAction = {
@@ -125,16 +124,6 @@ type MaintenanceState = {
 
 const git = (args: string[], options: RunOptions = {}) =>
   run('git', args, { ...options, cwd: options.cwd ?? repositoryRoot });
-
-const releasePrTemplate = (version: string): Promise<string> => {
-  const { patch } = parseStableVersion(version);
-  const filename =
-    patch === 0 ? 'release-pr-initial.md' : 'release-pr-patch.md';
-  return readFile(
-    join(repositoryRoot, '.github/release-templates', filename),
-    'utf8'
-  );
-};
 
 const developmentLineChanges = async (
   token: string,
@@ -269,7 +258,6 @@ const renderProposalBody = async ({
     proposalOid,
     releaseOid: action.releaseOid,
     ...(action.supersededPr === undefined ? {} : { supersededPr: action.supersededPr }),
-    template: await releasePrTemplate(action.version),
     version: action.version,
   });
 };

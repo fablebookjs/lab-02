@@ -79,11 +79,10 @@ source S ── proposal P (stable X.Y.0) ──▶ staged/vX.Y
 
 Every newly created or recreated release PR starts as a draft. Refreshing an
 open proposal updates its existing staged branch, so the PR and its discussion
-remain in place. Its body is rendered from the plain Markdown files in
-[`.github/release-templates`](.github/release-templates), which use
-dependency-free named placeholders and keep the maintainer procedure
-reviewable without embedding prose in controller code. Initial `X.Y.0`
-proposals include required **Release highlights**; patch proposals omit them.
+remain in place. Its body is rendered by a feature-local TypeScript template,
+keeping the maintainer procedure beside the controller that supplies its data.
+Initial `X.Y.0` proposals include required **Release highlights**; patch
+proposals omit them.
 
 The generated change checklist links each release-line merge or direct commit.
 For a canonical merged PR, `release-note:skip` excludes the change from public

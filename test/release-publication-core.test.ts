@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import test from 'node:test';
 
-import { repositoryRoot } from '../scripts/shared/workspace/packages.ts';
 import {
   assertOidcPublishEnvironment,
   registryIntegrity,
@@ -23,8 +20,8 @@ import {
 import { proposalCommitMessage } from '../scripts/shared/release-proposal/core.ts';
 import {
   EMPTY_RELEASE_HIGHLIGHTS,
-  renderReleasePrBody,
 } from '../scripts/shared/release-proposal/body.ts';
+import { renderReleasePrBody } from '../scripts/github/release-proposal/templates.ts';
 
 const sourceOid = '1'.repeat(40);
 const proposalOid = '2'.repeat(40);
@@ -33,11 +30,6 @@ const treeOid = '4'.repeat(40);
 const integrity = `sha512-${Buffer.alloc(64, 7).toString('base64')}`;
 const highlights =
   '### Faster setup\n\nThe release workflow is ready for user evaluation.';
-const templateDirectory = join(repositoryRoot, '.github', 'release-templates');
-const releasePrInitialTemplate = await readFile(
-  join(templateDirectory, 'release-pr-initial.md'),
-  'utf8'
-);
 const changes = [
   {
     key: 'pr:41',
@@ -216,7 +208,6 @@ test('release communication remains bound to the authorized reviewed proposal', 
     packageNames: ['@fablebook/lab-02-core'],
     proposalOid,
     releaseOid: sourceOid,
-    template: releasePrInitialTemplate,
     version: '1.0.0',
   })
     .replace(EMPTY_RELEASE_HIGHLIGHTS, highlights)
