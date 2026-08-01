@@ -144,6 +144,10 @@ const actionBody = (
     version: action.version,
   });
 
+/**
+ * Observes managed main, staged proposal, and canonical PR state, then emits one
+ * deterministic maintenance action plus an inert object bundle when required.
+ */
 export async function preparePrereleaseProposal(
   options: { 'github-token': string; output: string },
 ): Promise<void> {
@@ -309,6 +313,10 @@ const assertOpenPulls = async (
   }
 };
 
+/**
+ * Rechecks every prepared ref and PR expectation before creating, refreshing,
+ * synchronizing, or clearing the canonical prerelease proposal surface.
+ */
 export async function applyPrereleaseProposal(
   options: { bundle?: string; 'github-token': string; transition: string },
 ): Promise<void> {
@@ -415,6 +423,10 @@ export async function applyPrereleaseProposal(
   console.log(`Applied prerelease proposal action: ${action.kind}.`);
 }
 
+/**
+ * Required-check proof that the canonical Prerelease PR advances exact current
+ * main with a correctly materialized and body-bound proposal.
+ */
 export async function checkPrereleasePullRequest(
   pull: Pick<ValidatedPullRequest, 'base' | 'body' | 'head'>,
   currentMainOid: string,

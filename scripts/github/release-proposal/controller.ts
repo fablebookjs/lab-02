@@ -174,6 +174,10 @@ const releaseChanges = async (
   return deriveReleaseChanges({ commits, line });
 };
 
+/**
+ * Combines development-line work before the cut with release-line work after
+ * it, preserving first occurrence when both histories identify the same change.
+ */
 export const initialReleaseChanges = async (
   token: string,
   {
@@ -343,6 +347,10 @@ const validateCutTransition = async (transition: CutTransition): Promise<void> =
   }
 };
 
+/**
+ * Materializes and verifies the stable proposal and next development snapshot,
+ * then emits their inert object bundle and guarded transition artifact.
+ */
 export async function prepareCut(options: {
   'github-token': string;
   'next-development': string;
@@ -451,6 +459,7 @@ export async function prepareCut(options: {
   console.log(`Prepared ${versions.line} from ${sourceOid}.`);
 }
 
+/** Projects the applied development snapshot into alpha.0 bootstrap authority. */
 export function cutPrereleaseAuthority({
   developmentVersion,
   line,
@@ -475,6 +484,10 @@ export function cutPrereleaseAuthority({
   };
 }
 
+/**
+ * Constructs the atomic release-cut ref transition: open release/staged lines,
+ * advance main, and remove the superseded prerelease proposal when present.
+ */
 export function cutRefUpdates({
   developmentOid,
   expectedPrereleaseOid,
@@ -515,6 +528,10 @@ export function cutRefUpdates({
   ];
 }
 
+/**
+ * Imports and revalidates prepared objects, rechecks every live expectation,
+ * applies the atomic cut, opens its Release PR, and emits bootstrap authority.
+ */
 export async function applyCut(options: {
   bundle: string;
   'github-token': string;
@@ -781,6 +798,10 @@ const loadMaintenanceStates = async (token: string): Promise<MaintenanceState[]>
   return states;
 };
 
+/**
+ * Observes every release line, plans maintenance, and emits verified proposal
+ * objects only for actions that need new commits. No GitHub writes occur here.
+ */
 export async function prepareMaintenance(
   options: { 'github-token': string; output: string },
 ): Promise<void> {
@@ -895,6 +916,11 @@ export async function prepareMaintenance(
   console.log(`Prepared ${actions.length} release proposal maintenance actions.`);
 }
 
+/**
+ * Applies ordered stable-maintenance actions after rechecking their exact refs
+ * and PR state. Existing discussion is retained for refreshes; replacements are
+ * explicit close-and-recreate operations.
+ */
 export async function applyMaintenance(
   options: { bundle?: string; 'github-token': string; transition: string },
 ): Promise<void> {
@@ -1083,6 +1109,10 @@ export async function applyMaintenance(
   console.log(`Applied ${transition.actions.length} release proposal maintenance actions.`);
 }
 
+/**
+ * Required-check proof that a canonical Release PR's proposal tree, ancestry,
+ * commit trailers, generated record, and body identity agree.
+ */
 export async function checkPullRequest(
   pull: Pick<ValidatedPullRequest, 'base' | 'body' | 'head'>,
 ): Promise<void> {

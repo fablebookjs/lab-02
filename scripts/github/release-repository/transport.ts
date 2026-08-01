@@ -35,6 +35,10 @@ async function request(
   });
 }
 
+/**
+ * Performs one authenticated REST request and returns untrusted response data
+ * for a capability-specific schema to narrow.
+ */
 export async function githubRequest(
   path: string,
   {
@@ -61,6 +65,7 @@ export async function githubRequest(
   return value;
 }
 
+/** Performs a read where GitHub 404 is the supported absent-state result. */
 export async function githubRequestOrNull(
   path: string,
   token: string,
@@ -76,6 +81,7 @@ export async function githubRequestOrNull(
   return value;
 }
 
+/** Performs an authenticated GraphQL request without interpreting its data or errors. */
 export async function githubGraphqlRequest(
   query: string,
   variables: Record<string, unknown>,

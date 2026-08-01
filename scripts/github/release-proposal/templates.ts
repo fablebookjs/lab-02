@@ -124,6 +124,11 @@ const renderMigrationSection = (
   return `## Migrations\n\n${links.join('\n')}`;
 };
 
+/**
+ * Renders and validates the canonical stable Release PR presentation. Refreshes
+ * preserve compatible per-change QA and same-version highlights while resetting
+ * attestations that must be repeated against current source metadata.
+ */
 export function renderReleasePrBody({
   changes,
   line,

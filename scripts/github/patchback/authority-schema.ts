@@ -5,6 +5,7 @@ import {
 import type { ReleaseAuthority } from '../../shared/release-publication/core.ts';
 import { PILOT_REPOSITORY } from '../../shared/repository.ts';
 
+/** Stable release authority plus optional best-effort patchback assignment. */
 export type PatchbackAuthority = ReleaseAuthority & {
   assignee: string | null;
 };
@@ -33,6 +34,7 @@ const fullOid = (value: unknown, label: string): string => {
   return value;
 };
 
+/** Narrows the patchback authority artifact and validates its optional assignee. */
 export function parsePatchbackAuthority(document: unknown): PatchbackAuthority {
   if (
     !isRecord(document) ||

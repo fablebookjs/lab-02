@@ -3,6 +3,7 @@ import { validatePrereleaseCommunication } from '../../shared/prerelease-publica
 import { parseDevelopmentVersion } from '../../shared/release-proposal/core.ts';
 import { dedent } from '../../shared/text/dedent.ts';
 
+/** Renders public prerelease changes, omitting entries classified release-note:skip. */
 export function renderPrereleaseGitHubReleaseBody({
   changes,
   version,

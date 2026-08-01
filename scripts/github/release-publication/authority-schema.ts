@@ -9,6 +9,7 @@ import type {
 import { parseStableVersion } from '../../shared/release-proposal/core.ts';
 import { PILOT_REPOSITORY } from '../../shared/repository.ts';
 
+/** Schema-2 stable authority document downloaded from an unprivileged upstream job. */
 export type ReleaseAuthorityDocument = ReleaseAuthority & {
   releaseCommunication: ReleaseCommunication;
 };
@@ -59,6 +60,7 @@ const authorityValue = (
   };
 };
 
+/** Narrows stable authority and its version-bound communication before preparation. */
 export function parseReleaseAuthorityDocument(
   input: unknown,
 ): ReleaseAuthorityDocument {

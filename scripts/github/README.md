@@ -75,7 +75,7 @@ verification before importing a prepared transition.
 
 `publication-routing/classify.ts` is the only handler that interprets a
 completed `workflow_run` event. It validates the event, delegates the finite
-path/event/conclusion/branch mapping to the pure shared classifier, and emits
+path/event/conclusion/branch mapping to the pure GitHub-local classifier, and emits
 either one authority kind with its upstream run ID or an explicit skip reason.
 The stable and prerelease reusable publishers accept only `authority-kind` and
 `upstream-run-id`; their route-specific resolvers independently construct or

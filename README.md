@@ -21,7 +21,7 @@ than from an operator-maintained list.
 | --- | --- |
 | Release proposal | A versioned stable candidate on a staged branch, reviewed through its canonical draft Release PR before it can become a release. |
 | Release snapshot | The immutable merge commit produced from an approved stable proposal and used as the exact source for publication and patchback work. |
-| Prerelease snapshot | An immutable commit on `main` that establishes a managed prerelease boundary, either by merging a prerelease proposal or entering a new phase. |
+| Prerelease snapshot | An immutable commit on `main` that establishes a managed prerelease boundary through a release-cut `alpha.0` bootstrap, a merged prerelease proposal, or manual phase entry. |
 | Publication authority | Validated evidence from an approved workflow path that identifies the exact snapshot allowed to publish; it is not a credential. |
 | Query-first publication | A retry-safe procedure that observes npm, Git tags, and GitHub Releases before writing, then performs only the mutations needed to reach the expected state. |
 

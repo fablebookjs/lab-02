@@ -1,3 +1,4 @@
+/** Resolves the authenticated capability passed by the trusted controller host. */
 export function requireControllerGitHubToken(options: {
   'github-token': string;
 }): string {

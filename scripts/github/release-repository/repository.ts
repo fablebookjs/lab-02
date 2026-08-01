@@ -2,6 +2,10 @@ import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../../shared/repository.ts';
 import { objectValue, stringValue } from './response-schema.ts';
 import { githubRequest } from './transport.ts';
 
+/**
+ * Resolves the pilot repository's GraphQL node ID while proving repository and
+ * default-branch identity before any atomic mutation uses it.
+ */
 export async function getRepository(token: string): Promise<{
   default_branch: string;
   full_name: string;

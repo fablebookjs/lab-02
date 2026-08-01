@@ -40,6 +40,7 @@ export type ProposalTransitionAction =
       reason: string;
     });
 
+/** Schema-1 inert prerelease-maintenance action crossing the write-job boundary. */
 export type PrereleaseProposalTransition = {
   action: ProposalTransitionAction;
   kind: 'prerelease-proposal';
@@ -154,6 +155,10 @@ const transitionActionValue = (value: unknown): ProposalTransitionAction => {
   };
 };
 
+/**
+ * Narrows the serialized prerelease transition and rejects kind-specific fields
+ * that cannot support the requested application operation.
+ */
 export function parsePrereleaseProposalTransition(
   value: unknown,
 ): PrereleaseProposalTransition {

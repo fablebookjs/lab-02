@@ -13,6 +13,7 @@ import {
 } from '../../shared/release-proposal/core.ts';
 import { PILOT_REPOSITORY } from '../../shared/repository.ts';
 
+/** Schema-1 prerelease authority document emitted by any accepted upstream path. */
 export type PrereleaseAuthorityDocument = PrereleaseAuthority & {
   changes: ReturnType<typeof validatePrereleaseCommunication>;
 };
@@ -41,6 +42,10 @@ const oidValue = (value: unknown, label: string): string => {
   return value;
 };
 
+/**
+ * Narrows ordinary, bootstrap, or phase-entry authority and rejects any
+ * contradiction between the discriminating fields, version, and change set.
+ */
 export function parsePrereleaseAuthorityDocument(
   input: unknown,
 ): PrereleaseAuthorityDocument {

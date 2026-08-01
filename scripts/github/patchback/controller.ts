@@ -138,6 +138,10 @@ const compareAuthority = (
   }
 };
 
+/**
+ * Re-reads a release signal under trusted main, derives live stable authority,
+ * and emits an inert authority artifact or an expected no-op result.
+ */
 export async function resolvePatchback(options: {
   'github-token': string;
   output: string;
@@ -239,6 +243,10 @@ const loadPatchbackMigrationRecords = async (
   });
 };
 
+/**
+ * Builds the complete immutable patchback manifest from the authorized snapshot,
+ * current main, and first-parent release history without mutating GitHub.
+ */
 export async function preparePatchback(options: {
   authority: string;
   controller: string;
@@ -439,6 +447,11 @@ const validateExistingPull = (
   }
 };
 
+/**
+ * Revalidates live authority, then query-first creates or verifies the
+ * coordination commit, branch, draft PR, assignment, and marked help comment.
+ * Existing terminal PRs and contradictory branch state are never rewritten.
+ */
 export async function applyPatchback(options: {
   'github-token': string;
   manifest: string;

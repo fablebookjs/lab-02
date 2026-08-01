@@ -102,6 +102,7 @@ const bodyValue = (pull: Record<string, unknown>): string | null => {
   return body;
 };
 
+/** Narrows only the pull-request fields needed by the description readiness check. */
 export function validatedPullRequestDescription(
   payload: unknown,
 ): ValidatedPullRequestDescription {
@@ -123,6 +124,7 @@ export function validatedPullRequestDescription(
   };
 }
 
+/** Extracts a positive PR number from an untrusted pull-request webhook payload. */
 export function validatedPullRequestNumber(payload: unknown): number {
   const number = pullRequestPayload(payload)['number'];
   if (typeof number !== 'number' || !Number.isSafeInteger(number) || number <= 0) {
@@ -131,6 +133,7 @@ export function validatedPullRequestNumber(payload: unknown): number {
   return number;
 }
 
+/** Narrows the canonical branch, repository, body, and SHA evidence from a PR event. */
 export function validatedPullRequest(payload: unknown): ValidatedPullRequest {
   const pull = pullRequestPayload(payload);
   const base = pull['base'];
@@ -162,6 +165,10 @@ export function validatedPullRequest(payload: unknown): ValidatedPullRequest {
   };
 }
 
+/**
+ * Accepts only a completed workflow_run event and projects the finite facts used
+ * by publication routing. Unknown conclusion values fail before classification.
+ */
 export function validatedWorkflowRunCompletion(
   eventName: string,
   payload: unknown,

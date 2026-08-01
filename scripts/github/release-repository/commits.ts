@@ -2,6 +2,7 @@ import { PILOT_REPOSITORY } from '../../shared/repository.ts';
 import { isRecord, objectValue, stringValue } from './response-schema.ts';
 import { githubRequest } from './transport.ts';
 
+/** Narrow commit shape shared by release controllers after response validation. */
 export type ValidatedGitCommit = {
   author: { date: string; email: string; name: string };
   committer: { date: string; email: string; name: string };
@@ -23,6 +24,7 @@ const identityValue = (
   };
 };
 
+/** Narrows an untrusted GitHub Git-commit response to the fields controllers use. */
 export const validatedGitCommitResponse = (value: unknown): ValidatedGitCommit => {
   const commit = objectValue(value, 'GitHub commit');
   const parents = commit['parents'];
@@ -107,6 +109,10 @@ export async function createGitCommit(
   );
 }
 
+/**
+ * Returns the complete recursive Git tree. Truncated responses are rejected
+ * because coordination verification depends on accounting for every path.
+ */
 export async function getGitTreeEntries(
   token: string,
   oid: string,
@@ -132,6 +138,7 @@ export async function getGitTreeEntries(
   });
 }
 
+/** Reads and decodes a GitHub Git blob only when it uses the expected base64 shape. */
 export async function readGitBlobText(token: string, oid: string): Promise<string> {
   const blob = await githubRequest(`/repos/${PILOT_REPOSITORY}/git/blobs/${oid}`, { token });
   if (
@@ -144,6 +151,7 @@ export async function readGitBlobText(token: string, oid: string): Promise<strin
   return Buffer.from(blob['content'].replaceAll('\n', ''), 'base64').toString('utf8');
 }
 
+/** Reads provider-computed ancestry status and merge base for two commit OIDs. */
 export async function compareGitCommits(
   token: string,
   baseOid: string,

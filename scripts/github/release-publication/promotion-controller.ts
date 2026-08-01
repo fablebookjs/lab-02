@@ -35,6 +35,7 @@ const validateSnapshot = async (root: string, expectedOid: string): Promise<void
   }
 };
 
+/** Derives and seals the historical snapshot's complete package set for promotion. */
 export async function preparePromotion(
   options: {
     manifest: string;
@@ -61,6 +62,7 @@ export async function preparePromotion(
   console.log(`Prepared ${manifest.packages.length} packages for latest promotion.`);
 }
 
+/** Applies the package-scoped `latest` credential only to the sealed promotion set. */
 export async function promoteLatest(options: {
   'expected-snapshot': string;
   'expected-version': string;

@@ -140,6 +140,10 @@ const ensureTrustedMain = (): void => {
   }
 };
 
+/**
+ * Converts a merged canonical Prerelease PR signal into sealed ordinary
+ * authority. Non-authorizing PRs return the visible publish-false result.
+ */
 export async function resolvePrereleasePublication(
   options: {
     'authority-kind': string;
@@ -195,6 +199,7 @@ export async function resolvePrereleasePublication(
   };
 }
 
+/** Validates cut or phase-entry authority already emitted by its trusted writer job. */
 export async function inspectPrereleaseAuthority(
   options: { 'authority-kind': string; authority: string },
 ): Promise<{
@@ -220,6 +225,7 @@ export async function inspectPrereleaseAuthority(
   };
 }
 
+/** Packs and seals the authorized prerelease snapshot for later privileged jobs. */
 export async function preparePrereleasePublication(
   options: { authority: string; output: string; snapshot: string },
 ): Promise<void> {
@@ -273,6 +279,7 @@ const loadManifest = async (
     },
   );
 
+/** Publishes or verifies every sealed package through OIDC-only reconciliation. */
 export async function publishPrereleasePackages(
   options: PublicationArtifactOptions,
 ): Promise<void> {
@@ -311,6 +318,7 @@ export async function publishPrereleasePackages(
   );
 }
 
+/** Uses the package-scoped credential to reconcile and read back the sealed `next` set. */
 export async function reconcilePrereleaseNext(
   options: PublicationArtifactOptions,
 ): Promise<void> {
@@ -365,6 +373,10 @@ const prereleaseCompletionState = async (
   return observation.kind === 'complete';
 };
 
+/**
+ * Observes package integrity, `next`, annotated tag, and GitHub Release state.
+ * Incomplete state is a visible result; contradictory state throws.
+ */
 export async function checkPrereleaseCompletion(
   options: AuthenticatedPublicationArtifactOptions,
 ): Promise<{ complete: boolean }> {
@@ -410,6 +422,7 @@ export async function checkPrereleaseCompletion(
   return { complete };
 }
 
+/** Query-first creates or verifies the exact annotated tag and GitHub prerelease. */
 export async function finalizePrerelease(
   options: AuthenticatedPublicationArtifactOptions,
 ): Promise<void> {

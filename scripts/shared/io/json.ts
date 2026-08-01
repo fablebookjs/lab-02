@@ -6,7 +6,7 @@ export async function readJsonFile(path: string): Promise<unknown> {
   return value;
 }
 
-/** Writes deterministic, newline-terminated JSON for checked-in artifacts. */
+/** Writes deterministic, newline-terminated JSON for filesystem artifacts. */
 export const writeJsonFile = async (
   path: string,
   value: unknown,

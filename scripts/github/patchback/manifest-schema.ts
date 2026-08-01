@@ -24,6 +24,10 @@ export type PatchbackMigrationRecord = PatchbackRecord & {
   title: string;
 };
 
+/**
+ * Schema-3 complete patchback plan: authority, coordination commit inputs,
+ * synchronized communication, and immutable maintainer work queue.
+ */
 export type PatchbackManifest = {
   authority: PatchbackAuthority;
   baseMainOid: string;
@@ -97,6 +101,10 @@ const patchbackItemValue = (value: unknown): PatchbackItem => {
   };
 };
 
+/**
+ * Reconstructs and validates every derived patchback surface from an untrusted
+ * artifact so a privileged job never trusts pre-rendered paths or text alone.
+ */
 export function parsePatchbackManifest(input: unknown): PatchbackManifest {
   if (
     !isRecord(input) ||

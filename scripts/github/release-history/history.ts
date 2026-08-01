@@ -40,11 +40,13 @@ type ManagedPrereleaseBoundary = Readonly<{
   version: string;
 }>;
 
+/** First-parent Git fact enriched with normalized associated-PR observations. */
 export type ReleaseCommitFact = ReleaseHistoryCommit &
   Readonly<{
     parents: readonly string[];
   }>;
 
+/** Development history fact additionally classified as mechanical or product work. */
 export type DevelopmentCommitFact = ReleaseCommitFact &
   Readonly<{
     mechanical: boolean;
@@ -111,6 +113,10 @@ const commitFacts = async (
   );
 };
 
+/**
+ * Returns oldest-to-newest facts strictly after a proven first-parent boundary.
+ * The boundary itself is excluded.
+ */
 export async function firstParentCommitFacts(
   root: string,
   token: string,
@@ -119,6 +125,7 @@ export async function firstParentCommitFacts(
   return commitFacts(root, token, await firstParentRange({ ...range, root }));
 }
 
+/** Finds exactly one structurally valid durable release-cut record for a line. */
 export const findReleaseCut = async (
   root: string,
   line: string,
@@ -143,6 +150,10 @@ export const findReleaseCut = async (
   return match;
 };
 
+/**
+ * Finds the unique alpha.0 development bootstrap for a line on history through
+ * the supplied source commit.
+ */
 export const findDevelopmentBootstrap = async ({
   line,
   root,
@@ -266,6 +277,10 @@ const mechanicalDevelopmentCommit = async (root: string, oid: string): Promise<b
   }
 };
 
+/**
+ * Returns development first-parent facts and distinguishes reproducible
+ * lifecycle-only commits from product work without trusting commit subjects.
+ */
 export async function developmentCommitFacts(
   root: string,
   token: string,
@@ -288,6 +303,10 @@ export async function developmentCommitFacts(
   );
 }
 
+/**
+ * Finds the newest structurally proven bootstrap, ordinary merge, or phase-entry
+ * snapshot on main. A lookalike with contradictory ancestry or tree fails.
+ */
 export const findManagedPrereleaseBoundary = async (
   root: string,
   mainOid: string,

@@ -86,6 +86,10 @@ const verifyCoordinationTree = async (
   }
 };
 
+/**
+ * Searches bounded first-parent history for the manifest-bound coordination
+ * commit and verifies its parent and complete communication-only tree delta.
+ */
 export async function findPatchbackCoordinationCommit(
   token: string,
   headOid: string,
@@ -126,6 +130,7 @@ export async function findPatchbackCoordinationCommit(
   throw new Error('Patchback branch does not contain its structured coordination commit.');
 }
 
+/** Creates the single communication-only commit directly from the sealed manifest. */
 export async function createPatchbackCoordinationCommit(
   token: string,
   manifest: PatchbackManifest,

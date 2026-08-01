@@ -17,11 +17,13 @@ import { getRef } from '../release-repository/refs.ts';
 
 export type StagedPrereleaseProposal = PrereleaseProposal & { oid: string };
 
+/** Joint observation of the canonical proposal ref and its optional open PR. */
 export type StagedPrereleaseProposalObservation = {
   openPull: GitPullRequest | null;
   stagedOid: string | null;
 };
 
+/** Observes one canonical prerelease ref and at most one open matching PR. */
 export async function observeStagedPrereleaseProposal(
   token: string,
 ): Promise<StagedPrereleaseProposalObservation> {
@@ -38,6 +40,7 @@ export async function observeStagedPrereleaseProposal(
   };
 }
 
+/** Fetches and parses the staged proposal commit when the canonical ref exists. */
 export async function parseStagedPrereleaseProposal(
   stagedOid: string | null,
 ): Promise<StagedPrereleaseProposal | null> {
@@ -60,6 +63,7 @@ export async function parseStagedPrereleaseProposal(
   };
 }
 
+/** Proves a staged proposal is a single-parent, lockstep version transition. */
 export async function validateStagedPrereleaseProposal(
   proposal: StagedPrereleaseProposal,
 ): Promise<void> {

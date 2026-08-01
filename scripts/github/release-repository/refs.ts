@@ -33,6 +33,7 @@ export async function getRef(
   };
 }
 
+/** Lists every ref under a prefix, preserving GitHub's paginated order. */
 export async function listMatchingRefs(
   token: string,
   prefix: string,
@@ -62,6 +63,7 @@ export async function listMatchingRefs(
   }
 }
 
+/** Recursively peels annotated tag objects until they identify a commit. */
 export async function resolveRefObject(
   token: string,
   object: GitReference['object'],
@@ -78,6 +80,10 @@ export async function resolveRefObject(
   });
 }
 
+/**
+ * Constructs an atomic update only for the release controller's branch
+ * allowlist. Omitted old state means creation from Git's zero OID.
+ */
 export function createRefUpdate({
   afterOid,
   beforeOid,
@@ -99,6 +105,7 @@ export function createRefUpdate({
   return { afterOid, beforeOid: beforeOid ?? ZERO_OID, force, name };
 }
 
+/** Applies one guarded ref transition through GitHub's atomic updateRefs mutation. */
 export async function updateRefs(
   token: string,
   repositoryId: string,

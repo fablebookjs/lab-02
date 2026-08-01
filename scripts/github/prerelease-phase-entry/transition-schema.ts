@@ -34,6 +34,7 @@ export type PhaseEntryAction =
       kind: 'reconcile';
     });
 
+/** Schema-1 phase-entry artifact prepared before GitHub write authority is granted. */
 export type PhaseEntryTransition = {
   action: PhaseEntryAction;
   kind: 'prerelease-phase-entry';
@@ -144,6 +145,10 @@ const actionValue = (value: unknown): PhaseEntryAction => {
   };
 };
 
+/**
+ * Narrows a phase-entry artifact and re-proves establish/reconcile invariants
+ * before its guarded ref transition can run.
+ */
 export function parsePhaseEntryTransition(value: unknown): PhaseEntryTransition {
   if (
     !isRecord(value) ||

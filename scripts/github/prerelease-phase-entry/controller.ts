@@ -80,6 +80,10 @@ export type PhaseEntryApplication = {
   version: string;
 };
 
+/**
+ * Constructs the atomic transition that advances main and, when present,
+ * deletes the superseded prerelease proposal ref at its expected old OID.
+ */
 export function phaseEntryRefUpdates({
   currentMainOid,
   expectedStagedOid,
@@ -263,6 +267,7 @@ const canonicalPrereleaseState = async (
   };
 };
 
+/** Creates and locally verifies the single-parent `.0` snapshot for a forward phase. */
 export async function materializePhaseEntryCommit({
   boundaryOid,
   sourceOid,
@@ -298,6 +303,10 @@ export async function materializePhaseEntryCommit({
   return snapshot;
 }
 
+/**
+ * Observes the current managed phase and canonical proposal state, then emits
+ * either a new inert snapshot bundle or an idempotent reconcile artifact.
+ */
 export async function preparePhaseEntry(
   options: { 'github-token': string; output: string; target: string },
 ): Promise<void> {
@@ -412,6 +421,7 @@ const assertCanonicalPrereleaseState = async (
   }
 };
 
+/** Projects an applied phase-entry action into the sealed prerelease authority protocol. */
 export function phaseEntryPrereleaseAuthority(
   action: Pick<
     PhaseEntryActionBase,
@@ -443,6 +453,11 @@ const writeAuthority = async (
   );
 };
 
+/**
+ * Revalidates main and proposal expectations, uploads a prepared snapshot when
+ * needed, applies the guarded atomic ref transition, and emits publication
+ * authority. Same-phase retries reconcile without creating another commit.
+ */
 export async function applyPhaseEntry(
   options: {
     bundle?: string;

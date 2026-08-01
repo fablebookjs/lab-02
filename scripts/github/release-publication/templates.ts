@@ -43,6 +43,11 @@ const renderMigrationSection = (
       `}`;
 };
 
+/**
+ * Renders initial, patch, or maintenance GitHub Release presentation only after
+ * the generated release record agrees with authorized communication. Migration
+ * links remain an independent optional section pinned to the release tag.
+ */
 export function renderStableGitHubReleaseBody({
   communication,
   migrationRecords = [],

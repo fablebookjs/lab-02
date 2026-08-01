@@ -16,6 +16,10 @@ const renderChange = (change: ReleaseChange): string => {
   return `- [${change.title}](${change.url})${annotation} <!-- fablebook:prerelease-change=${change.key} release-note=${releaseNote} -->`;
 };
 
+/**
+ * Renders the canonical checkbox-free Prerelease PR and validates its hidden
+ * binding and change metadata before returning it.
+ */
 export function renderPrereleasePrBody({
   boundaryOid,
   changes,

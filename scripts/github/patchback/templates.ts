@@ -14,6 +14,7 @@ export const PATCHBACK_COMMENT_MARKER =
 export const PATCHBACK_BODY_MARKER =
   `<!-- fablebook-patchback-coordination:v${PATCHBACK_BODY_SCHEMA_VERSION} -->`;
 
+/** Reusable marked comment that teaches maintainers the accepted outcome vocabulary. */
 export const PATCHBACK_EXAMPLES_COMMENT = dedent`
   ${PATCHBACK_COMMENT_MARKER}
   ## Copy-paste outcome examples
@@ -61,6 +62,10 @@ const itemHeading = (item: PatchbackItem): string => {
   return `${label} — ${item.subject}`;
 };
 
+/**
+ * Renders mechanically synchronized communication separately from the fixed
+ * product-change queue. The renderer never infers or records item outcomes.
+ */
 export function renderPatchbackPrBody({
   boundaryLabel,
   boundaryOid,

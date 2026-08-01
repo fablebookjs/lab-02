@@ -14,6 +14,7 @@ export type PublicationRouteInput = Readonly<{
   runId: number;
 }>;
 
+/** Visible publish or skip decision for one completed trusted workflow run. */
 export type PublicationRouteDecision =
   | Readonly<{
       authorityKind: PublicationAuthorityKind;
@@ -63,6 +64,11 @@ const PUBLICATION_SOURCES: readonly Readonly<{
   },
 ];
 
+/**
+ * Maps the finite path, event, conclusion, and branch combinations to one
+ * explicit authority kind. Unknown or maintenance-only completions are visible
+ * skips and never inherit publication authority.
+ */
 export function classifyPublicationRoute(
   input: PublicationRouteInput,
 ): PublicationRouteDecision {

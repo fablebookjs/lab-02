@@ -9,6 +9,7 @@ import {
 } from './response-schema.ts';
 import { githubGraphqlRequest, githubRequest } from './transport.ts';
 
+/** Validated GitHub PR observation used by release-domain code. */
 export type GitPullRequest = {
   base: { ref: string; repo: { full_name: string }; sha: string };
   body: string | null;
@@ -53,6 +54,7 @@ const labelsValue = (value: unknown): Array<{ name: string }> => {
   });
 };
 
+/** Narrows an untrusted REST pull-request response to the controller contract. */
 export const validatedPullRequestResponse = (value: unknown): GitPullRequest => {
   const pull = objectValue(value, 'GitHub pull request');
   const body = pull['body'];
@@ -100,6 +102,10 @@ export function isCanonicalPrereleasePull(pull: GitPullRequest): boolean {
   );
 }
 
+/**
+ * Extracts GitHub's authoritative GraphQL merge-commit OID. Release authority
+ * does not rely on the weaker REST merge_commit_sha field.
+ */
 export function extractPullRequestMergeCommitOid(result: unknown, number: number): string {
   const data = isRecord(result) ? result['data'] : undefined;
   const repository = isRecord(data) ? data['repository'] : undefined;
@@ -146,6 +152,7 @@ async function withPullRequestMergeCommit(
   };
 }
 
+/** Lists and validates all PR pages for the supplied GitHub filters. */
 export async function listPullRequests(
   token: string,
   {
@@ -198,6 +205,10 @@ export async function listPrereleasePulls(token: string): Promise<GitPullRequest
   })).filter(isCanonicalPrereleasePull);
 }
 
+/**
+ * Reads one PR and replaces merged REST commit metadata with the authoritative
+ * GraphQL merge-commit OID.
+ */
 export async function getPullRequest(
   token: string,
   number: number,
@@ -206,6 +217,10 @@ export async function getPullRequest(
   return withPullRequestMergeCommit(token, validatedPullRequestResponse(pull));
 }
 
+/**
+ * Lists PRs associated with a commit and resolves authoritative merge OIDs for
+ * every merged result before release-history classification.
+ */
 export async function listAssociatedPullRequests(
   token: string,
   oid: string,
@@ -335,6 +350,10 @@ export async function updatePullRequestBody(
   );
 }
 
+/**
+ * Creates or updates the sole issue comment carrying a marker. Duplicate marked
+ * comments are contradictory state and fail instead of being silently merged.
+ */
 export async function reconcileUniqueMarkedIssueComment(
   token: string,
   issue: number,
@@ -384,6 +403,7 @@ export async function reconcileUniqueMarkedIssueComment(
   }
 }
 
+/** Assigns a PR and verifies GitHub returned the requested assignee. */
 export async function assignPullRequest(
   token: string,
   pullRequest: number,

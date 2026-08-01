@@ -23,6 +23,7 @@ import { getRef } from '../release-repository/refs.ts';
 const ARTIFACT_PREFIX = 'refs/release-pilot/artifact/';
 const IMPORT_PREFIX = 'refs/release-pilot/imported/';
 
+/** One exact inert artifact ref and the local commit it must advertise. */
 export type BundleRef = Readonly<{
   name: string;
   oid: string;
@@ -38,6 +39,10 @@ const stringValue = (value: unknown, label: string): string => {
 const git = (args: string[], options: RunOptions = {}) =>
   run('git', args, { ...options, cwd: options.cwd ?? repositoryRoot });
 
+/**
+ * Recreates a locally prepared single-parent commit through GitHub's Git API and
+ * verifies tree, parent, message, author, and committer preservation before use.
+ */
 export const uploadCommitObject = async (token: string, oid: string): Promise<string> => {
   const sourceOid = (await commitParents(repositoryRoot, oid))[0];
   validateFullOid(sourceOid, 'Uploaded commit parent');
@@ -150,6 +155,10 @@ const preparedPath = (path: string): string => {
   return path;
 };
 
+/**
+ * Creates an inert versioned commit in a disposable worktree. Only lockstep
+ * version files and explicitly supplied safe paths may differ from the source.
+ */
 export const materializeCommit = async ({
   files = [],
   message,
@@ -219,6 +228,7 @@ export const materializeCommit = async ({
   }
 };
 
+/** Writes an object bundle with only temporary, explicitly named artifact refs. */
 export async function writeBundle(path: string, refs: readonly BundleRef[]): Promise<void> {
   for (const { name, oid } of refs) {
     await git(['update-ref', name, oid, ZERO_OID]);
@@ -230,6 +240,10 @@ export async function writeBundle(path: string, refs: readonly BundleRef[]): Pro
   }
 }
 
+/**
+ * Imports a prepared bundle only when its advertised ref/OID set exactly matches
+ * the transition. Extra heads and unexpected namespaces are rejected.
+ */
 export const importBundle = async (
   path: string,
   expectedRefs: readonly BundleRef[],
@@ -283,6 +297,7 @@ export const prepareOutput = async (output: string): Promise<string> => {
   return directory;
 };
 
+/** Fails a guarded application when a live ref changed after preparation. */
 export const assertExpectedRef = async (
   token: string,
   ref: string,

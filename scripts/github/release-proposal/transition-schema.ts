@@ -5,6 +5,7 @@ import type { ReleaseChange } from '../../shared/release-communication/records.t
 import { validateFullOid } from '../../shared/prepared-commit/inspection.ts';
 import { PILOT_REPOSITORY } from '../../shared/repository.ts';
 
+/** Schema-1 inert cut artifact passed from preparation to guarded application. */
 export type CutTransition = {
   changes: ReleaseChange[];
   developmentBundleRef: string;
@@ -67,6 +68,7 @@ export type MaintenanceAction =
       version: string;
     });
 
+/** Schema-1 ordered stable-maintenance actions prepared without write credentials. */
 export type MaintenanceTransition = {
   actions: MaintenanceAction[];
   kind: 'maintenance';
@@ -106,6 +108,7 @@ const nullableOid = (value: unknown, label: string): string | null => {
   return value;
 };
 
+/** Narrows the serialized cut protocol before any GitHub mutation consumes it. */
 export function parseCutTransition(value: unknown): CutTransition {
   if (!isRecord(value)) throw new Error('Cut transition must be an object.');
   if (
@@ -207,6 +210,7 @@ const maintenanceActionValue = (value: unknown): MaintenanceAction => {
   return { ...base, bundleRef, changes, kind, openPr, proposalOid, version };
 };
 
+/** Narrows every serialized maintenance action and its kind-specific requirements. */
 export function parseMaintenanceTransition(
   value: unknown,
 ): MaintenanceTransition {

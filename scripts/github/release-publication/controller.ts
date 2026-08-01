@@ -114,6 +114,10 @@ const readLiveRelease = async (
   };
 };
 
+/**
+ * Converts a merged canonical Release PR signal into sealed stable authority.
+ * Non-authorizing PRs return the visible publish-false result.
+ */
 export async function resolvePublication(
   options: {
     'authority-kind': string;
@@ -161,6 +165,10 @@ export async function resolvePublication(
   return outputs;
 }
 
+/**
+ * Packs the authorized snapshot and seals its tarballs and human-facing release
+ * body into the schema-3 artifact consumed by privileged jobs.
+ */
 export async function preparePublication(
   options: { authority: string; output: string; snapshot: string },
 ): Promise<void> {
@@ -220,6 +228,7 @@ const loadPublication = async (
     },
   );
 
+/** Publishes or verifies every sealed package through OIDC-only query-first reconciliation. */
 export async function publishPackages(
   options: PublicationArtifactOptions,
 ): Promise<void> {
@@ -279,6 +288,10 @@ const releaseCompletionState = async (
   return observation.kind === 'complete';
 };
 
+/**
+ * Query-first creates or verifies the annotated tag and exact non-draft GitHub
+ * Release after package publication has completed.
+ */
 export async function finalizeRelease(
   options: AuthenticatedPublicationArtifactOptions,
 ): Promise<void> {
@@ -323,6 +336,7 @@ const validateCompletedRelease = async (
   return tagObject.object.sha;
 };
 
+/** Proves a requested stable version has a completed tag and GitHub Release. */
 export async function resolvePromotion(
   options: { 'github-token': string; version: string },
 ): Promise<PromotionResolution> {

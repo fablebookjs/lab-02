@@ -52,6 +52,7 @@ const validateOid = (oid: unknown, label: string): string => {
   return oid;
 };
 
+/** Proves the credentialless checkout is the exact authority-bound snapshot. */
 export const validatePublicationSnapshot = async (
   root: string,
   expectedOid: string,
@@ -68,6 +69,11 @@ const integrityFor = async (path: string): Promise<string> => {
   return `sha512-${hash.digest('base64')}`;
 };
 
+/**
+ * Packs the complete snapshot-derived public package set without lifecycle
+ * scripts, verifies expected dist contents and npm-reported integrity, and
+ * returns stable artifact identities for sealing.
+ */
 export async function packPublicationPackageSet(
   snapshot: string,
   output: string,
@@ -139,6 +145,7 @@ export async function packPublicationPackageSet(
   return { packages: packedPackages, tarballs };
 }
 
+/** Reads uncached, untrusted npm metadata; an unpublished package returns null. */
 export const readRegistryDocument = async (name: string): Promise<unknown> => {
   const url = new URL(encodeURIComponent(name), NPM_REGISTRY);
   url.searchParams.set('fablebook_read', `${Date.now()}-${Math.random()}`);
@@ -154,6 +161,11 @@ export const readRegistryDocument = async (name: string): Promise<unknown> => {
   return value;
 };
 
+/**
+ * Observes the shared stable/prerelease completion invariant. Missing tag and
+ * Release is incomplete; a Release without its annotated tag or mismatched
+ * visible state is contradictory.
+ */
 export async function observeGitHubReleaseCompletion(
   token: string,
   expected: Readonly<{

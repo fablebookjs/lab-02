@@ -68,6 +68,7 @@ export async function getReleaseByTag(
   return value === null ? null : validatedReleaseResponse(value);
 }
 
+/** Reads only annotated tags; a lightweight tag at the same name is a contradiction. */
 export async function readAnnotatedTag(
   token: string,
   tag: string,
@@ -82,6 +83,7 @@ export async function readAnnotatedTag(
   );
 }
 
+/** Proves an annotated tag names and targets the authorized snapshot exactly. */
 export function assertTagTarget(
   tagObject: AnnotatedTag,
   tag: string,
@@ -114,6 +116,10 @@ const waitFor = async <Value>(
   throw error instanceof Error ? error : new Error('Observation did not converge.');
 };
 
+/**
+ * Query-first creates or verifies the exact annotated version tag. Creation is
+ * followed by bounded observation to tolerate GitHub read-after-write delay.
+ */
 export async function ensureAnnotatedTag(
   token: string,
   manifest: Readonly<{ snapshotOid: string; version: string }>,
@@ -149,6 +155,10 @@ export async function ensureAnnotatedTag(
   return tag;
 }
 
+/**
+ * Query-first creates or verifies a non-draft GitHub Release. Existing content
+ * must match exactly; this operation never edits contradictory release state.
+ */
 export async function ensureGitHubRelease(
   token: string,
   manifest: Readonly<{ snapshotOid: string }>,
