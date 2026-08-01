@@ -10,8 +10,6 @@ import {
   composeGitHubReleaseBody,
   deriveReleaseAuthority,
   deriveReleaseCommunication,
-  lineChannel,
-  validateReleaseCommunication,
 } from '../../shared/release-publication/core.ts';
 import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../../shared/repository.ts';
 import type {
@@ -46,50 +44,18 @@ import {
   readRegistryDocument,
   validatePublicationSnapshot,
 } from '../package-publication/mechanics.ts';
+import type {
+  AuthenticatedPublicationArtifactOptions,
+  PublicationArtifactOptions,
+} from '../package-publication/mechanics.ts';
 import {
   assertTagTarget,
   ensureAnnotatedTag,
   ensureGitHubRelease,
   readAnnotatedTag,
 } from '../release-repository/releases.ts';
+import { parseReleaseAuthorityDocument } from './authority-schema.ts';
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-
-type ReleaseAuthorityDocument = ReleaseAuthority & {
-  releaseCommunication: ReleaseCommunication;
-};
-
-export type ResolvePublicationOptions = {
-  'authority-kind': string;
-  'github-token': string;
-  output: string;
-  signal: string;
-};
-
-export type PreparePublicationOptions = {
-  authority: string;
-  output: string;
-  snapshot: string;
-};
-
-export type PublishPackagesOptions = {
-  'expected-snapshot': string;
-  'expected-version': string;
-  manifest: string;
-  tarballs: string;
-};
-
-export type FinalizeReleaseOptions = {
-  'expected-snapshot': string;
-  'expected-version': string;
-  'github-token': string;
-  manifest: string;
-  tarballs: string;
-};
-
-export type ResolvePromotionOptions = {
-  'github-token': string;
-  version: string;
-};
 
 export type PromotionResolution = {
   snapshot: string;
@@ -97,13 +63,6 @@ export type PromotionResolution = {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
-
-const stringValue = (value: unknown, label: string): string => {
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`${label} must be a nonempty string.`);
-  }
-  return value;
-};
 
 const positiveInteger = (value: unknown, label: string): number => {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
@@ -126,46 +85,6 @@ const ensureTrustedMain = (): void => {
   ) {
     throw new Error('Publication authority is restricted to trusted main in the pilot repository.');
   }
-};
-
-const authorityValue = (
-  input: Record<string, unknown>,
-  label: string,
-): ReleaseAuthority => {
-  const line = stringValue(input['line'], `${label} line`);
-  const version = stringValue(input['version'], `${label} version`);
-  parseStableVersion(version);
-  const channel = stringValue(input['channel'], `${label} channel`);
-  if (channel !== lineChannel(line)) {
-    throw new Error(`${label} channel does not match its release line.`);
-  }
-  return {
-    channel,
-    line,
-    proposalOid: validateOid(input['proposalOid'], `${label} proposal`),
-    pullRequest: positiveInteger(input['pullRequest'], `${label} pull request`),
-    snapshotOid: validateOid(input['snapshotOid'], `${label} snapshot`),
-    sourceOid: validateOid(input['sourceOid'], `${label} source`),
-    version,
-  };
-};
-
-const authorityDocumentValue = (input: unknown): ReleaseAuthorityDocument => {
-  if (
-    !isRecord(input) ||
-    input['schema'] !== 2 ||
-    input['repository'] !== PILOT_REPOSITORY
-  ) {
-    throw new Error('Release authority document is outside the pilot schema.');
-  }
-  const authority = authorityValue(input, 'Release authority');
-  return {
-    ...authority,
-    releaseCommunication: validateReleaseCommunication(
-      input['releaseCommunication'],
-      authority.version,
-    ),
-  };
 };
 
 const readLiveRelease = async (
@@ -195,7 +114,12 @@ const readLiveRelease = async (
 };
 
 export async function resolvePublication(
-  options: ResolvePublicationOptions,
+  options: {
+    'authority-kind': string;
+    'github-token': string;
+    output: string;
+    signal: string;
+  },
 ): Promise<PublicationResolution> {
   ensureTrustedMain();
   const authorityKind = requireOption(options, 'authority-kind');
@@ -237,9 +161,9 @@ export async function resolvePublication(
 }
 
 export async function preparePublication(
-  options: PreparePublicationOptions,
+  options: { authority: string; output: string; snapshot: string },
 ): Promise<void> {
-  const authority = authorityDocumentValue(
+  const authority = parseReleaseAuthorityDocument(
     await readJsonFile(resolve(requireOption(options, 'authority'))),
   );
   const snapshot = resolve(requireOption(options, 'snapshot'));
@@ -283,12 +207,7 @@ export async function preparePublication(
 }
 
 const loadPublication = async (
-  options: {
-    'expected-snapshot': string;
-    'expected-version': string;
-    manifest: string;
-    tarballs: string;
-  },
+  options: PublicationArtifactOptions,
 ): Promise<PublicationManifest> =>
   validatePublicationManifest(
     await readJsonFile(resolve(requireOption(options, 'manifest'))),
@@ -300,7 +219,9 @@ const loadPublication = async (
     },
   );
 
-export async function publishPackages(options: PublishPackagesOptions): Promise<void> {
+export async function publishPackages(
+  options: PublicationArtifactOptions,
+): Promise<void> {
   ensureTrustedMain();
   assertOidcPublishEnvironment({
     nodeAuthToken: process.env['NODE_AUTH_TOKEN'],
@@ -365,7 +286,9 @@ const releaseCompletionState = async (
   return true;
 };
 
-export async function finalizeRelease(options: FinalizeReleaseOptions): Promise<void> {
+export async function finalizeRelease(
+  options: AuthenticatedPublicationArtifactOptions,
+): Promise<void> {
   ensureTrustedMain();
   const manifest = await loadPublication(options);
   const token = requireControllerGitHubToken(options);
@@ -408,7 +331,7 @@ const validateCompletedRelease = async (
 };
 
 export async function resolvePromotion(
-  options: ResolvePromotionOptions,
+  options: { 'github-token': string; version: string },
 ): Promise<PromotionResolution> {
   ensureTrustedMain();
   const version = requireOption(options, 'version');

@@ -10,6 +10,18 @@ import { run } from '../../shared/process/run.ts';
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
+export type PublicationArtifactOptions = {
+  'expected-snapshot': string;
+  'expected-version': string;
+  manifest: string;
+  tarballs: string;
+};
+
+export type AuthenticatedPublicationArtifactOptions =
+  PublicationArtifactOptions & {
+    'github-token': string;
+  };
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 

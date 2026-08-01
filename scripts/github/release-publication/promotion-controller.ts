@@ -17,19 +17,6 @@ import { run } from '../../shared/process/run.ts';
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
-export type PreparePromotionOptions = {
-  manifest: string;
-  snapshot: string;
-  'snapshot-oid': string;
-  version: string;
-};
-
-export type PromoteLatestOptions = {
-  'expected-snapshot': string;
-  'expected-version': string;
-  manifest: string;
-};
-
 const ensureTrustedMain = (): void => {
   if (
     process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
@@ -49,7 +36,12 @@ const validateSnapshot = async (root: string, expectedOid: string): Promise<void
 };
 
 export async function preparePromotion(
-  options: PreparePromotionOptions,
+  options: {
+    manifest: string;
+    snapshot: string;
+    'snapshot-oid': string;
+    version: string;
+  },
 ): Promise<void> {
   ensureTrustedMain();
   const version = requireOption(options, 'version');
@@ -69,7 +61,11 @@ export async function preparePromotion(
   console.log(`Prepared ${manifest.packages.length} packages for latest promotion.`);
 }
 
-export async function promoteLatest(options: PromoteLatestOptions): Promise<void> {
+export async function promoteLatest(options: {
+  'expected-snapshot': string;
+  'expected-version': string;
+  manifest: string;
+}): Promise<void> {
   ensureTrustedMain();
   if (!process.env['NODE_AUTH_TOKEN']) {
     throw new Error('Promotion requires the package-scoped npm promotion credential.');
