@@ -33,12 +33,6 @@ type ReleasePrIdentity = {
   version: string;
 };
 
-type PredecessorPull = {
-  body: unknown;
-  number: number;
-  state: string;
-};
-
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -123,7 +117,7 @@ export function extractReleaseHighlights(body: unknown): string {
   return highlights;
 }
 
-export function validateReleaseHighlights(highlights: unknown): string {
+function validateReleaseHighlights(highlights: unknown): string {
   if (typeof highlights !== 'string' || highlights.trim() !== highlights) {
     throw new Error('Release highlights must be trimmed Markdown text.');
   }
@@ -164,7 +158,8 @@ export function selectLatestMatchingReleasePrBody({
   }
   return String(
     [...pulls]
-      .filter((pull): pull is PredecessorPull => {
+      .filter(
+        (pull): pull is { body: unknown; number: number; state: string } => {
         if (!isRecord(pull)) return false;
         return (
           typeof pull['number'] === 'number' &&
@@ -172,7 +167,8 @@ export function selectLatestMatchingReleasePrBody({
           pull['number'] > 0 &&
           pull['state'] === 'closed'
         );
-      })
+        },
+      )
       .sort((left, right) => right.number - left.number)
       .find((pull) => {
         try {

@@ -12,8 +12,7 @@ const execute = promisify(execFile);
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const node = process.execPath;
 
-type PackedFile = { path: string };
-type PackedArtifact = { filename: string; files: PackedFile[] };
+type PackedArtifact = { filename: string; files: Array<{ path: string }> };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);

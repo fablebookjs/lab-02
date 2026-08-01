@@ -17,7 +17,7 @@ export type ReleasePackage = Readonly<{
   version: string;
 }>;
 
-type WorkspacePackage = ReleasePackage &
+type WorkspaceCatalogEntry = ReleasePackage &
   Readonly<{
     private: boolean;
   }>;
@@ -91,7 +91,7 @@ const projectWorkspaceCatalog = (
     throw new Error('Workspace package catalog must be an array.');
   }
 
-  const catalog: WorkspacePackage[] = value.map((entry) => {
+  const catalog: WorkspaceCatalogEntry[] = value.map((entry) => {
     const pkg = asRecord(entry, 'Workspace package');
     if (typeof pkg['private'] !== 'boolean') {
       throw new Error('Workspace package private must be a boolean.');

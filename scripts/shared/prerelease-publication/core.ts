@@ -32,7 +32,7 @@ export type PrereleaseAuthority =
   | OrdinaryPrereleaseAuthority
   | (PrereleaseAuthorityBase & { phase: ManualPrereleasePhase });
 
-type PrereleasePull = {
+type PrereleaseAuthorityPull = {
   base: { ref: string; repo: { full_name: string }; sha: string };
   body: unknown;
   head: { ref: string; repo: { full_name: string }; sha: string };
@@ -59,7 +59,7 @@ export function derivePrereleaseAuthority({
 }: {
   headCommit: ReleaseCommitView;
   mergeCommit: ReleaseCommitView;
-  pull: PrereleasePull;
+  pull: PrereleaseAuthorityPull;
 }): OrdinaryPrereleaseAuthority {
   if (!Number.isSafeInteger(pull.number) || pull.number <= 0) {
     throw new Error('Prerelease authority requires a positive pull request number.');

@@ -3,18 +3,16 @@ import type { getOctokit } from '@actions/github';
 
 export type GitHubClient = ReturnType<typeof getOctokit>;
 
-export type GitHubContext = {
-  eventName: string;
-  payload: unknown;
-  repo: {
-    owner: string;
-    repo: string;
-  };
-};
-
 export type GitHubHandlerRuntime = {
   core: typeof core;
-  context: GitHubContext;
+  context: {
+    eventName: string;
+    payload: unknown;
+    repo: {
+      owner: string;
+      repo: string;
+    };
+  };
   env: Readonly<NodeJS.ProcessEnv>;
   github: GitHubClient;
 };

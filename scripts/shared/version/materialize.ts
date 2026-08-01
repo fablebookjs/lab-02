@@ -3,9 +3,7 @@ import { join } from 'node:path';
 import { readJsonFile, writeJsonFile } from '../io/json.ts';
 import { listPublicPackages } from '../workspace/packages.ts';
 
-type JsonObject = Record<string, unknown>;
-
-type PackageManifest = JsonObject & {
+type MutablePackageManifest = Record<string, unknown> & {
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
   name?: string;
@@ -14,8 +12,8 @@ type PackageManifest = JsonObject & {
   version?: string;
 };
 
-type PackageLock = JsonObject & {
-  packages?: Record<string, PackageManifest>;
+type MutablePackageLock = Record<string, unknown> & {
+  packages?: Record<string, MutablePackageManifest>;
 };
 
 const supportedVersion =
@@ -26,7 +24,7 @@ const dependencyFields = [
   'optionalDependencies',
   'peerDependencies',
 ] satisfies Array<keyof Pick<
-  PackageManifest,
+  MutablePackageManifest,
   'dependencies' | 'devDependencies' | 'optionalDependencies' | 'peerDependencies'
 >>;
 
@@ -46,7 +44,7 @@ const stringMap = (value: unknown, label: string): Record<string, string> | unde
   );
 };
 
-const packageManifest = (value: unknown, label: string): PackageManifest => {
+const packageManifest = (value: unknown, label: string): MutablePackageManifest => {
   if (!isRecord(value)) throw new Error(`${label} must contain one JSON object.`);
   const dependencies = stringMap(value['dependencies'], `${label}.dependencies`);
   const devDependencies = stringMap(value['devDependencies'], `${label}.devDependencies`);
@@ -69,7 +67,7 @@ const packageManifest = (value: unknown, label: string): PackageManifest => {
   };
 };
 
-const packageLock = (value: unknown, label: string): PackageLock => {
+const packageLock = (value: unknown, label: string): MutablePackageLock => {
   if (!isRecord(value)) throw new Error(`${label} must contain one JSON object.`);
   const packages = value['packages'];
   if (packages !== undefined && !isRecord(packages)) {
@@ -91,7 +89,7 @@ const packageLock = (value: unknown, label: string): PackageLock => {
 };
 
 function updateInternalDependencies(
-  manifest: PackageManifest,
+  manifest: MutablePackageManifest,
   publicNames: ReadonlySet<string>,
   version: string,
 ): void {
@@ -133,7 +131,7 @@ export async function materializeVersion(
   rootManifest.version = version;
   lockfile.packages[''].version = version;
 
-  const manifests = new Map<string, PackageManifest>();
+  const manifests = new Map<string, MutablePackageManifest>();
   for (const pkg of packages) {
     const manifest = packageManifest(pkg.manifest, pkg.manifestPath);
     manifest.version = version;

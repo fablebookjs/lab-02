@@ -34,7 +34,7 @@ export type ReleaseCommunication = {
   releaseHighlights: string | null;
 };
 
-type ReleasePull = {
+type ReleaseAuthorityPull = {
   base: { ref: string; repo: { full_name: string }; sha: string };
   head: { ref: string; repo: { full_name: string }; sha: string };
   merge_commit_sha: string | null;
@@ -74,7 +74,7 @@ export function deriveReleaseAuthority({
 }: {
   headCommit: ReleaseCommitView;
   mergeCommit: ReleaseCommitView;
-  pull: ReleasePull;
+  pull: ReleaseAuthorityPull;
 }): ReleaseAuthority {
   if (!Number.isSafeInteger(pull?.number) || pull.number <= 0) {
     throw new Error('Release authority requires a positive pull request number.');
@@ -129,25 +129,6 @@ export function deriveReleaseAuthority({
     sourceOid,
     version: proposal.version,
   };
-}
-
-export function deriveReleaseHighlights({
-  authority,
-  body,
-}: {
-  authority: ReleaseAuthority;
-  body: unknown;
-}): string {
-  const identity = extractReleasePrIdentity(body);
-  if (
-    identity === null ||
-    identity.proposalOid !== authority.proposalOid ||
-    identity.releaseOid !== authority.sourceOid ||
-    identity.version !== authority.version
-  ) {
-    throw new Error('Release highlights are not bound to the authorized proposal.');
-  }
-  return requireReleaseHighlights(body);
 }
 
 const normalizeCommunicationChanges = (changes: unknown): CommunicationChange[] => {

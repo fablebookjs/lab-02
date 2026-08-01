@@ -35,16 +35,6 @@ export type MigrationRecord = {
   title: string;
 };
 
-type MigrationRecordSource = {
-  filename: string;
-  source: unknown;
-};
-
-type ParsedReleaseRecordChange = {
-  title: string;
-  url: string;
-};
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -297,7 +287,7 @@ export function parseReleaseRecordChanges({
 }: {
   source: unknown;
   version: string;
-}): ParsedReleaseRecordChange[] {
+}): Array<{ title: string; url: string }> {
   const changes = extractReleaseRecordChanges({ source, version });
   if (changes === 'No changes were recorded for this release.') {
     return [];
@@ -383,7 +373,10 @@ const nonemptySection = (lines: string[], headingIndex: number): boolean => {
 export function parseMigrationRecord({
   filename,
   source,
-}: MigrationRecordSource): MigrationRecord {
+}: {
+  filename: string;
+  source: unknown;
+}): MigrationRecord {
   const name = basename(filename);
   if (name !== filename || !migrationFilenamePattern.test(name)) {
     throw new Error(
@@ -439,7 +432,7 @@ export function parseMigrationRecord({
   };
 }
 
-export function orderMigrationRecords(records: unknown): MigrationRecord[] {
+function orderMigrationRecords(records: unknown): MigrationRecord[] {
   if (!Array.isArray(records)) {
     throw new Error('Migration records must be an array.');
   }

@@ -1,11 +1,8 @@
 import type { components } from '@octokit/openapi-webhooks-types';
 
 type AuthoritativePullRequest = components['schemas']['pull-request-webhook'];
-type AuthoritativeWorkflowRunCompletion =
-  components['schemas']['webhook-workflow-run-completed'];
 type AuthoritativeWorkflowRun =
-  AuthoritativeWorkflowRunCompletion['workflow_run'];
-type WorkflowConclusion = NonNullable<AuthoritativeWorkflowRun['conclusion']>;
+  components['schemas']['webhook-workflow-run-completed']['workflow_run'];
 
 export type ValidatedPullRequest = {
   base: {
@@ -41,7 +38,7 @@ export type ValidatedPullRequestDescription = {
 
 export type ValidatedWorkflowRunCompletion = {
   branch: AuthoritativeWorkflowRun['head_branch'];
-  conclusion: WorkflowConclusion;
+  conclusion: NonNullable<AuthoritativeWorkflowRun['conclusion']>;
   event: AuthoritativeWorkflowRun['event'];
   path: AuthoritativeWorkflowRun['path'];
   runId: AuthoritativeWorkflowRun['id'];
@@ -71,7 +68,9 @@ const workflowBranch = (
   return requiredWorkflowString(value, 'branch');
 };
 
-const workflowConclusion = (value: unknown): WorkflowConclusion => {
+const workflowConclusion = (
+  value: unknown,
+): NonNullable<AuthoritativeWorkflowRun['conclusion']> => {
   switch (value) {
     case 'action_required':
     case 'cancelled':
