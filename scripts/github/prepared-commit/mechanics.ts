@@ -39,7 +39,7 @@ const git = (args: string[], options: RunOptions = {}) =>
   run('git', args, { ...options, cwd: options.cwd ?? repositoryRoot });
 
 export const uploadCommitObject = async (token: string, oid: string): Promise<string> => {
-  const sourceOid = (await commitParents(oid))[0];
+  const sourceOid = (await commitParents(repositoryRoot, oid))[0];
   validateFullOid(sourceOid, 'Uploaded commit parent');
   const changedPaths = (
     await git(['diff-tree', '--no-commit-id', '--name-only', '-r', sourceOid, oid])
@@ -95,7 +95,7 @@ export const uploadCommitObject = async (token: string, oid: string): Promise<st
   const committerName = stringValue(identity[3], 'Prepared committer name');
   const committerEmail = stringValue(identity[4], 'Prepared committer email');
   const committerDate = stringValue(identity[5], 'Prepared committer date');
-  const message = await commitMessageAt(oid);
+  const message = await commitMessageAt(repositoryRoot, oid);
   const remoteCommit = await createGitCommit(token, {
     author: { date: authorDate, email: authorEmail, name: authorName },
     committer: {

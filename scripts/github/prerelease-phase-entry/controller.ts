@@ -293,7 +293,7 @@ const prereleaseChanges = async (
   range: { boundaryOid: string; sourceOid: string },
 ): Promise<ReleaseChange[]> =>
   derivePrereleaseChanges({
-    commits: await firstParentCommitFacts(token, {
+    commits: await firstParentCommitFacts(repositoryRoot, token, {
       boundaryOid: range.boundaryOid,
       headOid: range.sourceOid,
       label: 'main prerelease',
@@ -303,7 +303,7 @@ const prereleaseChanges = async (
 const validatePhaseEntrySnapshot = async (
   snapshot: PhaseEntrySnapshot,
 ): Promise<void> => {
-  const message = await commitMessageAt(snapshot.snapshotOid);
+  const message = await commitMessageAt(repositoryRoot, snapshot.snapshotOid);
   const parsed = parsePhaseEntryCommitMessageIfPresent(message);
   if (parsed === null) {
     throw new Error(`${snapshot.snapshotOid} has no phase-entry metadata.`);
@@ -315,10 +315,10 @@ const validatePhaseEntrySnapshot = async (
     version: snapshot.version,
   });
   assert.deepEqual(
-    await commitParents(snapshot.snapshotOid),
+    await commitParents(repositoryRoot, snapshot.snapshotOid),
     [snapshot.sourceOid],
   );
-  await validateVersionTree(snapshot.snapshotOid, snapshot.version);
+  await validateVersionTree(repositoryRoot, snapshot.snapshotOid, snapshot.version);
 };
 
 const findPhaseEntrySnapshot = async (
@@ -334,7 +334,7 @@ const findPhaseEntrySnapshot = async (
     .filter(Boolean);
   for (const snapshotOid of history) {
     const entry = parsePhaseEntryCommitMessageIfPresent(
-      await commitMessageAt(snapshotOid),
+      await commitMessageAt(repositoryRoot, snapshotOid),
     );
     if (entry === null) continue;
     const parsed = planPhaseEntry({
@@ -370,10 +370,10 @@ const loadStagedProposal = async (
     '+refs/heads/prerelease:refs/remotes/origin/prerelease',
   ]);
   const proposal = parsePrereleaseProposalMessage(
-    await commitMessageAt(ref.oid),
+    await commitMessageAt(repositoryRoot, ref.oid),
   );
-  assert.deepEqual(await commitParents(ref.oid), [proposal.sourceOid]);
-  await validateVersionTree(ref.oid, proposal.version);
+  assert.deepEqual(await commitParents(repositoryRoot, ref.oid), [proposal.sourceOid]);
+  await validateVersionTree(repositoryRoot, ref.oid, proposal.version);
   return { ...proposal, oid: ref.oid };
 };
 
@@ -450,7 +450,7 @@ export async function materializePhaseEntryCommit({
   sourceOid: string;
   target: string;
 }): Promise<PhaseEntrySnapshot> {
-  const sourceVersion = await rootVersionAt(sourceOid);
+  const sourceVersion = await rootVersionAt(repositoryRoot, sourceOid);
   const phase = parseManualPrereleasePhase(target);
   const plan = planPhaseEntry({
     currentVersion: sourceVersion,
@@ -488,9 +488,9 @@ export async function preparePhaseEntry(
   );
   const token = requireControllerGitHubToken(options);
   const mainOid = await currentOid();
-  const currentVersion = await rootVersionAt(mainOid);
+  const currentVersion = await rootVersionAt(repositoryRoot, mainOid);
   const current = parseDevelopmentVersion(currentVersion);
-  const boundary = await findManagedPrereleaseBoundary(mainOid);
+  const boundary = await findManagedPrereleaseBoundary(repositoryRoot, mainOid);
   if (boundary === null || boundary.version !== currentVersion) {
     throw new Error(
       'Phase entry requires a current managed prerelease snapshot.',
@@ -653,7 +653,7 @@ export async function applyPhaseEntry(
     ]);
     await validatePhaseEntrySnapshot(action);
     const planned = planPhaseEntry({
-      currentVersion: await rootVersionAt(action.sourceOid),
+      currentVersion: await rootVersionAt(repositoryRoot, action.sourceOid),
       entry: null,
       target: action.phase,
     });

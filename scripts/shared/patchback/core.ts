@@ -5,6 +5,7 @@ import {
   migrationRecordDirectory,
   releaseRecordPath,
 } from '../release-communication/records.ts';
+import type { ReleaseHistoryPull } from '../release-communication/records.ts';
 import { PILOT_REPOSITORY } from '../repository.ts';
 
 export const PATCHBACK_BODY_SCHEMA_VERSION = 3;
@@ -28,10 +29,7 @@ type PatchbackMigrationRecord = {
   title: string;
 };
 
-type CanonicalPull = {
-  number: number;
-  title: unknown;
-};
+type CanonicalPull = ReleaseHistoryPull;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -245,16 +243,13 @@ const canonicalPull = (
   oid: string,
 ): pull is CanonicalPull => {
   if (!isRecord(pull) || typeof pull['number'] !== 'number') return false;
-  const base = pull['base'];
   return (
     Number.isSafeInteger(pull['number']) &&
     pull['number'] > 0 &&
-    pull['merged_at'] !== null &&
-    isRecord(base) &&
-    base['ref'] === `releases/${line}` &&
-    isRecord(base['repo']) &&
-    base['repo']['full_name'] === PILOT_REPOSITORY &&
-    pull['merge_commit_sha'] === oid
+    pull['merged'] === true &&
+    pull['baseBranch'] === `releases/${line}` &&
+    pull['canonicalRepository'] === true &&
+    pull['mergeCommitOid'] === oid
   );
 };
 

@@ -45,34 +45,34 @@ const stringRecord = (
   );
 };
 
-const git = (args: string[], options: RunOptions = {}) =>
-  run('git', args, { ...options, cwd: options.cwd ?? repositoryRoot });
+const git = (root: string, args: string[], options: RunOptions = {}) =>
+  run('git', args, { ...options, cwd: options.cwd ?? root });
 
 export const ensureCleanReleaseRepository = async (): Promise<void> => {
-  const { stdout } = await git(['rev-parse', '--show-toplevel']);
+  const { stdout } = await git(repositoryRoot, ['rev-parse', '--show-toplevel']);
   if (resolve(stdout.trim()) !== resolve(repositoryRoot)) {
     throw new Error(
       'Release commands must run after the Lab-02 seed becomes the root of its own Git repository.',
     );
   }
-  const status = await git(['status', '--porcelain']);
+  const status = await git(repositoryRoot, ['status', '--porcelain']);
   if (status.stdout.trim()) {
     throw new Error('Release preparation requires a clean working tree.');
   }
 };
 
-export const commitParents = async (oid: string): Promise<string[]> => {
-  const { stdout } = await git(['show', '-s', '--format=%P', oid]);
+export const commitParents = async (root: string, oid: string): Promise<string[]> => {
+  const { stdout } = await git(root, ['show', '-s', '--format=%P', oid]);
   return stdout.trim().split(/\s+/).filter(Boolean);
 };
 
-export const commitMessageAt = async (oid: string): Promise<string> => {
-  const { stdout } = await git(['show', '-s', '--format=%B', oid]);
+export const commitMessageAt = async (root: string, oid: string): Promise<string> => {
+  const { stdout } = await git(root, ['show', '-s', '--format=%B', oid]);
   return stdout.trimEnd();
 };
 
-export const manifestAt = async (oid: string, path: string): Promise<unknown> => {
-  const { stdout } = await git(['show', `${oid}:${path}`]);
+export const manifestAt = async (root: string, oid: string, path: string): Promise<unknown> => {
+  const { stdout } = await git(root, ['show', `${oid}:${path}`]);
   const value: unknown = JSON.parse(stdout);
   return value;
 };
@@ -121,21 +121,22 @@ const packageManifestValue = (value: unknown, path: string): PublicPackageManife
 };
 
 export const publicPackagesAt = async (
+  repository: string,
   oid: string,
 ): Promise<{
   packages: Array<{ manifest: PublicPackageManifest; name: string }>;
   root: RootManifest;
 }> => {
-  const root = rootManifestValue(await manifestAt(oid, 'package.json'));
+  const root = rootManifestValue(await manifestAt(repository, oid, 'package.json'));
   if (JSON.stringify(root.workspaces) !== JSON.stringify(['packages/*'])) {
     throw new Error('The release controller supports only the accepted packages/* seed workspace.');
   }
-  const { stdout } = await git(['ls-tree', '-d', '--name-only', `${oid}:packages`]);
+  const { stdout } = await git(repository, ['ls-tree', '-d', '--name-only', `${oid}:packages`]);
   const packages: Array<{ manifest: PublicPackageManifest; name: string }> = [];
   for (const directory of stdout.trim().split('\n').filter(Boolean)) {
     const manifestPath = `packages/${directory}/package.json`;
     const manifest = packageManifestValue(
-      await manifestAt(oid, manifestPath),
+      await manifestAt(repository, oid, manifestPath),
       manifestPath,
     );
     if (manifest.private !== true) {
@@ -148,8 +149,8 @@ export const publicPackagesAt = async (
   return { packages, root };
 };
 
-export async function rootVersionAt(oid: string): Promise<string> {
-  const manifest = rootManifestValue(await manifestAt(oid, 'package.json'));
+export async function rootVersionAt(root: string, oid: string): Promise<string> {
+  const manifest = rootManifestValue(await manifestAt(root, oid, 'package.json'));
   if (typeof manifest.version !== 'string') {
     throw new Error(`${oid} root package.json has no version.`);
   }
@@ -157,11 +158,12 @@ export async function rootVersionAt(oid: string): Promise<string> {
 }
 
 export const validateVersionTree = async (
+  root: string,
   oid: string,
   version: string,
 ): Promise<void> => {
-  const { packages, root } = await publicPackagesAt(oid);
-  if (root.version !== version || packages.length === 0) {
+  const { packages, root: manifest } = await publicPackagesAt(root, oid);
+  if (manifest.version !== version || packages.length === 0) {
     throw new Error(`${oid} does not materialize root version ${version}.`);
   }
   const publicNames = new Set(packages.map(({ name }) => name));

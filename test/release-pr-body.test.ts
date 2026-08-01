@@ -368,13 +368,11 @@ test('release history requires unambiguous source metadata and defaults direct c
       {
         associatedPulls: [
           {
-            base: {
-              ref: 'releases/v1.0',
-              repo: { full_name: 'fablebookjs/lab-02' },
-            },
-            labels: [{ name: 'qa:skip' }],
-            merge_commit_sha: pullOid,
-            merged_at: '2026-07-22T12:00:00Z',
+            baseBranch: 'releases/v1.0',
+            canonicalRepository: true,
+            labels: ['qa:skip'],
+            mergeCommitOid: pullOid,
+            merged: true,
             number: 17,
             title: 'Fix QA finding',
           },

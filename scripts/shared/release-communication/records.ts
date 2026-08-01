@@ -71,57 +71,43 @@ export const cleanReleaseTitle = (value: unknown, fallback: string): string => {
   return (title || fallback).slice(0, 180);
 };
 
-type CanonicalReleasePull = {
-  labels: unknown;
-  merged_at: unknown;
+export type ReleaseHistoryPull = Readonly<{
+  baseBranch: string;
+  canonicalRepository: boolean;
+  labels: readonly string[];
+  mergeCommitOid: string | null;
+  merged: boolean;
   number: number;
-  title: unknown;
-};
+  title: string;
+}>;
+
+export type ReleaseHistoryCommit = Readonly<{
+  associatedPulls: readonly ReleaseHistoryPull[];
+  oid: string;
+  subject: string;
+}>;
 
 const canonicalBranchPull = (
-  pull: unknown,
+  pull: ReleaseHistoryPull,
   branch: string,
   oid: string,
-): pull is CanonicalReleasePull => {
-  if (!isRecord(pull) || !Number.isSafeInteger(pull['number'])) return false;
-  const number = pull['number'];
-  const base = pull['base'];
-  return (
-    typeof number === 'number' &&
-    number > 0 &&
-    pull['merged_at'] !== null &&
-    isRecord(base) &&
-    base['ref'] === branch &&
-    isRecord(base['repo']) &&
-    base['repo']['full_name'] === PILOT_REPOSITORY &&
-    pull['merge_commit_sha'] === oid
-  );
-};
+): boolean =>
+  pull.canonicalRepository &&
+  pull.baseBranch === branch &&
+  pull.merged &&
+  pull.mergeCommitOid === oid;
 
 const pullClassification = (
-  pull: CanonicalReleasePull,
+  pull: ReleaseHistoryPull,
 ): { qaSkip: boolean; releaseNoteSkip: boolean } => {
   if (
-    typeof pull.title !== 'string' ||
     cleanReleaseTitle(pull.title, '').length === 0 ||
     !Array.isArray(pull.labels) ||
-    pull.labels.some(
-      (label) =>
-        !isRecord(label) ||
-        typeof label['name'] !== 'string' ||
-        label['name'].length === 0
-    )
+    pull.labels.some((label) => typeof label !== 'string' || label.length === 0)
   ) {
     throw new Error(`Pull request ${pull.number} has malformed release metadata.`);
   }
-  const labels = new Set(
-    pull.labels.map((label) => {
-      if (!isRecord(label) || typeof label['name'] !== 'string') {
-        throw new Error(`Pull request ${pull.number} has malformed release labels.`);
-      }
-      return label['name'];
-    }),
-  );
+  const labels = new Set(pull.labels);
   return {
     qaSkip: labels.has('qa:skip'),
     releaseNoteSkip: labels.has('release-note:skip'),
@@ -133,7 +119,7 @@ const deriveBranchChanges = ({
   commits,
 }: {
   branch: string;
-  commits: unknown;
+  commits: readonly ReleaseHistoryCommit[];
 }): ReleaseChange[] => {
   if (
     branch !== PRIMARY_BRANCH &&
@@ -141,20 +127,10 @@ const deriveBranchChanges = ({
   ) {
     throw new Error(`Unsupported change-history branch: ${branch}`);
   }
-  if (!Array.isArray(commits)) {
-    throw new Error('Release commits must be an array.');
-  }
   return commits.map((commit) => {
-    if (!isRecord(commit)) {
-      throw new Error('Every release commit must be an object.');
-    }
-    const oid = fullOid(commit['oid'], 'Release change');
-    const associatedPulls = commit['associatedPulls'];
-    if (associatedPulls !== undefined && !Array.isArray(associatedPulls)) {
-      throw new Error(`Release change ${oid} has malformed pull request metadata.`);
-    }
-    const associated = (associatedPulls ?? []).filter((pull): pull is CanonicalReleasePull =>
-      canonicalBranchPull(pull, branch, oid)
+    const oid = fullOid(commit.oid, 'Release change');
+    const associated = commit.associatedPulls.filter((pull) =>
+      canonicalBranchPull(pull, branch, oid),
     );
     if (associated.length > 1) {
       throw new Error(`Release change ${oid} has ambiguous pull request metadata.`);
@@ -174,7 +150,7 @@ const deriveBranchChanges = ({
       oid,
       qaSkip: false,
       releaseNoteSkip: false,
-      title: cleanReleaseTitle(commit['subject'], `Commit ${oid.slice(0, 12)}`),
+      title: cleanReleaseTitle(commit.subject, `Commit ${oid.slice(0, 12)}`),
       url: `${repositoryUrl}/commit/${oid}`,
     };
   });
@@ -184,7 +160,7 @@ export function deriveReleaseChanges({
   commits,
   line,
 }: {
-  commits: unknown;
+  commits: readonly ReleaseHistoryCommit[];
   line: string;
 }): ReleaseChange[] {
   parseReleaseLine(line);
@@ -194,7 +170,7 @@ export function deriveReleaseChanges({
 export function derivePrereleaseChanges({
   commits,
 }: {
-  commits: unknown;
+  commits: readonly ReleaseHistoryCommit[];
 }): ReleaseChange[] {
   return deriveBranchChanges({ branch: PRIMARY_BRANCH, commits });
 }

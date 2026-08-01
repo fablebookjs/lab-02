@@ -183,7 +183,7 @@ const prereleaseChanges = async (
   range: { boundaryOid: string; sourceOid: string },
 ): Promise<ReleaseChange[]> =>
   derivePrereleaseChanges({
-    commits: await firstParentCommitFacts(token, {
+    commits: await firstParentCommitFacts(repositoryRoot, token, {
       boundaryOid: range.boundaryOid,
       headOid: range.sourceOid,
       label: 'main prerelease',
@@ -300,14 +300,14 @@ const validateProposalCommit = async (
     version: string;
   },
 ): Promise<void> => {
-  assert.deepEqual(await commitParents(oid), [expected.sourceOid]);
+  assert.deepEqual(await commitParents(repositoryRoot, oid), [expected.sourceOid]);
   const proposal = parsePrereleaseProposalMessage(
-    await commitMessageAt(oid),
+    await commitMessageAt(repositoryRoot, oid),
   );
   assert.equal(proposal.boundaryOid, expected.boundaryOid);
   assert.equal(proposal.sourceOid, expected.sourceOid);
   assert.equal(proposal.version, expected.version);
-  await validateVersionTree(oid, expected.version);
+  await validateVersionTree(repositoryRoot, oid, expected.version);
 };
 
 const actionBody = (
@@ -334,7 +334,7 @@ const loadStagedProposal = async (
     '+refs/heads/prerelease:refs/remotes/origin/prerelease',
   ]);
   return {
-    ...parsePrereleaseProposalMessage(await commitMessageAt(ref.oid)),
+    ...parsePrereleaseProposalMessage(await commitMessageAt(repositoryRoot, ref.oid)),
     oid: ref.oid,
   };
 };
@@ -348,8 +348,8 @@ export async function preparePrereleaseProposal(
   );
   const token = requireControllerGitHubToken(options);
   const mainOid = await currentOid();
-  const lineVersion = await rootVersionAt(mainOid);
-  const boundary = await findManagedPrereleaseBoundary(mainOid);
+  const lineVersion = await rootVersionAt(repositoryRoot, mainOid);
+  const boundary = await findManagedPrereleaseBoundary(repositoryRoot, mainOid);
   if (boundary !== null && boundary.version !== lineVersion) {
     throw new Error(
       `main carries ${lineVersion}, but its latest managed prerelease snapshot carries ${boundary.version}.`,
@@ -634,12 +634,12 @@ export async function checkPrereleasePullRequest(
     throw new Error('Prerelease proposal is not based on exact current main.');
   }
   const proposal = parsePrereleaseProposalMessage(
-    await commitMessageAt(proposalOid),
+    await commitMessageAt(repositoryRoot, proposalOid),
   );
   if (
     proposal.sourceOid !== sourceOid ||
     proposal.version !== nextPrereleaseVersion(
-      await rootVersionAt(sourceOid),
+      await rootVersionAt(repositoryRoot, sourceOid),
     )
   ) {
     throw new Error('Prerelease proposal does not advance exact current main.');

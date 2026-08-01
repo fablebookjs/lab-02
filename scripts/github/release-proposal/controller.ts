@@ -387,7 +387,7 @@ const developmentLineChanges = async (
   },
 ): Promise<ReleaseChange[]> => {
   const commits = (
-    await developmentCommitFacts(token, { boundaryOid, sourceOid })
+    await developmentCommitFacts(repositoryRoot, token, { boundaryOid, sourceOid })
   ).filter(({ mechanical }) => !mechanical);
   return derivePrereleaseChanges({ commits });
 };
@@ -417,7 +417,7 @@ const releaseChanges = async (
     releaseOid,
   }: { boundaryOid: string; line: string; releaseOid: string },
 ): Promise<ReleaseChange[]> => {
-  const commits = await firstParentCommitFacts(token, {
+  const commits = await firstParentCommitFacts(repositoryRoot, token, {
     boundaryOid,
     headOid: releaseOid,
     label: line,
@@ -435,9 +435,10 @@ export const initialReleaseChanges = async (
     releaseOid: string;
   },
 ): Promise<ReleaseChange[]> => {
-  const cut = await findReleaseCut(line);
+  const cut = await findReleaseCut(repositoryRoot, line);
   const bootstrap = await findDevelopmentBootstrap({
     line,
+    root: repositoryRoot,
     sourceOid: cut.sourceOid,
   });
   return combineReleaseChanges(
@@ -497,7 +498,7 @@ const renderProposalBody = async ({
   previousBody?: string;
   proposalOid: string;
 }): Promise<string> => {
-  const { packages } = await publicPackagesAt(contentOid);
+  const { packages } = await publicPackagesAt(repositoryRoot, contentOid);
   return renderReleasePrBody({
     changes: action.changes,
     line: action.line,
@@ -532,12 +533,12 @@ const validateProposalCommit = async (
     version: string;
   },
 ): Promise<void> => {
-  assert.deepEqual(await commitParents(oid), [expected.sourceOid]);
-  const metadata = parseProposalMessage(await commitMessageAt(oid));
+  assert.deepEqual(await commitParents(repositoryRoot, oid), [expected.sourceOid]);
+  const metadata = parseProposalMessage(await commitMessageAt(repositoryRoot, oid));
   assert.equal(metadata.line, expected.line);
   assert.equal(metadata.sourceOid, expected.sourceOid);
   assert.equal(metadata.version, expected.version);
-  await validateVersionTree(oid, expected.version);
+  await validateVersionTree(repositoryRoot, oid, expected.version);
   const path = releaseRecordPath(expected.version);
   let record;
   try {
@@ -561,8 +562,8 @@ const validateDevelopmentCommit = async (
   oid: string,
   expected: { line: string; sourceOid: string; version: string },
 ): Promise<void> => {
-  assert.deepEqual(await commitParents(oid), [expected.sourceOid]);
-  const message = await commitMessageAt(oid);
+  assert.deepEqual(await commitParents(repositoryRoot, oid), [expected.sourceOid]);
+  const message = await commitMessageAt(repositoryRoot, oid);
   assert.deepEqual(
     parsePrereleaseBootstrapCommitMessageIfPresent(message),
     expected,
@@ -571,7 +572,7 @@ const validateDevelopmentCommit = async (
   assert.match(message, new RegExp(`Release-Cut-Line: ${expected.line.replace('.', '\\.')}`));
   assert.match(message, new RegExp(`Release-Cut-Source: ${expected.sourceOid}`));
   assert.match(message, new RegExp(`Development-Version: ${expected.version.replaceAll('.', '\\.')}`));
-  await validateVersionTree(oid, expected.version);
+  await validateVersionTree(repositoryRoot, oid, expected.version);
 };
 
 const validateCutTransition = async (transition: CutTransition): Promise<void> => {
@@ -580,7 +581,7 @@ const validateCutTransition = async (transition: CutTransition): Promise<void> =
   validateFullOid(transition.sourceOid, 'Cut source');
   validateFullOid(transition.proposalOid, 'Proposal');
   validateFullOid(transition.developmentOid, 'Development commit');
-  const sourceVersion = await rootVersionAt(transition.sourceOid);
+  const sourceVersion = await rootVersionAt(repositoryRoot, transition.sourceOid);
   const minor = deriveCutVersions(sourceVersion, 'minor');
   const major = deriveCutVersions(sourceVersion, 'major');
   const matches = [minor, major].some(
@@ -600,9 +601,13 @@ export async function prepareCut(options: PrepareCutOptions): Promise<void> {
   const output = await prepareOutput(requireOption(options, 'output'));
   const token = requireControllerGitHubToken(options);
   const sourceOid = await resolveHeadOid(repositoryRoot);
-  const versions = deriveCutVersions(await rootVersionAt(sourceOid), nextDevelopment);
+  const versions = deriveCutVersions(
+    await rootVersionAt(repositoryRoot, sourceOid),
+    nextDevelopment,
+  );
   const bootstrap = await findDevelopmentBootstrap({
     line: versions.line,
+    root: repositoryRoot,
     sourceOid,
   });
   const changes = await developmentLineChanges(token, {
@@ -922,7 +927,7 @@ const loadMaintenanceStates = async (token: string): Promise<MaintenanceState[]>
       'origin',
       `+refs/heads/releases/${line}:refs/remotes/origin/releases/${line}`,
     ]);
-    const lineVersion = await rootVersionAt(releaseOid);
+    const lineVersion = await rootVersionAt(repositoryRoot, releaseOid);
     const stagedRef = await getRef(token, `heads/staged/${line}`);
     const pulls = await listReleasePulls(token, line);
     const openPulls = pulls.filter(({ state }) => state === 'open');
@@ -954,7 +959,9 @@ const loadMaintenanceStates = async (token: string): Promise<MaintenanceState[]>
     let staged: MaintenanceState['staged'] = null;
     if (stagedRef !== null) {
       await git(['fetch', '--no-tags', 'origin', `+refs/heads/staged/${line}:refs/remotes/origin/staged/${line}`]);
-      const metadata = parseProposalMessage(await commitMessageAt(stagedRef.oid));
+      const metadata = parseProposalMessage(
+        await commitMessageAt(repositoryRoot, stagedRef.oid),
+      );
       if (metadata.line !== line) {
         throw new Error(`staged/${line} contains proposal metadata for ${metadata.line}.`);
       }
@@ -1234,7 +1241,9 @@ export async function applyMaintenance(
         'origin',
         `+refs/heads/staged/${action.line}:refs/remotes/origin/staged/${action.line}`,
       ]);
-      const metadata = parseProposalMessage(await commitMessageAt(action.expectedStagedOid));
+      const metadata = parseProposalMessage(
+        await commitMessageAt(repositoryRoot, action.expectedStagedOid),
+      );
       if (
         metadata.line !== action.line ||
         metadata.sourceOid !== action.releaseOid ||
@@ -1334,7 +1343,9 @@ export async function checkPullRequest(
   parseReleaseLine(line);
   validateFullOid(pull.base.sha, 'Release PR base');
   validateFullOid(pull.head.sha, 'Release PR head');
-  const metadata = parseProposalMessage(await commitMessageAt(pull.head.sha));
+  const metadata = parseProposalMessage(
+    await commitMessageAt(repositoryRoot, pull.head.sha),
+  );
   await validateProposalCommit(pull.head.sha, {
     line,
     sourceOid: pull.base.sha,

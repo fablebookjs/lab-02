@@ -221,16 +221,11 @@ test('main history uses source PR labels for prerelease accounting', () => {
         {
           associatedPulls: [
             {
-              base: {
-                ref: 'main',
-                repo: { full_name: 'fablebookjs/lab-02' },
-              },
-              labels: [
-                { name: 'qa:skip' },
-                { name: 'release-note:skip' },
-              ],
-              merge_commit_sha: changeOid,
-              merged_at: '2026-07-31T10:00:00Z',
+              baseBranch: 'main',
+              canonicalRepository: true,
+              labels: ['qa:skip', 'release-note:skip'],
+              mergeCommitOid: changeOid,
+              merged: true,
               number: 91,
               title: 'Refine internal release diagnostics',
             },

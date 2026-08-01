@@ -16,8 +16,31 @@ import {
   releaseRecordPath,
   renderReleaseRecord,
 } from '../scripts/shared/release-communication/records.ts';
+import type { ReleaseHistoryPull } from '../scripts/shared/release-communication/records.ts';
 
 const oid = (character: string): string => character.repeat(40);
+
+const historyPull = ({
+  baseBranch = 'releases/v2.1',
+  labels = [],
+  mergeCommitOid,
+  number,
+  title,
+}: {
+  baseBranch?: string;
+  labels?: readonly string[];
+  mergeCommitOid: string;
+  number: number;
+  title: string;
+}): ReleaseHistoryPull => ({
+  baseBranch,
+  canonicalRepository: true,
+  labels,
+  mergeCommitOid,
+  merged: true,
+  number,
+  title,
+});
 
 const migration = ({
   priority,
@@ -44,17 +67,11 @@ test('one release-history interpretation renders the durable per-version record'
     commits: [
       {
         associatedPulls: [
-          {
-            base: {
-              ref: 'releases/v2.1',
-              repo: { full_name: 'fablebookjs/lab-02' },
-            },
-            merge_commit_sha: oid('a'),
-            merged_at: '2026-07-28T12:00:00Z',
-            labels: [],
+          historyPull({
+            mergeCommitOid: oid('a'),
             number: 41,
             title: 'Add portable stories',
-          },
+          }),
         ],
         oid: oid('a'),
         subject: 'Merge pull request #41',
@@ -66,17 +83,12 @@ test('one release-history interpretation renders the durable per-version record'
       },
       {
         associatedPulls: [
-          {
-            base: {
-              ref: 'releases/v2.1',
-              repo: { full_name: 'fablebookjs/lab-02' },
-            },
-            merge_commit_sha: oid('c'),
-            merged_at: '2026-07-28T12:10:00Z',
-            labels: [{ name: 'release-note:skip' }],
+          historyPull({
+            labels: ['release-note:skip'],
+            mergeCommitOid: oid('c'),
             number: 42,
             title: 'Refine internal release accounting',
-          },
+          }),
         ],
         oid: oid('c'),
         subject: 'Merge pull request #42',
@@ -186,10 +198,11 @@ test('an authorized historical release record remains readable for recovery', ()
 
 test('ambiguous or malformed PR metadata fails before classification', () => {
   const pull = {
-    base: { ref: 'releases/v2.1', repo: { full_name: 'fablebookjs/lab-02' } },
+    baseBranch: 'releases/v2.1',
+    canonicalRepository: true,
     labels: [],
-    merge_commit_sha: oid('c'),
-    merged_at: '2026-07-28T12:00:00Z',
+    mergeCommitOid: oid('c'),
+    merged: true,
     title: 'Ambiguous title',
   };
   assert.throws(
@@ -214,7 +227,7 @@ test('ambiguous or malformed PR metadata fails before classification', () => {
       deriveReleaseChanges({
         commits: [
           {
-            associatedPulls: [{ ...pull, labels: undefined, number: 42 }],
+            associatedPulls: [{ ...pull, labels: [''], number: 42 }],
             oid: oid('c'),
             subject: 'Merge one history',
           },
@@ -229,17 +242,17 @@ test('source PR opt-out labels classify release notes and QA independently', () 
   const combinations = [
     { labels: [], qaSkip: false, releaseNoteSkip: false },
     {
-      labels: [{ name: 'release-note:skip' }],
+      labels: ['release-note:skip'],
       qaSkip: false,
       releaseNoteSkip: true,
     },
     {
-      labels: [{ name: 'qa:skip' }],
+      labels: ['qa:skip'],
       qaSkip: true,
       releaseNoteSkip: false,
     },
     {
-      labels: [{ name: 'qa:skip' }, { name: 'release-note:skip' }],
+      labels: ['qa:skip', 'release-note:skip'],
       qaSkip: true,
       releaseNoteSkip: true,
     },
@@ -250,17 +263,12 @@ test('source PR opt-out labels classify release notes and QA independently', () 
       commits: [
         {
           associatedPulls: [
-            {
-              base: {
-                ref: 'releases/v2.1',
-                repo: { full_name: 'fablebookjs/lab-02' },
-              },
+            historyPull({
               labels: expected.labels,
-              merge_commit_sha: changeOid,
-              merged_at: '2026-07-28T12:00:00Z',
+              mergeCommitOid: changeOid,
               number: index + 1,
               title: `Change ${index + 1}`,
-            },
+            }),
           ],
           oid: changeOid,
           subject: `Merge pull request #${index + 1}`,

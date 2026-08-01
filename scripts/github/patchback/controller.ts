@@ -23,10 +23,8 @@ import {
   releaseRecordPath,
 } from '../../shared/release-communication/records.ts';
 import {
-  parseDevelopmentCommitMessageIfPresent,
   parseStableVersion,
 } from '../../shared/release-proposal/core.ts';
-import type { DevelopmentCommit } from '../../shared/release-proposal/core.ts';
 import {
   compareGitCommits,
   createGitCommit,
@@ -47,7 +45,6 @@ import {
   createDraftPatchbackPr,
   getPullRequest,
   isCanonicalReleasePull,
-  listAssociatedPullRequests,
   listPullRequests,
   reconcileUniqueMarkedIssueComment,
 } from '../release-repository/pull-requests.ts';
@@ -56,8 +53,11 @@ import type { ReleaseAuthority } from '../../shared/release-publication/core.ts'
 import type { PatchbackItem } from '../../shared/patchback/core.ts';
 import { requireOption } from '../../shared/cli/options.ts';
 import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
-import { run } from '../../shared/process/run.ts';
 import { requireControllerGitHubToken } from '../controller-inputs.ts';
+import {
+  findReleaseCut,
+  firstParentCommitFacts,
+} from '../release-history/history.ts';
 
 type PatchbackAuthority = ReleaseAuthority & {
   assignee: string | null;
@@ -133,8 +133,6 @@ const positiveInteger = (value: unknown, label: string): number => {
   }
   return value;
 };
-
-const git = (args: string[], cwd: string) => run('git', args, { cwd });
 
 const fullOid = (value: unknown, label: string): string => {
   if (typeof value !== 'string' || !/^[0-9a-f]{40}$/.test(value)) {
@@ -260,39 +258,6 @@ export async function resolvePatchback(
   return outputs;
 }
 
-const commitParents = async (root: string, oid: string): Promise<string[]> =>
-  (await git(['show', '-s', '--format=%P', oid], root)).stdout.trim().split(/\s+/).filter(Boolean);
-
-const commitSubject = async (root: string, oid: string): Promise<string> =>
-  (await git(['show', '-s', '--format=%s', oid], root)).stdout.trim();
-
-const findReleaseCut = async (
-  root: string,
-  line: string,
-): Promise<DevelopmentCommit & { commitOid: string }> => {
-  const { stdout } = await git(['rev-list', '--first-parent', 'HEAD'], root);
-  const matches: Array<DevelopmentCommit & { commitOid: string }> = [];
-  for (const oid of stdout.trim().split('\n').filter(Boolean)) {
-    const message = (await git(['show', '-s', '--format=%B', oid], root)).stdout.trimEnd();
-    const cut = parseDevelopmentCommitMessageIfPresent(message);
-    if (cut?.line === line) {
-      const parents = await commitParents(root, oid);
-      if (parents.length !== 1 || parents[0] !== cut.sourceOid) {
-        throw new Error(`Release-cut commit ${oid} is not a child of its recorded source.`);
-      }
-      matches.push({ ...cut, commitOid: oid });
-    }
-  }
-  if (matches.length !== 1) {
-    throw new Error(`Expected one ${line} release-cut record on main, found ${matches.length}.`);
-  }
-  const match = matches[0];
-  if (match === undefined) {
-    throw new Error(`Expected one ${line} release-cut record.`);
-  }
-  return match;
-};
-
 const previousCompletedSnapshot = async (
   token: string,
   version: string,
@@ -320,26 +285,6 @@ const previousCompletedSnapshot = async (
     label: `completed ${tag} snapshot`,
     oid: await resolveRefObject(token, { sha: ref.oid, type: ref.type }),
   };
-};
-
-const firstParentRange = async (
-  root: string,
-  boundaryOid: string,
-  snapshotOid: string,
-): Promise<string[]> => {
-  const { stdout: ancestry } = await git(['rev-list', '--first-parent', snapshotOid], root);
-  if (!ancestry.trim().split('\n').includes(boundaryOid)) {
-    throw new Error('The patchback boundary is not on the snapshot first-parent history.');
-  }
-  const { stdout } = await git(
-    ['rev-list', '--first-parent', '--reverse', `${boundaryOid}..${snapshotOid}`],
-    root
-  );
-  const oids = stdout.trim().split('\n').filter(Boolean);
-  if (oids.at(-1) !== snapshotOid) {
-    throw new Error('The authorized snapshot does not close its patchback scope.');
-  }
-  return oids;
 };
 
 const loadPatchbackMigrationRecords = async (
@@ -564,18 +509,25 @@ export async function preparePatchback(
   }
   fullOid(boundary.oid, 'Patchback boundary');
 
-  const scopeOids = await firstParentRange(snapshot, boundary.oid, authority.snapshotOid);
-  const productOids = scopeOids.slice(0, -1);
-  const productCommits = await Promise.all(
-    productOids.map(async (oid) => ({
-      associatedPulls: await listAssociatedPullRequests(token, oid),
-      oid,
-      parents: await commitParents(snapshot, oid),
-      subject: await commitSubject(snapshot, oid),
-    }))
-  );
+  const scopeCommits = await firstParentCommitFacts(snapshot, token, {
+    boundaryOid: boundary.oid,
+    headOid: authority.snapshotOid,
+    label: 'patchback snapshot',
+  });
+  if (scopeCommits.at(-1)?.oid !== authority.snapshotOid) {
+    throw new Error('The authorized snapshot does not close its patchback scope.');
+  }
+  const productCommits = scopeCommits.slice(0, -1);
   const items = derivePatchbackItems({
-    commits: [...productCommits, { oid: authority.snapshotOid, parents: [], subject: '' }],
+    commits: [
+      ...productCommits,
+      {
+        associatedPulls: [],
+        oid: authority.snapshotOid,
+        parents: [],
+        subject: '',
+      },
+    ],
     line: authority.line,
     snapshotOid: authority.snapshotOid,
   });

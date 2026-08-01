@@ -145,13 +145,11 @@ test('scope preserves first-parent order and accounts for every product entry sh
       {
         associatedPulls: [
           {
-            base: {
-              ref: 'releases/v10.4',
-              repo: { full_name: 'fablebookjs/lab-02' },
-            },
-            head: { repo: { full_name: 'fablebookjs/lab-02' } },
-            merge_commit_sha: squashOid,
-            merged_at: '2026-07-21T10:00:00Z',
+            baseBranch: 'releases/v10.4',
+            canonicalRepository: true,
+            labels: [],
+            mergeCommitOid: squashOid,
+            merged: true,
             number: 73,
             title: 'fix: PR-backed release correction',
           },
@@ -163,13 +161,11 @@ test('scope preserves first-parent order and accounts for every product entry sh
       {
         associatedPulls: [
           {
-            base: {
-              ref: 'releases/v10.4',
-              repo: { full_name: 'fablebookjs/lab-02' },
-            },
-            head: { repo: { full_name: 'outside/contributor-fork' } },
-            merge_commit_sha: pullMergeOid,
-            merged_at: '2026-07-21T11:00:00Z',
+            baseBranch: 'releases/v10.4',
+            canonicalRepository: true,
+            labels: [],
+            mergeCommitOid: pullMergeOid,
+            merged: true,
             number: 74,
             title: 'fix: merged PR correction',
           },
@@ -228,10 +224,11 @@ test('scope preserves first-parent order and accounts for every product entry sh
 
 test('ambiguous PR metadata never drops a commit from scope', () => {
   const pull = (number: number) => ({
-    base: { ref: 'releases/v10.4', repo: { full_name: 'fablebookjs/lab-02' } },
-    head: { repo: { full_name: 'fablebookjs/lab-02' } },
-    merge_commit_sha: directOid,
-    merged_at: '2026-07-21T10:00:00Z',
+    baseBranch: 'releases/v10.4',
+    canonicalRepository: true,
+    labels: [],
+    mergeCommitOid: directOid,
+    merged: true,
     number,
     title: `PR ${number}`,
   });
