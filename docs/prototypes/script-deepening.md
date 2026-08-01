@@ -47,18 +47,18 @@ lines minus blank lines and comment-only lines.
 
 | Measure | Before | Prototype | Change |
 |---|---:|---:|---:|
-| Raw production TypeScript lines | 1,932 | 2,166 | +234 |
-| Blank lines | 115 | 142 | +27 |
-| Comment-only lines | 0 | 113 | +113 |
-| Executable-line proxy | 1,817 | 1,911 | +94 |
+| Raw production TypeScript lines | 1,932 | 2,132 | +200 |
+| Blank lines | 115 | 138 | +23 |
+| Comment-only lines | 0 | 87 | +87 |
+| Executable-line proxy | 1,817 | 1,907 | +90 |
 | Shared stable/prerelease core lines | 625 | 518 | -107 |
 | Duplicate controller completion blocks | 53 | 37 | -16 |
 | Named export declarations | 57 | 57 | 0 |
 
-The raw increase is real. The embedded utility contributes 93 lines, including
-its 31-line MIT notice, while new contextual documentation contributes most of
-the remaining comment-only increase. The five pre-existing publication files
-shrink from 1,932 to 1,903 lines; the three explicit new owners add 263 lines.
+The raw increase is real. The independently implemented `dedent` utility
+contributes 59 lines, while contextual documentation contributes the
+comment-only increase. The five pre-existing publication files shrink from
+1,932 to 1,903 lines; the three explicit new owners add 229 lines.
 
 The separate constant consolidation is deliberately measured across its wider
 mechanical reach:
@@ -71,7 +71,7 @@ mechanical reach:
 | Named export declarations in that set | 212 | 211 | -1 |
 
 Across every changed production TypeScript file, raw LOC rises from 9,440 to
-9,713 (+273), the executable-line proxy rises from 8,877 to 9,010 (+133), and
+9,679 (+239), the executable-line proxy rises from 8,877 to 9,006 (+129), and
 named exports rise from 212 to 213 (+1). Constant ownership improves without
 creating a total-LOC or total-surface win.
 
@@ -105,7 +105,7 @@ creating a total-LOC or total-surface win.
   The publication-slice export count stays flat, but the complete prototype
   still adds one named export; this is not an entity-count reduction.
 - **LOC does not improve overall.** The slice trades more total code for clearer
-  ownership, reusable mechanics, attributed template ergonomics, and guidance.
+  ownership, reusable mechanics, template ergonomics, and guidance.
   It should not be presented as a line-count reduction.
 - **Behavior stayed stable under the available proof.** The focused stable and
   prerelease publication suite passes 23/23 tests. The full `npm run check`
