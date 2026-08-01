@@ -15,6 +15,16 @@ Both packages compile TypeScript into the `dist/` files that npm packs. Package
 operations discover the public workspace set from the current Git tree rather
 than from an operator-maintained list.
 
+## Terminology
+
+| Term | Meaning in this repository |
+| --- | --- |
+| Release proposal | A versioned stable candidate on a staged branch, reviewed through its canonical draft Release PR before it can become a release. |
+| Release snapshot | The immutable merge commit produced from an approved stable proposal and used as the exact source for publication and patchback work. |
+| Prerelease snapshot | An immutable commit on `main` that establishes a managed prerelease boundary, either by merging a prerelease proposal or entering a new phase. |
+| Publication authority | Validated evidence from an approved workflow path that identifies the exact snapshot allowed to publish; it is not a credential. |
+| Query-first publication | A retry-safe procedure that observes npm, Git tags, and GitHub Releases before writing, then performs only the mutations needed to reach the expected state. |
+
 ## Local check
 
 ```sh

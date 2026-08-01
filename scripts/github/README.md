@@ -42,6 +42,22 @@ a sanitized error. `any`, assertions, and compiler suppressions require a
 nearby `type-escape:` explanation and are mechanically inventoried; broad
 `@ts-ignore` and `@ts-nocheck` directives are forbidden.
 
+## Module layout
+
+`release-repository/**` is the typed adapter around the injected GitHub
+capability. Transport and response narrowing are separate from the smaller
+commit, ref, pull-request, release, and repository capabilities consumed by
+controllers. Publication routing remains GitHub-local because it interprets
+Actions events even though the resulting authority kind is provider-neutral.
+
+Stable and prerelease controllers use the same shapes where their procedures
+actually agree, while remaining sibling features with distinct policy. Files
+named `*-schema.ts` or `transition-schema.ts` own serialized artifact shapes
+and their validation. Files named `templates.ts` own human-facing presentation
+assembly next to the feature that supplies its data. A linear controller keeps
+one-off procedural steps visible instead of extracting them solely to shorten
+the file.
+
 ## Release module boundary
 
 Stable and prerelease feature controllers are siblings. They do not import

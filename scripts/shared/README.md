@@ -19,6 +19,10 @@ package types are permitted only through declaration-level `import type` or
 `export type`. Top-level `await` is forbidden so every shared module remains
 loadable through the synchronous Actions bridge.
 
+No runtime path reachable from `scripts/shared/**` may reach `node_modules`,
+including through a transitive relative import. This is a property of the
+complete runtime graph, not only of the imports written in shared files.
+
 The sole computed-import exception is the selected Tagged Release API
 entrypoint inside
 `scripts/shared/package-publication/package-set.ts#loadReleasePackageSet`.
@@ -48,3 +52,16 @@ If shared logic needs a runtime package, move it to an installed
 `scripts/github/**`. `any`, assertions, and compiler suppressions require a
 nearby `type-escape:` explanation and are mechanically inventoried; broad
 `@ts-ignore` and `@ts-nocheck` directives are forbidden.
+
+## Repository-fact boundary
+
+Shared repository modules answer semantic questions that remain useful without
+GitHub: which repository is open, which commit is `HEAD`, which packages exist,
+or what a local Git history means. Their interfaces expose those facts rather
+than command output or provider response shapes.
+
+GitHub transport, authentication, REST response narrowing, and mutations stay
+in `scripts/github/**`. A repository fact belongs in shared even with one
+current consumer when its meaning is general and its interface is reusable; a
+feature-specific step stays beside its controller until a credible reusable
+operation emerges.
