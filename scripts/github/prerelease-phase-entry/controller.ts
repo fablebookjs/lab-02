@@ -21,6 +21,7 @@ import type {
 } from '../../shared/prerelease-phase-entry/core.ts';
 import type { ReleaseChange } from '../../shared/release-communication/records.ts';
 import { derivePrereleaseChanges } from '../../shared/release-communication/records.ts';
+import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import {
   parseDevelopmentVersion,
   ZERO_OID,
@@ -29,10 +30,8 @@ import { repositoryRoot } from '../../shared/workspace/packages.ts';
 import { run } from '../../shared/process/run.ts';
 import type { RunOptions } from '../../shared/process/run.ts';
 import {
-  readJson,
   requireGithubToken,
   requireOption,
-  writeJson,
 } from '../controller-support.ts';
 import {
   commitMessageAt,
@@ -551,7 +550,7 @@ export async function preparePhaseEntry(
     };
   }
 
-  await writeJson(join(output, 'transition.json'), {
+  await writeJsonFile(join(output, 'transition.json'), {
     action,
     kind: 'prerelease-phase-entry',
     repository: PILOT_REPOSITORY,
@@ -614,7 +613,7 @@ const writeAuthority = async (
   action: PhaseEntryAction,
   snapshotOid: string,
 ): Promise<void> => {
-  await writeJson(
+  await writeJsonFile(
     join(output, 'authority.json'),
     phaseEntryPrereleaseAuthority(action, snapshotOid),
   );
@@ -626,7 +625,7 @@ export async function applyPhaseEntry(
   await ensureRepository();
   ensureTrustedMain();
   const transition = transitionValue(
-    await readJson(resolve(requireOption(options, 'transition'))),
+    await readJsonFile(resolve(requireOption(options, 'transition'))),
   );
   const output = await prepareOutput(
     requireOption(options, 'output'),

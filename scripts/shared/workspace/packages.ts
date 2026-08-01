@@ -1,6 +1,8 @@
-import { readFile, readdir } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { readJsonFile } from '../io/json.ts';
 
 export const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -29,7 +31,7 @@ export type WorkspacePackage = PublicPackage & {
 };
 
 const readJson = async (path: string): Promise<PackageManifest> => {
-  const value: unknown = JSON.parse(await readFile(path, 'utf8'));
+  const value = await readJsonFile(path);
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${path} must contain one JSON object.`);
   }

@@ -30,6 +30,7 @@ import {
   releaseRecordPath,
 } from '../../shared/release-communication/records.ts';
 import { parseStableVersion } from '../../shared/release-proposal/core.ts';
+import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import { run } from '../../shared/process/run.ts';
 import {
   getGitCommit,
@@ -39,10 +40,8 @@ import {
   isCanonicalReleasePull,
 } from '../release-repository/github.ts';
 import {
-  readJson,
   requireGithubToken,
   requireOption,
-  writeJson,
 } from '../controller-support.ts';
 import {
   assertTagTarget,
@@ -213,7 +212,7 @@ export async function resolvePublication(
       `Stable publication resolver cannot consume ${authorityKind}.`,
     );
   }
-  const signal = await readJson(resolve(requireOption(options, 'signal')));
+  const signal = await readJsonFile(resolve(requireOption(options, 'signal')));
   const output = resolve(requireOption(options, 'output'));
   if (!isRecord(signal)) {
     throw new Error('Release signal does not contain one positive pull request number.');
@@ -230,7 +229,7 @@ export async function resolvePublication(
 
   const { authority, releaseCommunication } = await readLiveRelease(token, pullRequest);
   await mkdir(output, { recursive: true });
-  await writeJson(join(output, 'authority.json'), {
+  await writeJsonFile(join(output, 'authority.json'), {
     ...authority,
     releaseCommunication,
     repository: PILOT_REPOSITORY,
@@ -249,7 +248,7 @@ export async function preparePublication(
   options: PreparePublicationOptions,
 ): Promise<void> {
   const authority = authorityDocumentValue(
-    await readJson(resolve(requireOption(options, 'authority'))),
+    await readJsonFile(resolve(requireOption(options, 'authority'))),
   );
   const snapshot = resolve(requireOption(options, 'snapshot'));
   const output = resolve(requireOption(options, 'output'));
@@ -287,7 +286,7 @@ export async function preparePublication(
       version: authority.version,
     },
   );
-  await writeJson(join(output, 'publication.json'), manifest);
+  await writeJsonFile(join(output, 'publication.json'), manifest);
   console.log(`Prepared ${manifest.packages.length} packages for ${manifest.version}.`);
 }
 
@@ -300,7 +299,7 @@ const loadPublication = async (
   },
 ): Promise<PublicationManifest> =>
   validatePublicationManifest(
-    await readJson(resolve(requireOption(options, 'manifest'))),
+    await readJsonFile(resolve(requireOption(options, 'manifest'))),
     resolve(requireOption(options, 'tarballs')),
     {
       repository: PILOT_REPOSITORY,

@@ -39,6 +39,7 @@ import {
   parseDevelopmentVersion,
   parseReleaseLine,
 } from '../../shared/release-proposal/core.ts';
+import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import {
   isPrereleaseAuthorityKind,
 } from '../../shared/publication-routing/core.ts';
@@ -47,10 +48,8 @@ import type {
 } from '../../shared/publication-routing/core.ts';
 import { run } from '../../shared/process/run.ts';
 import {
-  readJson,
   requireGithubToken,
   requireOption,
-  writeJson,
 } from '../controller-support.ts';
 import {
   assertTagTarget,
@@ -308,7 +307,7 @@ export async function resolvePrereleasePublication(
       `Ordinary prerelease resolver cannot consume ${authorityKind}.`,
     );
   }
-  const signal = await readJson(resolve(requireOption(options, 'signal')));
+  const signal = await readJsonFile(resolve(requireOption(options, 'signal')));
   if (!isRecord(signal)) {
     throw new Error(
       'Prerelease signal does not contain one pull request number.',
@@ -331,7 +330,7 @@ export async function resolvePrereleasePublication(
   validateAuthorityKind(authority, authorityKind);
   const output = resolve(requireOption(options, 'output'));
   await mkdir(output, { recursive: true });
-  await writeJson(join(output, 'authority.json'), {
+  await writeJsonFile(join(output, 'authority.json'), {
     ...authority,
     repository: PILOT_REPOSITORY,
     schema: 1,
@@ -358,7 +357,7 @@ export async function inspectPrereleaseAuthority(
     requireOption(options, 'authority-kind'),
   );
   const authority = authorityValue(
-    await readJson(resolve(requireOption(options, 'authority'))),
+    await readJsonFile(resolve(requireOption(options, 'authority'))),
   );
   validateAuthorityKind(authority, authorityKind);
   console.log(
@@ -375,7 +374,7 @@ export async function preparePrereleasePublication(
   options: PreparePrereleasePublicationOptions,
 ): Promise<void> {
   const authority = authorityValue(
-    await readJson(resolve(requireOption(options, 'authority'))),
+    await readJsonFile(resolve(requireOption(options, 'authority'))),
   );
   const snapshot = resolve(requireOption(options, 'snapshot'));
   const output = resolve(requireOption(options, 'output'));
@@ -405,7 +404,7 @@ export async function preparePrereleasePublication(
       version: authority.version,
     },
   );
-  await writeJson(join(output, 'publication.json'), manifest);
+  await writeJsonFile(join(output, 'publication.json'), manifest);
   console.log(
     `Prepared ${manifest.packages.length} packages for ${manifest.version}.`,
   );
@@ -415,7 +414,7 @@ const loadManifest = async (
   options: PublishPrereleasePackagesOptions,
 ): Promise<PrereleasePublicationManifest> =>
   validatePrereleasePublicationManifest(
-    await readJson(resolve(requireOption(options, 'manifest'))),
+    await readJsonFile(resolve(requireOption(options, 'manifest'))),
     resolve(requireOption(options, 'tarballs')),
     {
       repository: PILOT_REPOSITORY,

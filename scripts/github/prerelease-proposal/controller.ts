@@ -22,15 +22,14 @@ import {
 } from '../../shared/release-proposal/core.ts';
 import type { ReleaseChange } from '../../shared/release-communication/records.ts';
 import { derivePrereleaseChanges } from '../../shared/release-communication/records.ts';
+import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import { repositoryRoot } from '../../shared/workspace/packages.ts';
 import { run } from '../../shared/process/run.ts';
 import type { RunOptions } from '../../shared/process/run.ts';
 import type { ValidatedPullRequest } from '../events.ts';
 import {
-  readJson,
   requireGithubToken,
   requireOption,
-  writeJson,
 } from '../controller-support.ts';
 import {
   commitMessageAt,
@@ -472,7 +471,7 @@ export async function preparePrereleaseProposal(
   if (bundle !== undefined) {
     await writeBundle(join(output, 'objects.bundle'), [bundle]);
   }
-  await writeJson(join(output, 'transition.json'), {
+  await writeJsonFile(join(output, 'transition.json'), {
     action,
     kind: 'prerelease-proposal',
     repository: PILOT_REPOSITORY,
@@ -513,7 +512,7 @@ export async function applyPrereleaseProposal(
   await ensureRepository();
   ensureTrustedMain();
   const transition = transitionValue(
-    await readJson(resolve(requireOption(options, 'transition'))),
+    await readJsonFile(resolve(requireOption(options, 'transition'))),
   );
   const token = requireGithubToken(options);
   const action = transition.action;

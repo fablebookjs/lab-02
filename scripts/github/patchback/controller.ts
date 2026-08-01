@@ -46,12 +46,11 @@ import type {
 } from '../release-repository/github.ts';
 import type { ReleaseAuthority } from '../../shared/release-publication/core.ts';
 import type { PatchbackItem } from '../../shared/patchback/core.ts';
+import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import { run } from '../../shared/process/run.ts';
 import {
-  readJson,
   requireGithubToken,
   requireOption,
-  writeJson,
 } from '../controller-support.ts';
 
 type IssueComment = {
@@ -229,7 +228,7 @@ export async function resolvePatchback(
   options: ResolvePatchbackOptions,
 ): Promise<PatchbackResolution> {
   ensureTrustedMain();
-  const signal = await readJson(resolve(requireOption(options, 'signal')));
+  const signal = await readJsonFile(resolve(requireOption(options, 'signal')));
   const output = resolve(requireOption(options, 'output'));
   if (!isRecord(signal)) {
     throw new Error('Release signal does not contain one positive pull request number.');
@@ -246,7 +245,7 @@ export async function resolvePatchback(
 
   const authority = await readLiveAuthority(token, pullRequest);
   await mkdir(output, { recursive: true });
-  await writeJson(join(output, 'authority.json'), {
+  await writeJsonFile(join(output, 'authority.json'), {
     ...authority,
     repository: PILOT_REPOSITORY,
     schema: 1,
@@ -566,7 +565,7 @@ export async function preparePatchback(
   const snapshot = resolve(requireOption(options, 'snapshot'));
   const output = resolve(requireOption(options, 'output'));
   const authority = validateAuthorityDocument(
-    await readJson(resolve(requireOption(options, 'authority')))
+    await readJsonFile(resolve(requireOption(options, 'authority')))
   );
   if ((await gitHead(snapshot)) !== authority.snapshotOid) {
     throw new Error('The checked-out snapshot does not match patchback authority.');
@@ -652,7 +651,7 @@ export async function preparePatchback(
     title: identity.title,
   });
   await mkdir(output, { recursive: true });
-  await writeJson(join(output, 'patchback.json'), manifest);
+  await writeJsonFile(join(output, 'patchback.json'), manifest);
   console.log(`Prepared ${items.length} patchback item(s) for ${authority.version}.`);
 }
 
@@ -968,7 +967,7 @@ const validateExistingPull = (
 export async function applyPatchback(options: ApplyPatchbackOptions): Promise<void> {
   ensureTrustedMain();
   const manifest = validateManifest(
-    await readJson(resolve(requireOption(options, 'manifest')))
+    await readJsonFile(resolve(requireOption(options, 'manifest')))
   );
   const token = requireGithubToken(options);
   compareAuthority(

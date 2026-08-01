@@ -47,6 +47,7 @@ import {
   renderReleaseRecord,
 } from '../../shared/release-communication/records.ts';
 import type { ReleaseChange } from '../../shared/release-communication/records.ts';
+import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import {
   extractReleasePrIdentity,
   renderReleasePrBody,
@@ -55,10 +56,8 @@ import {
 } from '../../shared/release-proposal/body.ts';
 import type { ValidatedPullRequest } from '../events.ts';
 import {
-  readJson,
   requireGithubToken,
   requireOption,
-  writeJson,
 } from '../controller-support.ts';
 import {
   commitMessageAt,
@@ -669,7 +668,7 @@ export async function prepareCut(options: PrepareCutOptions): Promise<void> {
     { name: developmentBundleRef, oid: developmentOid },
   ]);
 
-  await writeJson(join(output, 'transition.json'), {
+  await writeJsonFile(join(output, 'transition.json'), {
     changes,
     developmentBundleRef,
     developmentOid,
@@ -758,7 +757,7 @@ export async function applyCut(options: ApplyCutOptions): Promise<void> {
   await ensureCleanReleaseRepository();
   const transitionPath = resolve(requireOption(options, 'transition'));
   const bundlePath = resolve(requireOption(options, 'bundle'));
-  const transition = cutTransitionValue(await readJson(transitionPath));
+  const transition = cutTransitionValue(await readJsonFile(transitionPath));
   const token = requireGithubToken(options);
   if (
     process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
@@ -848,7 +847,7 @@ export async function applyCut(options: ApplyCutOptions): Promise<void> {
   } else if (openPulls.length !== 1) {
     throw new Error(`${transition.line} has more than one open canonical release PR.`);
   }
-  await writeJson(
+  await writeJsonFile(
     join(dirname(transitionPath), 'authority.json'),
     cutPrereleaseAuthority({
       developmentVersion: transition.developmentVersion,
@@ -1119,7 +1118,7 @@ export async function prepareMaintenance(
   if (bundleRefs.length > 0) {
     await writeBundle(join(output, 'objects.bundle'), bundleRefs);
   }
-  await writeJson(join(output, 'transition.json'), {
+  await writeJsonFile(join(output, 'transition.json'), {
     actions,
     kind: 'maintenance',
     repository: PILOT_REPOSITORY,
@@ -1133,7 +1132,7 @@ export async function applyMaintenance(
 ): Promise<void> {
   await ensureCleanReleaseRepository();
   const transitionPath = resolve(requireOption(options, 'transition'));
-  const transition = maintenanceTransitionValue(await readJson(transitionPath));
+  const transition = maintenanceTransitionValue(await readJsonFile(transitionPath));
   const bundle = options.bundle ? resolve(options.bundle) : null;
   const token = requireGithubToken(options);
   if (

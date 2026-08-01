@@ -1,6 +1,6 @@
-import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { readJsonFile, writeJsonFile } from '../io/json.ts';
 import { listPublicPackages } from '../workspace/packages.ts';
 
 type JsonObject = Record<string, unknown>;
@@ -90,14 +90,6 @@ const packageLock = (value: unknown, label: string): PackageLock => {
   };
 };
 
-const readJson = async (path: string): Promise<unknown> => {
-  const value: unknown = JSON.parse(await readFile(path, 'utf8'));
-  return value;
-};
-
-const writeJson = async (path: string, value: unknown): Promise<void> =>
-  writeFile(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-
 function updateInternalDependencies(
   manifest: PackageManifest,
   publicNames: ReadonlySet<string>,
@@ -132,8 +124,8 @@ export async function materializeVersion(
   const publicNames = new Set(packages.map(({ name }) => name));
   const rootManifestPath = join(root, 'package.json');
   const lockfilePath = join(root, 'package-lock.json');
-  const rootManifest = packageManifest(await readJson(rootManifestPath), rootManifestPath);
-  const lockfile = packageLock(await readJson(lockfilePath), lockfilePath);
+  const rootManifest = packageManifest(await readJsonFile(rootManifestPath), rootManifestPath);
+  const lockfile = packageLock(await readJsonFile(lockfilePath), lockfilePath);
   if (lockfile.packages === undefined || lockfile.packages[''] === undefined) {
     throw new Error('package-lock.json has no root package entry.');
   }
@@ -157,10 +149,10 @@ export async function materializeVersion(
   }
 
   await Promise.all([
-    writeJson(rootManifestPath, rootManifest),
-    writeJson(lockfilePath, lockfile),
+    writeJsonFile(rootManifestPath, rootManifest),
+    writeJsonFile(lockfilePath, lockfile),
     ...[...manifests].map(([manifestPath, manifest]) =>
-      writeJson(manifestPath, manifest),
+      writeJsonFile(manifestPath, manifest),
     ),
   ]);
 

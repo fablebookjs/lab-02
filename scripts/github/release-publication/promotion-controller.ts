@@ -11,12 +11,11 @@ import {
   PILOT_REPOSITORY,
 } from '../../shared/release-publication/core.ts';
 import { NPM_REGISTRY } from '../../shared/package-publication/core.ts';
+import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import { parseStableVersion } from '../../shared/release-proposal/core.ts';
 import { run } from '../../shared/process/run.ts';
 import {
-  readJson,
   requireOption,
-  writeJson,
 } from '../controller-support.ts';
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -72,7 +71,7 @@ export async function preparePromotion(
   });
   const manifestPath = resolve(requireOption(options, 'manifest'));
   await mkdir(dirname(manifestPath), { recursive: true });
-  await writeJson(manifestPath, manifest);
+  await writeJsonFile(manifestPath, manifest);
   console.log(`Prepared ${manifest.packages.length} packages for latest promotion.`);
 }
 
@@ -82,7 +81,7 @@ export async function promoteLatest(options: PromoteLatestOptions): Promise<void
     throw new Error('Promotion requires the package-scoped npm promotion credential.');
   }
   const manifest = validatePromotionManifest(
-    await readJson(resolve(requireOption(options, 'manifest'))),
+    await readJsonFile(resolve(requireOption(options, 'manifest'))),
     {
       repository: PILOT_REPOSITORY,
       snapshotOid: requireOption(options, 'expected-snapshot'),
