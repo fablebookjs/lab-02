@@ -55,10 +55,12 @@ import {
   firstParentCommitFacts,
 } from '../release-history/history.ts';
 import {
-  closePullRequest,
   getRepository,
-  listPrereleasePulls,
 } from '../release-repository/github.ts';
+import {
+  closePullRequest,
+  listPrereleasePulls,
+} from '../release-repository/pull-requests.ts';
 import { createRefUpdate, getRef, updateRefs } from '../release-repository/refs.ts';
 
 const PHASE_ENTRY_BUNDLE_REF =

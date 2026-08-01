@@ -1,115 +1,19 @@
-import { RELEASE_PR_TEMPLATE_MARKER } from '../../shared/release-proposal/body.ts';
-import { PRERELEASE_PR_TEMPLATE_MARKER } from '../../shared/prerelease-proposal/body.ts';
 import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../../shared/repository.ts';
 import {
   booleanValue,
-  isRecord,
-  numberValue,
   objectValue,
   stringValue,
 } from './response-schema.ts';
 import {
-  githubGraphqlRequest,
   githubRequest,
   githubRequestOrNull,
 } from './transport.ts';
-
-export type GitPullRequest = {
-  base: { ref: string; repo: { full_name: string }; sha: string };
-  body: string | null;
-  head: { ref: string; repo: { full_name: string }; sha: string };
-  labels: Array<{ name: string }>;
-  merge_commit_sha: string | null;
-  merged_at: string | null;
-  number: number;
-  state: string;
-  title: string;
-};
 
 export type GitHubRelease = {
   body: string | null;
   draft: boolean;
   prerelease: boolean;
   tag_name: string;
-};
-
-export function isCanonicalReleasePull(pull: GitPullRequest): boolean {
-  const line = pull.base.ref.replace(/^releases\//, '');
-  return (
-    line.length > 0 &&
-    pull.base.ref === `releases/${line}` &&
-    pull.head.ref === `staged/${line}` &&
-    pull.base.repo.full_name === PILOT_REPOSITORY &&
-    pull.head.repo.full_name === PILOT_REPOSITORY
-  );
-}
-
-export function isCanonicalPrereleasePull(pull: GitPullRequest): boolean {
-  return (
-    pull.base.ref === PRIMARY_BRANCH &&
-    pull.head.ref === 'prerelease' &&
-    pull.base.repo.full_name === PILOT_REPOSITORY &&
-    pull.head.repo.full_name === PILOT_REPOSITORY
-  );
-}
-
-const repositoryValue = (
-  value: unknown,
-  label: string,
-): { full_name: string } => {
-  const repository = objectValue(value, label);
-  return { full_name: stringValue(repository['full_name'], `${label}.full_name`) };
-};
-
-const branchValue = (
-  value: unknown,
-  label: string,
-): { ref: string; repo: { full_name: string }; sha: string } => {
-  const branch = objectValue(value, label);
-  return {
-    ref: stringValue(branch['ref'], `${label}.ref`),
-    repo: repositoryValue(branch['repo'], `${label}.repo`),
-    sha: stringValue(branch['sha'], `${label}.sha`),
-  };
-};
-
-const labelsValue = (value: unknown): Array<{ name: string }> => {
-  if (!Array.isArray(value)) {
-    throw new Error('GitHub pull request labels must be an array.');
-  }
-  return value.map((entry, index) => {
-    const label = objectValue(entry, `GitHub pull request label ${index}`);
-    return {
-      name: stringValue(label['name'], `GitHub pull request label ${index}.name`),
-    };
-  });
-};
-
-export const validatedPullRequestResponse = (value: unknown): GitPullRequest => {
-  const pull = objectValue(value, 'GitHub pull request');
-  const body = pull['body'];
-  const mergeCommitSha = pull['merge_commit_sha'] ?? null;
-  const mergedAt = pull['merged_at'];
-  if (body !== null && typeof body !== 'string') {
-    throw new Error('GitHub pull request body must be text or null.');
-  }
-  if (mergeCommitSha !== null && typeof mergeCommitSha !== 'string') {
-    throw new Error('GitHub pull request merge_commit_sha must be text or null.');
-  }
-  if (mergedAt !== null && typeof mergedAt !== 'string') {
-    throw new Error('GitHub pull request merged_at must be text or null.');
-  }
-  return {
-    base: branchValue(pull['base'], 'GitHub pull request base'),
-    body,
-    head: branchValue(pull['head'], 'GitHub pull request head'),
-    labels: labelsValue(pull['labels']),
-    merge_commit_sha: mergeCommitSha,
-    merged_at: mergedAt,
-    number: numberValue(pull['number'], 'GitHub pull request number'),
-    state: stringValue(pull['state'], 'GitHub pull request state'),
-    title: stringValue(pull['title'], 'GitHub pull request title'),
-  };
 };
 
 export const validatedReleaseResponse = (value: unknown): GitHubRelease => {
@@ -146,118 +50,6 @@ export async function getRepository(token: string): Promise<{
   };
 }
 
-export async function listReleasePulls(
-  token: string,
-  line: string,
-): Promise<GitPullRequest[]> {
-  const pulls: GitPullRequest[] = [];
-  for (let page = 1; ; page += 1) {
-    const query = new URLSearchParams({
-      base: `releases/${line}`,
-      direction: 'desc',
-      head: `fablebookjs:staged/${line}`,
-      page: String(page),
-      per_page: '100',
-      sort: 'updated',
-      state: 'all',
-    });
-    const batch = await githubRequest(`/repos/${PILOT_REPOSITORY}/pulls?${query}`, { token });
-    if (!Array.isArray(batch)) throw new Error('GitHub pull request list must be an array.');
-    pulls.push(...batch.map(validatedPullRequestResponse));
-    if (batch.length < 100) {
-      break;
-    }
-  }
-  return pulls.filter(
-    (pull) =>
-      pull.base.ref === `releases/${line}` &&
-      pull.head.ref === `staged/${line}` &&
-      pull.head.repo?.full_name === PILOT_REPOSITORY
-  );
-}
-
-export async function listPrereleasePulls(
-  token: string,
-): Promise<GitPullRequest[]> {
-  const pulls: GitPullRequest[] = [];
-  for (let page = 1; ; page += 1) {
-    const query = new URLSearchParams({
-      base: PRIMARY_BRANCH,
-      direction: 'desc',
-      head: 'fablebookjs:prerelease',
-      page: String(page),
-      per_page: '100',
-      sort: 'updated',
-      state: 'all',
-    });
-    const batch = await githubRequest(
-      `/repos/${PILOT_REPOSITORY}/pulls?${query}`,
-      { token },
-    );
-    if (!Array.isArray(batch)) {
-      throw new Error('GitHub prerelease pull request list must be an array.');
-    }
-    pulls.push(...batch.map(validatedPullRequestResponse));
-    if (batch.length < 100) {
-      break;
-    }
-  }
-  return pulls.filter(isCanonicalPrereleasePull);
-}
-
-export async function getPullRequest(token: string, number: number): Promise<GitPullRequest> {
-  const pull = await githubRequest(`/repos/${PILOT_REPOSITORY}/pulls/${number}`, { token });
-  return withPullRequestMergeCommit(token, validatedPullRequestResponse(pull));
-}
-
-export function extractPullRequestMergeCommitOid(result: unknown, number: number): string {
-  const data = isRecord(result) ? result['data'] : undefined;
-  const repository = isRecord(data) ? data['repository'] : undefined;
-  const pullRequest = isRecord(repository) ? repository['pullRequest'] : undefined;
-  const mergeCommit = isRecord(pullRequest) ? pullRequest['mergeCommit'] : undefined;
-  const oid = isRecord(mergeCommit) ? mergeCommit['oid'] : undefined;
-  if (typeof oid !== 'string' || !/^[0-9a-f]{40}$/.test(oid)) {
-    throw new Error(`Pull request ${number} does not expose one merged commit OID.`);
-  }
-  return oid;
-}
-
-export async function getPullRequestMergeCommitOid(
-  token: string,
-  number: number,
-): Promise<string> {
-  if (!Number.isSafeInteger(number) || number <= 0) {
-    throw new Error('Pull request number must be one positive integer.');
-  }
-  const query = `query PullRequestMergeCommit($number: Int!) {
-    repository(owner: "fablebookjs", name: "lab-02") {
-      pullRequest(number: $number) { mergeCommit { oid } }
-    }
-  }`;
-  const result = await githubGraphqlRequest(query, { number }, token);
-  const errors = isRecord(result) ? result['errors'] : undefined;
-  if (Array.isArray(errors) && errors.length > 0) {
-    throw new Error(`GitHub could not resolve the merged PR commit: ${JSON.stringify(errors)}`);
-  }
-  return extractPullRequestMergeCommitOid(result, number);
-}
-
-export async function withPullRequestMergeCommit(
-  token: string,
-  pull: GitPullRequest,
-): Promise<GitPullRequest> {
-  if (pull.merged_at === null) {
-    return pull;
-  }
-  if (!Number.isSafeInteger(pull?.number) || pull.number <= 0) {
-    throw new Error('Merged pull request response has no positive number.');
-  }
-  return {
-    ...pull,
-    merge_commit_sha: await getPullRequestMergeCommitOid(token, pull.number),
-  };
-}
-
 export async function getReleaseByTag(
   token: string,
   tag: string,
@@ -270,76 +62,4 @@ export async function getReleaseByTag(
     return null;
   }
   return validatedReleaseResponse(value);
-}
-
-export async function createDraftReleasePr(
-  token: string,
-  action: { body: unknown; line: string; version: string },
-): Promise<GitPullRequest> {
-  if (!String(action.body ?? '').includes(RELEASE_PR_TEMPLATE_MARKER)) {
-    throw new Error('Release PR creation requires one rendered canonical body.');
-  }
-  return validatedPullRequestResponse(await githubRequest(`/repos/${PILOT_REPOSITORY}/pulls`, {
-    body: {
-      base: `releases/${action.line}`,
-      body: action.body,
-      draft: true,
-      head: `staged/${action.line}`,
-      maintainer_can_modify: false,
-      title: `Release ${action.version}`,
-    },
-    method: 'POST',
-    token,
-  }));
-}
-
-export async function createDraftPrereleasePr(
-  token: string,
-  {
-    body,
-    version,
-  }: {
-    body: string;
-    version: string;
-  },
-): Promise<GitPullRequest> {
-  if (!body.includes(PRERELEASE_PR_TEMPLATE_MARKER)) {
-    throw new Error(
-      'Prerelease PR creation requires one rendered canonical body.',
-    );
-  }
-  return validatedPullRequestResponse(
-    await githubRequest(`/repos/${PILOT_REPOSITORY}/pulls`, {
-      body: {
-        base: PRIMARY_BRANCH,
-        body,
-        draft: true,
-        head: 'prerelease',
-        maintainer_can_modify: false,
-        title: `Prerelease ${version}`,
-      },
-      method: 'POST',
-      token,
-    }),
-  );
-}
-
-export async function closePullRequest(token: string, number: number): Promise<GitPullRequest> {
-  return validatedPullRequestResponse(await githubRequest(`/repos/${PILOT_REPOSITORY}/pulls/${number}`, {
-    body: { state: 'closed' },
-    method: 'PATCH',
-    token,
-  }));
-}
-
-export async function updatePullRequestBody(
-  token: string,
-  number: number,
-  body: string,
-): Promise<GitPullRequest> {
-  return validatedPullRequestResponse(await githubRequest(`/repos/${PILOT_REPOSITORY}/pulls/${number}`, {
-    body: { body },
-    method: 'PATCH',
-    token,
-  }));
 }

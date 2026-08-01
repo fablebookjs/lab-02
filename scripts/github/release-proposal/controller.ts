@@ -22,15 +22,17 @@ import {
   PRIMARY_BRANCH,
 } from '../../shared/repository.ts';
 import {
+  getReleaseByTag,
+  getRepository,
+} from '../release-repository/github.ts';
+import {
   closePullRequest,
   createDraftReleasePr,
   getPullRequest,
-  getReleaseByTag,
-  getRepository,
   listPrereleasePulls,
   listReleasePulls,
   updatePullRequestBody,
-} from '../release-repository/github.ts';
+} from '../release-repository/pull-requests.ts';
 import { getGitCommit } from '../release-repository/commits.ts';
 import {
   createRefUpdate,
@@ -40,7 +42,7 @@ import {
   updateRefs,
 } from '../release-repository/refs.ts';
 import type { GitReference } from '../release-repository/refs.ts';
-import type { GitPullRequest } from '../release-repository/github.ts';
+import type { GitPullRequest } from '../release-repository/pull-requests.ts';
 import { repositoryRoot } from '../../shared/workspace/packages.ts';
 import { run } from '../../shared/process/run.ts';
 import type { RunOptions } from '../../shared/process/run.ts';

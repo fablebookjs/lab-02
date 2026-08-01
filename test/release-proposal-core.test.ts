@@ -18,7 +18,7 @@ import {
 import {
   extractPullRequestMergeCommitOid,
   validatedPullRequestResponse,
-} from '../scripts/github/release-repository/github.ts';
+} from '../scripts/github/release-repository/pull-requests.ts';
 import { createRefUpdate } from '../scripts/github/release-repository/refs.ts';
 import {
   cutRefUpdates,

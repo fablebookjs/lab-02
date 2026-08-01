@@ -53,12 +53,14 @@ import {
   firstParentCommitFacts,
 } from '../release-history/history.ts';
 import {
+  getRepository,
+} from '../release-repository/github.ts';
+import {
   closePullRequest,
   createDraftPrereleasePr,
-  getRepository,
   listPrereleasePulls,
   updatePullRequestBody,
-} from '../release-repository/github.ts';
+} from '../release-repository/pull-requests.ts';
 import { createRefUpdate, getRef, updateRefs } from '../release-repository/refs.ts';
 
 const ARTIFACT_PREFIX = 'refs/release-pilot/artifact/';

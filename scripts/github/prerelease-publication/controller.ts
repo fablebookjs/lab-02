@@ -60,11 +60,13 @@ import {
   validatePublicationSnapshot,
 } from '../package-publication/mechanics.ts';
 import {
-  getPullRequest,
   getReleaseByTag,
-  isCanonicalPrereleasePull,
 } from '../release-repository/github.ts';
 import { getGitCommit } from '../release-repository/commits.ts';
+import {
+  getPullRequest,
+  isCanonicalPrereleasePull,
+} from '../release-repository/pull-requests.ts';
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 

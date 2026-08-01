@@ -20,7 +20,6 @@ import { materializeVersion } from '../../shared/version/materialize.ts';
 import { repositoryRoot } from '../../shared/workspace/packages.ts';
 import { run } from '../../shared/process/run.ts';
 import type { RunOptions } from '../../shared/process/run.ts';
-import { PILOT_REPOSITORY } from '../../shared/repository.ts';
 import {
   commitMessageAt,
   commitParents,
@@ -28,12 +27,8 @@ import {
   rootVersionAt,
   validateVersionTree,
 } from '../../shared/prepared-commit/inspection.ts';
-import { githubRequest } from '../release-repository/transport.ts';
-import {
-  validatedPullRequestResponse,
-  withPullRequestMergeCommit,
-} from '../release-repository/github.ts';
-import type { GitPullRequest } from '../release-repository/github.ts';
+import { listAssociatedPullRequests } from '../release-repository/pull-requests.ts';
+import type { GitPullRequest } from '../release-repository/pull-requests.ts';
 
 export type ManagedPrereleaseBoundary = Readonly<{
   kind: 'bootstrap' | 'ordinary' | 'phase-entry';
@@ -57,26 +52,6 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const git = (args: string[], options: RunOptions = {}) =>
   run('git', args, { ...options, cwd: options.cwd ?? repositoryRoot });
-
-const associatedPulls = async (
-  token: string,
-  oid: string,
-): Promise<GitPullRequest[]> => {
-  const pulls: GitPullRequest[] = [];
-  for (let page = 1; ; page += 1) {
-    const query = new URLSearchParams({ page: String(page), per_page: '100' });
-    const batch = await githubRequest(
-      `/repos/${PILOT_REPOSITORY}/commits/${oid}/pulls?${query}`,
-      { token },
-    );
-    if (!Array.isArray(batch)) {
-      throw new Error(`GitHub associated pull requests for ${oid} must be an array.`);
-    }
-    pulls.push(...batch.map(validatedPullRequestResponse));
-    if (batch.length < 100) break;
-  }
-  return Promise.all(pulls.map((pull) => withPullRequestMergeCommit(token, pull)));
-};
 
 const firstParentRange = async ({
   boundaryOid,
@@ -106,7 +81,7 @@ const commitFacts = async (
 ): Promise<ReleaseCommitFact[]> => {
   return Promise.all(
     oids.map(async (oid) => ({
-      associatedPulls: await associatedPulls(token, oid),
+      associatedPulls: await listAssociatedPullRequests(token, oid),
       oid,
       subject: (await commitMessageAt(oid)).split('\n', 1)[0] ?? '',
     })),
@@ -275,7 +250,7 @@ export async function developmentCommitFacts(
   });
   return Promise.all(
     oids.map(async (oid) => ({
-      associatedPulls: await associatedPulls(token, oid),
+      associatedPulls: await listAssociatedPullRequests(token, oid),
       mechanical: await mechanicalDevelopmentCommit(oid),
       oid,
       subject: (await commitMessageAt(oid)).split('\n', 1)[0] ?? '',

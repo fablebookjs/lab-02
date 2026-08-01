@@ -27,7 +27,6 @@ import {
   parseStableVersion,
 } from '../../shared/release-proposal/core.ts';
 import type { DevelopmentCommit } from '../../shared/release-proposal/core.ts';
-import { githubRequest } from '../release-repository/transport.ts';
 import {
   compareGitCommits,
   createGitCommit,
@@ -43,24 +42,24 @@ import {
   resolveRefObject,
 } from '../release-repository/refs.ts';
 import {
-  getPullRequest,
   getReleaseByTag,
-  isCanonicalReleasePull,
-  withPullRequestMergeCommit,
-  validatedPullRequestResponse,
 } from '../release-repository/github.ts';
-import type { GitPullRequest } from '../release-repository/github.ts';
+import {
+  assignPullRequest,
+  createDraftPatchbackPr,
+  getPullRequest,
+  isCanonicalReleasePull,
+  listAssociatedPullRequests,
+  listPullRequests,
+  reconcileUniqueMarkedIssueComment,
+} from '../release-repository/pull-requests.ts';
+import type { GitPullRequest } from '../release-repository/pull-requests.ts';
 import type { ReleaseAuthority } from '../../shared/release-publication/core.ts';
 import type { PatchbackItem } from '../../shared/patchback/core.ts';
 import { requireOption } from '../../shared/cli/options.ts';
 import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import { run } from '../../shared/process/run.ts';
 import { requireControllerGitHubToken } from '../controller-inputs.ts';
-
-type IssueComment = {
-  body: string | null;
-  id: number;
-};
 
 type PatchbackAuthority = ReleaseAuthority & {
   assignee: string | null;
@@ -345,25 +344,6 @@ const firstParentRange = async (
   return oids;
 };
 
-const associatedPulls = async (token: string, oid: string): Promise<GitPullRequest[]> => {
-  const pulls: GitPullRequest[] = [];
-  for (let page = 1; ; page += 1) {
-    const query = new URLSearchParams({ page: String(page), per_page: '100' });
-    const batch = await githubRequest(
-      `/repos/${PILOT_REPOSITORY}/commits/${oid}/pulls?${query}`,
-      { token }
-    );
-    if (!Array.isArray(batch)) {
-      throw new Error(`GitHub associated pull requests for ${oid} must be an array.`);
-    }
-    pulls.push(...batch.map(validatedPullRequestResponse));
-    if (batch.length < 100) {
-      break;
-    }
-  }
-  return Promise.all(pulls.map((pull) => withPullRequestMergeCommit(token, pull)));
-};
-
 const loadPatchbackMigrationRecords = async (
   root: string,
   line: string,
@@ -590,7 +570,7 @@ export async function preparePatchback(
   const productOids = scopeOids.slice(0, -1);
   const productCommits = await Promise.all(
     productOids.map(async (oid) => ({
-      associatedPulls: await associatedPulls(token, oid),
+      associatedPulls: await listAssociatedPullRequests(token, oid),
       oid,
       parents: await commitParents(snapshot, oid),
       subject: await commitSubject(snapshot, oid),
@@ -660,23 +640,9 @@ const listPatchbackPulls = async (
   token: string,
   branch: string,
 ): Promise<GitPullRequest[]> => {
-  const pulls: GitPullRequest[] = [];
-  for (let page = 1; ; page += 1) {
-    const query = new URLSearchParams({
-      head: `fablebookjs:${branch}`,
-      page: String(page),
-      per_page: '100',
-      state: 'all',
-    });
-    const batch = await githubRequest(`/repos/${PILOT_REPOSITORY}/pulls?${query}`, { token });
-    if (!Array.isArray(batch)) {
-      throw new Error('GitHub patchback pull request list must be an array.');
-    }
-    pulls.push(...batch.map(validatedPullRequestResponse));
-    if (batch.length < 100) {
-      break;
-    }
-  }
+  const pulls = await listPullRequests(token, {
+    head: `fablebookjs:${branch}`,
+  });
   return pulls.filter(
     (pull) =>
       pull.base.ref === PRIMARY_BRANCH &&
@@ -820,60 +786,6 @@ const verifyMainAncestry = async (token: string, baseMainOid: string): Promise<v
   }
 };
 
-const ensureExamplesComment = async (
-  token: string,
-  pullRequest: number,
-  body: string,
-): Promise<void> => {
-  const comments: IssueComment[] = [];
-  for (let page = 1; ; page += 1) {
-    const query = new URLSearchParams({ page: String(page), per_page: '100' });
-    const batch = await githubRequest(
-      `/repos/${PILOT_REPOSITORY}/issues/${pullRequest}/comments?${query}`,
-      { token }
-    );
-    if (!Array.isArray(batch)) {
-      throw new Error('GitHub issue comments must be an array.');
-    }
-    comments.push(
-      ...batch.map((comment) => {
-        if (!isRecord(comment)) throw new Error('GitHub issue comment must be an object.');
-        const commentBody = comment['body'];
-        if (commentBody !== null && typeof commentBody !== 'string') {
-          throw new Error('GitHub issue comment body must be text or null.');
-        }
-        return {
-          body: commentBody,
-          id: positiveInteger(comment['id'], 'GitHub issue comment ID'),
-        };
-      }),
-    );
-    if (batch.length < 100) {
-      break;
-    }
-  }
-  const matches = comments.filter((comment) => comment.body?.includes(PATCHBACK_COMMENT_MARKER));
-  if (matches.length > 1) {
-    throw new Error(`Patchback #${pullRequest} has duplicate outcome-example comments.`);
-  }
-  if (matches.length === 0) {
-    await githubRequest(`/repos/${PILOT_REPOSITORY}/issues/${pullRequest}/comments`, {
-      body: { body },
-      method: 'POST',
-      token,
-    });
-    return;
-  }
-  const existing = matches[0];
-  if (existing !== undefined && existing.body !== body) {
-    await githubRequest(`/repos/${PILOT_REPOSITORY}/issues/comments/${existing.id}`, {
-      body: { body },
-      method: 'PATCH',
-      token,
-    });
-  }
-};
-
 const assignNewPatchback = async (
   token: string,
   pullRequest: number,
@@ -884,23 +796,7 @@ const assignNewPatchback = async (
     return;
   }
   try {
-    const issue = await githubRequest(
-      `/repos/${PILOT_REPOSITORY}/issues/${pullRequest}/assignees`,
-      {
-        body: { assignees: [assignee] },
-        method: 'POST',
-        token,
-      }
-    );
-    const assignees = isRecord(issue) ? issue['assignees'] : undefined;
-    if (
-      !Array.isArray(assignees) ||
-      !assignees.some(
-        (candidate) => isRecord(candidate) && candidate['login'] === assignee,
-      )
-    ) {
-      throw new Error(`GitHub did not assign ${assignee}.`);
-    }
+    await assignPullRequest(token, pullRequest, assignee);
     console.log(`Assigned patchback #${pullRequest} to ${assignee}.`);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
@@ -951,7 +847,12 @@ export async function applyPatchback(options: ApplyPatchbackOptions): Promise<vo
     validateExistingPull(pull, manifest);
     const coordination = await findCoordinationCommit(token, pull.head.sha, manifest);
     await verifyMainAncestry(token, coordination.baseMainOid);
-    await ensureExamplesComment(token, pull.number, manifest.comment);
+    await reconcileUniqueMarkedIssueComment(
+      token,
+      pull.number,
+      PATCHBACK_COMMENT_MARKER,
+      manifest.comment,
+    );
     console.log(`Patchback #${pull.number} already exists; no action is required.`);
     return;
   }
@@ -1001,23 +902,19 @@ export async function applyPatchback(options: ApplyPatchbackOptions): Promise<vo
   const coordination = await findCoordinationCommit(token, branch.oid, manifest);
   await verifyMainAncestry(token, coordination.baseMainOid);
 
-  pull = validatedPullRequestResponse(
-    await githubRequest(`/repos/${PILOT_REPOSITORY}/pulls`, {
-      body: {
-        base: PRIMARY_BRANCH,
-        body: manifest.body,
-        draft: true,
-        head: manifest.branch,
-        maintainer_can_modify: false,
-        title: manifest.title,
-      },
-      method: 'POST',
-      token,
-    }),
-  );
+  pull = await createDraftPatchbackPr(token, {
+    body: manifest.body,
+    branch: manifest.branch,
+    title: manifest.title,
+  });
   validateExistingPull(pull, manifest);
 
-  await ensureExamplesComment(token, pull.number, manifest.comment);
+  await reconcileUniqueMarkedIssueComment(
+    token,
+    pull.number,
+    PATCHBACK_COMMENT_MARKER,
+    manifest.comment,
+  );
   await assignNewPatchback(token, pull.number, manifest.authority.assignee);
   console.log(`Patchback #${pull.number} is open for ${manifest.authority.version}.`);
 }
