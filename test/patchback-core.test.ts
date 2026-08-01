@@ -4,18 +4,20 @@ import test from 'node:test';
 import {
   derivePatchbackItems,
   parsePatchbackCommitMessage,
-  PATCHBACK_BODY_MARKER,
-  PATCHBACK_BODY_SCHEMA_VERSION,
   PATCHBACK_FULL_OID_PATTERN_SOURCE,
   patchbackCommitMessage,
-  patchbackExamplesComment,
   patchbackIdentity,
   patchbackMigrationRecords,
   patchbackReleaseRecord,
   previousReleaseVersion,
   releaseMergerAssignee,
-  renderPatchbackBody,
 } from '../scripts/shared/patchback/core.ts';
+import {
+  PATCHBACK_BODY_MARKER,
+  PATCHBACK_BODY_SCHEMA_VERSION,
+  PATCHBACK_EXAMPLES_COMMENT,
+  renderPatchbackPrBody,
+} from '../scripts/github/patchback/templates.ts';
 import { renderReleaseRecord } from '../scripts/shared/release-communication/records.ts';
 import { PILOT_REPOSITORY } from '../scripts/shared/repository.ts';
 
@@ -265,7 +267,7 @@ test('the generated queue is unchecked while the examples and empty path are mer
     snapshotOid,
   });
   assert.ok(item);
-  const body = renderPatchbackBody({
+  const body = renderPatchbackPrBody({
     boundaryLabel: 'completed v10.4.0 snapshot',
     boundaryOid,
     items: [item],
@@ -287,9 +289,9 @@ test('the generated queue is unchecked while the examples and empty path are mer
   assert.match(body, /releases\/v10\.4\.1\.md/);
   assert.match(body, /migration-notes\/v10\.4\/adopt-new-api\.md/);
   assert.equal(containsUncheckedMarkdownTask(body.replace('- [ ]', '- [x]')), false);
-  assert.equal(containsUncheckedMarkdownTask(patchbackExamplesComment()), false);
+  assert.equal(containsUncheckedMarkdownTask(PATCHBACK_EXAMPLES_COMMENT), false);
 
-  const empty = renderPatchbackBody({
+  const empty = renderPatchbackPrBody({
     boundaryLabel: 'release cut for v10.4',
     boundaryOid,
     items: [],

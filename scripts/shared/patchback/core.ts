@@ -6,13 +6,8 @@ import {
   releaseRecordPath,
 } from '../release-communication/records.ts';
 import type { ReleaseHistoryPull } from '../release-communication/records.ts';
-import { PILOT_REPOSITORY } from '../repository.ts';
 
-export const PATCHBACK_BODY_SCHEMA_VERSION = 3;
 export const PATCHBACK_FULL_OID_PATTERN_SOURCE = '[0-9a-f]{40}';
-export const PATCHBACK_COMMENT_MARKER = '<!-- fablebook-patchback-outcome-examples -->';
-export const PATCHBACK_BODY_MARKER =
-  `<!-- fablebook-patchback-coordination:v${PATCHBACK_BODY_SCHEMA_VERSION} -->`;
 
 const fullOidPattern = new RegExp(`^${PATCHBACK_FULL_OID_PATTERN_SOURCE}$`);
 
@@ -22,11 +17,6 @@ export type PatchbackItem = {
   oid: string;
   pullRequest: number | null;
   subject: string;
-};
-
-type PatchbackMigrationRecord = {
-  path: string;
-  title: string;
 };
 
 type CanonicalPull = ReleaseHistoryPull;
@@ -125,7 +115,10 @@ export function releaseMergerAssignee(pull: unknown): string | null {
     : null;
 }
 
-const migrationRecordPaths = (paths: unknown, line: string): string[] => {
+export const validatePatchbackMigrationRecordPaths = (
+  paths: unknown,
+  line: string,
+): string[] => {
   const directory = `${migrationRecordDirectory(line)}/`;
   if (!Array.isArray(paths)) {
     throw new Error('Patchback migration record paths must be an array.');
@@ -173,7 +166,7 @@ export function patchbackCommitMessage({
   if (recordPath !== releaseRecordPath(version)) {
     throw new Error(`Patchback release record must be ${releaseRecordPath(version)}.`);
   }
-  migrationRecordPaths(paths, line);
+  validatePatchbackMigrationRecordPaths(paths, line);
   return [
     `patchback: coordinate v${version}`,
     '',
@@ -307,113 +300,4 @@ export function derivePatchbackItems({
       subject,
     };
   });
-}
-
-const itemHeading = (item: PatchbackItem): string => {
-  if (item.kind === 'pull-request') {
-    return `[PR #${item.pullRequest}](https://github.com/${PILOT_REPOSITORY}/pull/${item.pullRequest}) — ${item.subject}`;
-  }
-  const label = item.kind === 'direct-merge' ? 'Direct merge' : 'Direct commit';
-  return `${label} — ${item.subject}`;
-};
-
-export function renderPatchbackBody({
-  boundaryLabel,
-  boundaryOid,
-  items,
-  line,
-  migrationRecords,
-  recordPath,
-  snapshotOid,
-  version,
-}: {
-  boundaryLabel: string;
-  boundaryOid: string;
-  items: PatchbackItem[];
-  line: string;
-  migrationRecords: PatchbackMigrationRecord[];
-  recordPath: string;
-  snapshotOid: string;
-  version: string;
-}): string {
-  const identity = patchbackIdentity(version);
-  if (identity.line !== line) {
-    throw new Error(`${version} does not belong to patchback line ${line}.`);
-  }
-  if (recordPath !== releaseRecordPath(version)) {
-    throw new Error(`Patchback release record must be ${releaseRecordPath(version)}.`);
-  }
-  fullOid(boundaryOid, 'Patchback boundary');
-  fullOid(snapshotOid, 'Patchback snapshot');
-  if (!Array.isArray(items)) {
-    throw new Error('Patchback items must be an array.');
-  }
-  if (!Array.isArray(migrationRecords)) {
-    throw new Error('Patchback migration records must be an array.');
-  }
-  migrationRecordPaths(
-    migrationRecords.map(({ path }) => path),
-    line
-  );
-  for (const record of migrationRecords) {
-    if (typeof record.title !== 'string' || record.title.length === 0) {
-      throw new Error(`Patchback migration record has no title: ${record.path}`);
-    }
-  }
-
-  const header = [
-    PATCHBACK_BODY_MARKER,
-    `# Patchback for v${version}`,
-    '',
-    `Authorized snapshot: [\`${snapshotOid}\`](https://github.com/${PILOT_REPOSITORY}/commit/${snapshotOid})`,
-    `Scope starts after ${boundaryLabel}: [\`${boundaryOid}\`](https://github.com/${PILOT_REPOSITORY}/commit/${boundaryOid})`,
-    '',
-    '## Mechanically synchronized release communication',
-    '',
-    `- Generated release record: [\`${recordPath}\`](https://github.com/${PILOT_REPOSITORY}/blob/${snapshotOid}/${recordPath})`,
-    ...(migrationRecords.length === 0
-      ? ['- Migration records: _None target this release line._']
-      : [
-          '- Migration records:',
-          ...migrationRecords.map(
-            ({ path, title }) =>
-              `  - [${title}](https://github.com/${PILOT_REPOSITORY}/blob/${snapshotOid}/${path}) (\`${path}\`)`
-          ),
-        ]),
-    '',
-    'This ordered product-change queue is fixed to the authorized snapshot. Automation never cherry-picks or removes its items. Mechanically synchronized communication may make an item already present; for every item, apply it, record that it is already present, or explain why it is not applicable, then check its box.',
-  ];
-
-  if (items.length === 0) {
-    return [
-      ...header,
-      '',
-      '_No release-line product changes are in this snapshot scope. The synchronized release communication above is the complete patchback._',
-    ].join('\n');
-  }
-
-  const queue = items.flatMap((item) => [
-    '',
-    `- [ ] **${itemHeading(item)}**`,
-    `  - Release commit: [\`${item.oid}\`](https://github.com/${PILOT_REPOSITORY}/commit/${item.oid})`,
-    `  - Apply: \`${item.command}\``,
-    '  - Outcome: _record `applied`, `already-present`, or `not-applicable` before checking this item_',
-  ]);
-  return [...header, '', '## Ordered work queue', ...queue].join('\n');
-}
-
-export function patchbackExamplesComment(): string {
-  return [
-    PATCHBACK_COMMENT_MARKER,
-    '## Copy-paste outcome examples',
-    '',
-    'Replace an item’s `Outcome` line with one of these, add the useful commit, PR, or reason, and only then check its box:',
-    '',
-    '- `Outcome: applied — cherry-picked as <main commit> in #<PR>`',
-    '- `Outcome: applied — manually reimplemented in <main commit> because <reason>`',
-    '- `Outcome: already-present — covered by <main commit or PR>`',
-    '- `Outcome: not-applicable — <concise reason>`',
-    '',
-    'A conflict is unresolved work: leave the item unchecked until one of the outcomes is true.',
-  ].join('\n');
 }

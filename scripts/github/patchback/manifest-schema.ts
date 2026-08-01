@@ -1,17 +1,19 @@
 import { migrationRecordDirectory } from '../../shared/release-communication/records.ts';
 import {
   patchbackCommitMessage,
-  patchbackExamplesComment,
   patchbackIdentity,
   patchbackMigrationRecords,
   patchbackReleaseRecord,
   previousReleaseVersion,
-  renderPatchbackBody,
 } from '../../shared/patchback/core.ts';
 import type { PatchbackItem } from '../../shared/patchback/core.ts';
 import { PILOT_REPOSITORY } from '../../shared/repository.ts';
 import { parsePatchbackAuthority } from './authority-schema.ts';
 import type { PatchbackAuthority } from './authority-schema.ts';
+import {
+  PATCHBACK_EXAMPLES_COMMENT,
+  renderPatchbackPrBody,
+} from './templates.ts';
 
 export type PatchbackRecord = {
   content: string;
@@ -182,7 +184,7 @@ export function parsePatchbackManifest(input: unknown): PatchbackManifest {
     manifest.branch !== identity.branch ||
     manifest.title !== identity.title ||
     manifest.authority.line !== identity.line ||
-    manifest.comment !== patchbackExamplesComment()
+    manifest.comment !== PATCHBACK_EXAMPLES_COMMENT
   ) {
     throw new Error('Patchback manifest identity is invalid.');
   }
@@ -209,7 +211,7 @@ export function parsePatchbackManifest(input: unknown): PatchbackManifest {
       throw new Error('Patchback manifest contains an invalid item.');
     }
   }
-  const expectedBody = renderPatchbackBody({
+  const expectedBody = renderPatchbackPrBody({
     boundaryLabel: manifest.boundaryLabel,
     boundaryOid: manifest.boundaryOid,
     items: manifest.items,

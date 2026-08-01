@@ -3,16 +3,12 @@ import { join, resolve } from 'node:path';
 
 import {
   derivePatchbackItems,
-  PATCHBACK_BODY_MARKER,
-  PATCHBACK_COMMENT_MARKER,
   patchbackCommitMessage,
-  patchbackExamplesComment,
   patchbackIdentity,
   patchbackMigrationRecords,
   patchbackReleaseRecord,
   previousReleaseVersion,
   releaseMergerAssignee,
-  renderPatchbackBody,
 } from '../../shared/patchback/core.ts';
 import { deriveReleaseAuthority } from '../../shared/release-publication/core.ts';
 import { resolveHeadOid } from '../../shared/git/repository.ts';
@@ -59,6 +55,12 @@ import {
   createPatchbackCoordinationCommit,
   findPatchbackCoordinationCommit,
 } from './coordination.ts';
+import {
+  PATCHBACK_BODY_MARKER,
+  PATCHBACK_COMMENT_MARKER,
+  PATCHBACK_EXAMPLES_COMMENT,
+  renderPatchbackPrBody,
+} from './templates.ts';
 
 export type PatchbackResolution =
   | { patchback: false }
@@ -320,7 +322,7 @@ export async function preparePatchback(options: {
     authority,
     baseMainOid: main.oid,
     baseMainTreeOid: mainCommit.tree.sha,
-    body: renderPatchbackBody({
+    body: renderPatchbackPrBody({
       boundaryLabel: boundary.label,
       boundaryOid: boundary.oid,
       items,
@@ -333,7 +335,7 @@ export async function preparePatchback(options: {
     boundaryLabel: boundary.label,
     boundaryOid: boundary.oid,
     branch: identity.branch,
-    comment: patchbackExamplesComment(),
+    comment: PATCHBACK_EXAMPLES_COMMENT,
     coordinationMessage: patchbackCommitMessage({
       baseMainOid: main.oid,
       boundaryOid: boundary.oid,
