@@ -27,12 +27,12 @@ import {
   parseStableVersion,
 } from '../../shared/release-proposal/core.ts';
 import type { DevelopmentCommit } from '../../shared/release-proposal/core.ts';
+import { githubRequest } from '../release-repository/transport.ts';
 import {
   getGitCommit,
   getPullRequest,
   getRef,
   getReleaseByTag,
-  githubRequest,
   isCanonicalReleasePull,
   resolveRefObject,
   withPullRequestMergeCommit,

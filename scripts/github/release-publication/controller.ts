@@ -37,7 +37,6 @@ import {
   getGitCommit,
   getPullRequest,
   getReleaseByTag,
-  githubRequest,
   isCanonicalReleasePull,
 } from '../release-repository/github.ts';
 import { requireControllerGitHubToken } from '../controller-inputs.ts';

@@ -8,10 +8,10 @@ import { loadReleasePackageSet } from '../../shared/package-publication/package-
 import type { PublicationPackage } from '../../shared/package-publication/publication.ts';
 import { run } from '../../shared/process/run.ts';
 import { PILOT_REPOSITORY } from '../../shared/repository.ts';
+import { githubRequest } from '../release-repository/transport.ts';
 import {
   getRef,
   getReleaseByTag,
-  githubRequest,
   validatedReleaseResponse,
 } from '../release-repository/github.ts';
 

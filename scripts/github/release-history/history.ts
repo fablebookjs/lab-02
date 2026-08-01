@@ -28,8 +28,8 @@ import {
   rootVersionAt,
   validateVersionTree,
 } from '../../shared/prepared-commit/inspection.ts';
+import { githubRequest } from '../release-repository/transport.ts';
 import {
-  githubRequest,
   validatedPullRequestResponse,
   withPullRequestMergeCommit,
 } from '../release-repository/github.ts';

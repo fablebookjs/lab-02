@@ -4,9 +4,18 @@ import { ZERO_OID } from '../../shared/release-proposal/core.ts';
 import { RELEASE_PR_TEMPLATE_MARKER } from '../../shared/release-proposal/body.ts';
 import { PRERELEASE_PR_TEMPLATE_MARKER } from '../../shared/prerelease-proposal/body.ts';
 import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../../shared/repository.ts';
-
-const apiUrl = process.env['GITHUB_API_URL'] ?? 'https://api.github.com';
-const graphqlUrl = process.env['GITHUB_GRAPHQL_URL'] ?? 'https://api.github.com/graphql';
+import {
+  booleanValue,
+  isRecord,
+  numberValue,
+  objectValue,
+  stringValue,
+} from './response-schema.ts';
+import {
+  githubGraphqlRequest,
+  githubRequest,
+  githubRequestOrNull,
+} from './transport.ts';
 
 export type GitObject = {
   sha: string;
@@ -65,73 +74,6 @@ export function isCanonicalPrereleasePull(pull: GitPullRequest): boolean {
     pull.head.repo.full_name === PILOT_REPOSITORY
   );
 }
-
-const headers = (token: string): Record<string, string> => ({
-  Accept: 'application/vnd.github+json',
-  Authorization: `Bearer ${token}`,
-  'Content-Type': 'application/json',
-  'X-GitHub-Api-Version': '2026-03-10',
-});
-
-const responseError = async (response: Response): Promise<Error> => {
-  const detail = await response.text();
-  return new Error(`GitHub API ${response.status} ${response.url}: ${detail}`);
-};
-
-type GitHubRequestOptions = {
-  body?: unknown;
-  method?: string;
-  token?: string;
-};
-
-export async function githubRequest(
-  path: string,
-  { body, method = 'GET', token }: GitHubRequestOptions = {},
-): Promise<unknown> {
-  if (!token) {
-    throw new Error('GitHub API token is required.');
-  }
-  const response = await fetch(`${apiUrl}${path}`, {
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    headers: headers(token),
-    method,
-  });
-  if (!response.ok) {
-    throw await responseError(response);
-  }
-  if (response.status === 204) {
-    return null;
-  }
-  const value: unknown = await response.json();
-  return value;
-}
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
-
-const objectValue = (value: unknown, label: string): Record<string, unknown> => {
-  if (!isRecord(value)) throw new Error(`${label} must be an object.`);
-  return value;
-};
-
-const stringValue = (value: unknown, label: string): string => {
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`${label} must be a nonempty string.`);
-  }
-  return value;
-};
-
-const booleanValue = (value: unknown, label: string): boolean => {
-  if (typeof value !== 'boolean') throw new Error(`${label} must be a boolean.`);
-  return value;
-};
-
-const numberValue = (value: unknown, label: string): number => {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
-    throw new Error(`${label} must be a positive integer.`);
-  }
-  return value;
-};
 
 const repositoryValue = (
   value: unknown,
@@ -263,17 +205,13 @@ export async function getRef(
   token: string,
   ref: string,
 ): Promise<{ oid: string; type: string } | null> {
-  const response = await fetch(
-    `${apiUrl}/repos/${PILOT_REPOSITORY}/git/ref/${encodeURIComponent(ref)}`,
-    { headers: headers(token) }
+  const value = await githubRequestOrNull(
+    `/repos/${PILOT_REPOSITORY}/git/ref/${encodeURIComponent(ref)}`,
+    token,
   );
-  if (response.status === 404) {
+  if (value === null) {
     return null;
   }
-  if (!response.ok) {
-    throw await responseError(response);
-  }
-  const value: unknown = await response.json();
   const object = objectValue(objectValue(value, 'Git ref')['object'], 'Git ref object');
   return {
     oid: stringValue(object['sha'], 'Git ref object SHA'),
@@ -418,15 +356,7 @@ export async function getPullRequestMergeCommitOid(
       pullRequest(number: $number) { mergeCommit { oid } }
     }
   }`;
-  const response = await fetch(graphqlUrl, {
-    body: JSON.stringify({ query, variables: { number } }),
-    headers: headers(token),
-    method: 'POST',
-  });
-  if (!response.ok) {
-    throw await responseError(response);
-  }
-  const result: unknown = await response.json();
+  const result = await githubGraphqlRequest(query, { number }, token);
   const errors = isRecord(result) ? result['errors'] : undefined;
   if (Array.isArray(errors) && errors.length > 0) {
     throw new Error(`GitHub could not resolve the merged PR commit: ${JSON.stringify(errors)}`);
@@ -460,17 +390,13 @@ export async function getReleaseByTag(
   token: string,
   tag: string,
 ): Promise<GitHubRelease | null> {
-  const response = await fetch(
-    `${apiUrl}/repos/${PILOT_REPOSITORY}/releases/tags/${encodeURIComponent(tag)}`,
-    { headers: headers(token) }
+  const value = await githubRequestOrNull(
+    `/repos/${PILOT_REPOSITORY}/releases/tags/${encodeURIComponent(tag)}`,
+    token,
   );
-  if (response.status === 404) {
+  if (value === null) {
     return null;
   }
-  if (!response.ok) {
-    throw await responseError(response);
-  }
-  const value: unknown = await response.json();
   return validatedReleaseResponse(value);
 }
 
@@ -482,24 +408,17 @@ export async function updateRefs(
   const query = `mutation UpdateRefs($input: UpdateRefsInput!) {
     updateRefs(input: $input) { clientMutationId }
   }`;
-  const response = await fetch(graphqlUrl, {
-    body: JSON.stringify({
-      query,
-      variables: {
-        input: {
-          clientMutationId: `fablebook-release-${randomUUID()}`,
-          refUpdates,
-          repositoryId,
-        },
+  const result = await githubGraphqlRequest(
+    query,
+    {
+      input: {
+        clientMutationId: `fablebook-release-${randomUUID()}`,
+        refUpdates,
+        repositoryId,
       },
-    }),
-    headers: headers(token),
-    method: 'POST',
-  });
-  if (!response.ok) {
-    throw await responseError(response);
-  }
-  const result: unknown = await response.json();
+    },
+    token,
+  );
   const errors = isRecord(result) ? result['errors'] : undefined;
   if (Array.isArray(errors) && errors.length > 0) {
     throw new Error(`GitHub updateRefs rejected the transition: ${JSON.stringify(errors)}`);

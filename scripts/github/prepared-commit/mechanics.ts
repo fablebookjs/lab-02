@@ -14,9 +14,9 @@ import { repositoryRoot } from '../../shared/workspace/packages.ts';
 import { run } from '../../shared/process/run.ts';
 import type { RunOptions } from '../../shared/process/run.ts';
 import { PILOT_REPOSITORY } from '../../shared/repository.ts';
+import { githubRequest } from '../release-repository/transport.ts';
 import {
   getRef,
-  githubRequest,
   validatedGitCommitResponse,
 } from '../release-repository/github.ts';
 import type { GitCommit } from '../release-repository/github.ts';
