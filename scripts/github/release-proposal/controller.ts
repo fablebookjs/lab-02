@@ -21,10 +21,8 @@ import {
   PILOT_REPOSITORY,
   PRIMARY_BRANCH,
 } from '../../shared/repository.ts';
-import {
-  getReleaseByTag,
-  getRepository,
-} from '../release-repository/github.ts';
+import { getReleaseByTag } from '../release-repository/releases.ts';
+import { getRepository } from '../release-repository/repository.ts';
 import {
   closePullRequest,
   createDraftReleasePr,

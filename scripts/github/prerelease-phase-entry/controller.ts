@@ -56,7 +56,7 @@ import {
 } from '../release-history/history.ts';
 import {
   getRepository,
-} from '../release-repository/github.ts';
+} from '../release-repository/repository.ts';
 import {
   closePullRequest,
   listPrereleasePulls,

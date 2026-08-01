@@ -33,9 +33,7 @@ import { requireOption } from '../../shared/cli/options.ts';
 import { parseStableVersion } from '../../shared/release-proposal/core.ts';
 import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import { run } from '../../shared/process/run.ts';
-import {
-  getReleaseByTag,
-} from '../release-repository/github.ts';
+import { getReleaseByTag } from '../release-repository/releases.ts';
 import { getGitCommit } from '../release-repository/commits.ts';
 import {
   getPullRequest,
@@ -44,14 +42,16 @@ import {
 import { requireControllerGitHubToken } from '../controller-inputs.ts';
 import type { PublicationResolution } from '../publication-routing/core.ts';
 import {
-  assertTagTarget,
-  ensureAnnotatedTag,
-  ensureGitHubRelease,
   packPublicationPackageSet,
-  readAnnotatedTag,
   readRegistryDocument,
   validatePublicationSnapshot,
 } from '../package-publication/mechanics.ts';
+import {
+  assertTagTarget,
+  ensureAnnotatedTag,
+  ensureGitHubRelease,
+  readAnnotatedTag,
+} from '../release-repository/releases.ts';
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 type ReleaseAuthorityDocument = ReleaseAuthority & {

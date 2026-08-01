@@ -51,17 +51,17 @@ import type {
 import { run } from '../../shared/process/run.ts';
 import { requireControllerGitHubToken } from '../controller-inputs.ts';
 import {
-  assertTagTarget,
-  ensureAnnotatedTag,
-  ensureGitHubRelease,
   packPublicationPackageSet,
-  readAnnotatedTag,
   readRegistryDocument,
   validatePublicationSnapshot,
 } from '../package-publication/mechanics.ts';
 import {
+  assertTagTarget,
+  ensureAnnotatedTag,
+  ensureGitHubRelease,
   getReleaseByTag,
-} from '../release-repository/github.ts';
+  readAnnotatedTag,
+} from '../release-repository/releases.ts';
 import { getGitCommit } from '../release-repository/commits.ts';
 import {
   getPullRequest,

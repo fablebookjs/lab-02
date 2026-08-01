@@ -41,9 +41,7 @@ import {
   getRef,
   resolveRefObject,
 } from '../release-repository/refs.ts';
-import {
-  getReleaseByTag,
-} from '../release-repository/github.ts';
+import { getReleaseByTag } from '../release-repository/releases.ts';
 import {
   assignPullRequest,
   createDraftPatchbackPr,
