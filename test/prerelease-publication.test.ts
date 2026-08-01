@@ -14,7 +14,7 @@ import {
   reconcileNextPackageSet,
   validatePrereleasePublicationManifest,
 } from '../scripts/shared/prerelease-publication/manifest-schema.ts';
-import { renderPrereleasePrBody } from '../scripts/shared/prerelease-proposal/body.ts';
+import { renderPrereleasePrBody } from '../scripts/github/prerelease-proposal/templates.ts';
 import { prereleaseProposalCommitMessage } from '../scripts/shared/prerelease-proposal/core.ts';
 
 const oid = (character: string): string => character.repeat(40);

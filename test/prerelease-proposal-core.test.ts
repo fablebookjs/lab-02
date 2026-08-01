@@ -4,9 +4,9 @@ import test from 'node:test';
 import {
   extractPrereleasePrChanges,
   extractPrereleasePrIdentity,
-  renderPrereleasePrBody,
   validatePrereleasePrBody,
 } from '../scripts/shared/prerelease-proposal/body.ts';
+import { renderPrereleasePrBody } from '../scripts/github/prerelease-proposal/templates.ts';
 import {
   nextPrereleaseVersion,
   parsePrereleaseProposalMessage,

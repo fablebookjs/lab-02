@@ -4,7 +4,6 @@ import { join, resolve } from 'node:path';
 
 import {
   extractPrereleasePrIdentity,
-  renderPrereleasePrBody,
   validatePrereleasePrBody,
 } from '../../shared/prerelease-proposal/body.ts';
 import {
@@ -68,6 +67,7 @@ import type {
   ProposalActionBase,
   ProposalTransitionAction,
 } from './transition-schema.ts';
+import { renderPrereleasePrBody } from './templates.ts';
 
 const ARTIFACT_PREFIX = 'refs/release-pilot/artifact/';
 
