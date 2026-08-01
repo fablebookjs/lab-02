@@ -87,6 +87,11 @@ import {
   findReleaseCut,
   firstParentCommitFacts,
 } from '../release-history/history.ts';
+import {
+  parseCutTransition,
+  parseMaintenanceTransition,
+} from './transition-schema.ts';
+import type { CutTransition } from './transition-schema.ts';
 const ARTIFACT_PREFIX = 'refs/release-pilot/artifact/';
 
 type ProposalBodyAction = {
@@ -96,85 +101,6 @@ type ProposalBodyAction = {
   releaseOid: string;
   supersededPr?: number | undefined;
   version: string;
-};
-
-type CutTransition = {
-  changes: ReleaseChange[];
-  developmentBundleRef: string;
-  developmentOid: string;
-  developmentVersion: string;
-  expectedPrereleaseOid: string | null;
-  kind: 'cut';
-  line: string;
-  openPrereleasePr: number | undefined;
-  proposalBundleRef: string;
-  proposalOid: string;
-  releaseVersion: string;
-  repository: typeof PILOT_REPOSITORY;
-  schema: 1;
-  sourceOid: string;
-};
-
-type MaintenanceActionBase = {
-  expectedStagedOid: string | null;
-  line: string;
-  previousHighlightsBody: string | undefined;
-  releaseOid: string;
-  supersededPr: number | undefined;
-};
-
-type DormantAction = MaintenanceActionBase & {
-  changes: undefined;
-  kind: 'dormant';
-  openPr: number | undefined;
-};
-
-type OpenAction = MaintenanceActionBase & {
-  changes: unknown[];
-  kind: 'open';
-  openPr: undefined;
-  proposalOid: string;
-  version: string;
-};
-
-type SyncAction = MaintenanceActionBase & {
-  changes: unknown[];
-  kind: 'sync';
-  openPr: number;
-  proposalOid: string;
-  version: string;
-};
-
-type MaterializedAction = MaintenanceActionBase & {
-  bundleRef: string;
-  changes: unknown[];
-  kind: 'create' | 'recreate';
-  openPr: number | undefined;
-  proposalOid: string;
-  version: string;
-};
-
-type ReplacementAction = MaintenanceActionBase & {
-  bundleRef: string;
-  changes: unknown[];
-  kind: 'refresh' | 'replace';
-  openPr: number;
-  proposalOid: string;
-  version: string;
-};
-
-type MaintenanceAction =
-  | DormantAction
-  | MaterializedAction
-  | OpenAction
-  | ReplacementAction
-  | SyncAction;
-
-type MaintenanceTransition = {
-  actions: MaintenanceAction[];
-  kind: 'maintenance';
-  repository: typeof PILOT_REPOSITORY;
-  schema: 1;
 };
 
 type MaintenanceState = {
@@ -195,172 +121,6 @@ type MaintenanceState = {
   } | null;
   releaseOid: string;
   staged: (ReturnType<typeof parseProposalMessage> & { oid: string }) | null;
-};
-
-export type PrepareCutOptions = {
-  'github-token': string;
-  'next-development': string;
-  output: string;
-};
-
-export type ApplyCutOptions = {
-  bundle: string;
-  'github-token': string;
-  transition: string;
-};
-
-export type PrepareMaintenanceOptions = {
-  'github-token': string;
-  output: string;
-};
-
-export type ApplyMaintenanceOptions = {
-  bundle?: string;
-  'github-token': string;
-  transition: string;
-};
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
-
-const stringValue = (value: unknown, label: string): string => {
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`${label} must be a nonempty string.`);
-  }
-  return value;
-};
-
-const optionalString = (value: unknown, label: string): string | undefined => {
-  if (value === undefined) return undefined;
-  return stringValue(value, label);
-};
-
-const optionalPositiveInteger = (value: unknown, label: string): number | undefined => {
-  if (value === undefined) return undefined;
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
-    throw new Error(`${label} must be a positive integer.`);
-  }
-  return value;
-};
-
-const nullableOid = (value: unknown, label: string): string | null => {
-  if (value === null) return null;
-  validateFullOid(value, label);
-  return value;
-};
-
-const cutTransitionValue = (value: unknown): CutTransition => {
-  if (!isRecord(value)) throw new Error('Cut transition must be an object.');
-  if (
-    value['schema'] !== 1 ||
-    value['kind'] !== 'cut' ||
-    value['repository'] !== PILOT_REPOSITORY
-  ) {
-    throw new Error('Cut transition is outside the accepted schema.');
-  }
-  return {
-    changes: normalizeReleaseChanges(value['changes']),
-    developmentBundleRef: stringValue(
-      value['developmentBundleRef'],
-      'Cut development bundle ref',
-    ),
-    developmentOid: stringValue(value['developmentOid'], 'Cut development OID'),
-    developmentVersion: stringValue(
-      value['developmentVersion'],
-      'Cut development version',
-    ),
-    expectedPrereleaseOid: nullableOid(
-      value['expectedPrereleaseOid'],
-      'Cut prerelease ref expectation',
-    ),
-    kind: 'cut',
-    line: stringValue(value['line'], 'Cut release line'),
-    openPrereleasePr: optionalPositiveInteger(
-      value['openPrereleasePr'],
-      'Cut open Prerelease PR',
-    ),
-    proposalBundleRef: stringValue(value['proposalBundleRef'], 'Cut proposal bundle ref'),
-    proposalOid: stringValue(value['proposalOid'], 'Cut proposal OID'),
-    releaseVersion: stringValue(value['releaseVersion'], 'Cut release version'),
-    repository: PILOT_REPOSITORY,
-    schema: 1,
-    sourceOid: stringValue(value['sourceOid'], 'Cut source OID'),
-  };
-};
-
-const maintenanceActionValue = (value: unknown): MaintenanceAction => {
-  if (!isRecord(value)) throw new Error('Maintenance action must be an object.');
-  const kind = value['kind'];
-  if (
-    kind !== 'create' &&
-    kind !== 'dormant' &&
-    kind !== 'open' &&
-    kind !== 'recreate' &&
-    kind !== 'refresh' &&
-    kind !== 'replace' &&
-    kind !== 'sync'
-  ) {
-    throw new Error(`Unknown maintenance action: ${String(kind)}`);
-  }
-  const base: MaintenanceActionBase = {
-    expectedStagedOid: nullableOid(
-      value['expectedStagedOid'],
-      'Maintenance staged expectation',
-    ),
-    line: stringValue(value['line'], 'Maintenance release line'),
-    previousHighlightsBody: optionalString(
-      value['previousHighlightsBody'],
-      'Maintenance previous highlights',
-    ),
-    releaseOid: stringValue(value['releaseOid'], 'Maintenance release OID'),
-    supersededPr: optionalPositiveInteger(
-      value['supersededPr'],
-      'Maintenance superseded PR',
-    ),
-  };
-  const openPr = optionalPositiveInteger(value['openPr'], 'Maintenance open PR');
-  if (kind === 'dormant') return { ...base, changes: undefined, kind, openPr };
-
-  const changes = value['changes'];
-  if (!Array.isArray(changes)) {
-    throw new Error(`${kind} maintenance action requires a changes array.`);
-  }
-  const proposalOid = stringValue(value['proposalOid'], 'Maintenance proposal OID');
-  const version = stringValue(value['version'], 'Maintenance version');
-  if (kind === 'open') {
-    return { ...base, changes, kind, openPr: undefined, proposalOid, version };
-  }
-  if (kind === 'sync') {
-    if (openPr === undefined) throw new Error('Sync maintenance action requires an open PR.');
-    return { ...base, changes, kind, openPr, proposalOid, version };
-  }
-
-  const bundleRef = stringValue(value['bundleRef'], 'Maintenance bundle ref');
-  if (kind === 'refresh' || kind === 'replace') {
-    if (openPr === undefined) {
-      throw new Error(`${kind} maintenance action requires an open PR.`);
-    }
-    return { ...base, bundleRef, changes, kind, openPr, proposalOid, version };
-  }
-  return { ...base, bundleRef, changes, kind, openPr, proposalOid, version };
-};
-
-const maintenanceTransitionValue = (value: unknown): MaintenanceTransition => {
-  if (
-    !isRecord(value) ||
-    value['schema'] !== 1 ||
-    value['kind'] !== 'maintenance' ||
-    value['repository'] !== PILOT_REPOSITORY ||
-    !Array.isArray(value['actions'])
-  ) {
-    throw new Error('Maintenance transition is outside the accepted schema.');
-  }
-  return {
-    actions: value['actions'].map(maintenanceActionValue),
-    kind: 'maintenance',
-    repository: PILOT_REPOSITORY,
-    schema: 1,
-  };
 };
 
 const git = (args: string[], options: RunOptions = {}) =>
@@ -595,7 +355,11 @@ const validateCutTransition = async (transition: CutTransition): Promise<void> =
   }
 };
 
-export async function prepareCut(options: PrepareCutOptions): Promise<void> {
+export async function prepareCut(options: {
+  'github-token': string;
+  'next-development': string;
+  output: string;
+}): Promise<void> {
   await ensureCleanReleaseRepository();
   const nextDevelopment = requireOption(options, 'next-development');
   const output = await prepareOutput(requireOption(options, 'output'));
@@ -763,11 +527,15 @@ export function cutRefUpdates({
   ];
 }
 
-export async function applyCut(options: ApplyCutOptions): Promise<void> {
+export async function applyCut(options: {
+  bundle: string;
+  'github-token': string;
+  transition: string;
+}): Promise<void> {
   await ensureCleanReleaseRepository();
   const transitionPath = resolve(requireOption(options, 'transition'));
   const bundlePath = resolve(requireOption(options, 'bundle'));
-  const transition = cutTransitionValue(await readJsonFile(transitionPath));
+  const transition = parseCutTransition(await readJsonFile(transitionPath));
   const token = requireControllerGitHubToken(options);
   if (
     process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
@@ -1026,7 +794,7 @@ const loadMaintenanceStates = async (token: string): Promise<MaintenanceState[]>
 };
 
 export async function prepareMaintenance(
-  options: PrepareMaintenanceOptions,
+  options: { 'github-token': string; output: string },
 ): Promise<void> {
   await ensureCleanReleaseRepository();
   const output = await prepareOutput(requireOption(options, 'output'));
@@ -1140,11 +908,11 @@ export async function prepareMaintenance(
 }
 
 export async function applyMaintenance(
-  options: ApplyMaintenanceOptions,
+  options: { bundle?: string; 'github-token': string; transition: string },
 ): Promise<void> {
   await ensureCleanReleaseRepository();
   const transitionPath = resolve(requireOption(options, 'transition'));
-  const transition = maintenanceTransitionValue(await readJsonFile(transitionPath));
+  const transition = parseMaintenanceTransition(await readJsonFile(transitionPath));
   const bundle = options.bundle ? resolve(options.bundle) : null;
   const token = requireControllerGitHubToken(options);
   if (
