@@ -55,13 +55,11 @@ import {
 import {
   closePullRequest,
   createDraftPrereleasePr,
-  createRefUpdate,
-  getRef,
   getRepository,
   listPrereleasePulls,
   updatePullRequestBody,
-  updateRefs,
 } from '../release-repository/github.ts';
+import { createRefUpdate, getRef, updateRefs } from '../release-repository/refs.ts';
 
 const ARTIFACT_PREFIX = 'refs/release-pilot/artifact/';
 

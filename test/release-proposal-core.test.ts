@@ -16,10 +16,10 @@ import {
   ZERO_OID,
 } from '../scripts/shared/release-proposal/core.ts';
 import {
-  createRefUpdate,
   extractPullRequestMergeCommitOid,
   validatedPullRequestResponse,
 } from '../scripts/github/release-repository/github.ts';
+import { createRefUpdate } from '../scripts/github/release-repository/refs.ts';
 import {
   cutRefUpdates,
 } from '../scripts/github/release-proposal/controller.ts';

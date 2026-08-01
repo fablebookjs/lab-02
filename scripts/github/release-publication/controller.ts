@@ -34,11 +34,11 @@ import { parseStableVersion } from '../../shared/release-proposal/core.ts';
 import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import { run } from '../../shared/process/run.ts';
 import {
-  getGitCommit,
   getPullRequest,
   getReleaseByTag,
   isCanonicalReleasePull,
 } from '../release-repository/github.ts';
+import { getGitCommit } from '../release-repository/commits.ts';
 import { requireControllerGitHubToken } from '../controller-inputs.ts';
 import type { PublicationResolution } from '../publication-routing/core.ts';
 import {

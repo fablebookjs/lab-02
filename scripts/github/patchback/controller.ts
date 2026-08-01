@@ -29,20 +29,27 @@ import {
 import type { DevelopmentCommit } from '../../shared/release-proposal/core.ts';
 import { githubRequest } from '../release-repository/transport.ts';
 import {
+  compareGitCommits,
+  createGitCommit,
+  createGitTree,
   getGitCommit,
-  getPullRequest,
+  getGitTreeEntries,
+  readGitBlobText,
+} from '../release-repository/commits.ts';
+import type { ValidatedGitCommit } from '../release-repository/commits.ts';
+import {
+  createGitRef,
   getRef,
+  resolveRefObject,
+} from '../release-repository/refs.ts';
+import {
+  getPullRequest,
   getReleaseByTag,
   isCanonicalReleasePull,
-  resolveRefObject,
   withPullRequestMergeCommit,
-  validatedGitCommitResponse,
   validatedPullRequestResponse,
 } from '../release-repository/github.ts';
-import type {
-  GitCommit,
-  GitPullRequest,
-} from '../release-repository/github.ts';
+import type { GitPullRequest } from '../release-repository/github.ts';
 import type { ReleaseAuthority } from '../../shared/release-publication/core.ts';
 import type { PatchbackItem } from '../../shared/patchback/core.ts';
 import { requireOption } from '../../shared/cli/options.ts';
@@ -695,25 +702,7 @@ const treeEntries = async (
   token: string,
   oid: string,
 ): Promise<Map<string, { mode: string; oid: string; type: string }>> => {
-  const response = await githubRequest(
-    `/repos/${PILOT_REPOSITORY}/git/trees/${oid}?recursive=1`,
-    { token }
-  );
-  if (!isRecord(response) || !Array.isArray(response['tree'])) {
-    throw new Error('GitHub tree response is malformed.');
-  }
-  if (response['truncated'] === true) {
-    throw new Error('Patchback coordination tree is too large to verify exactly.');
-  }
-  const entries = response['tree'].map((entry) => {
-    if (!isRecord(entry)) throw new Error('GitHub tree entry must be an object.');
-    return {
-      mode: stringValue(entry['mode'], 'GitHub tree entry mode'),
-      path: stringValue(entry['path'], 'GitHub tree entry path'),
-      sha: stringValue(entry['sha'], 'GitHub tree entry SHA'),
-      type: stringValue(entry['type'], 'GitHub tree entry type'),
-    };
-  });
+  const entries = await getGitTreeEntries(token, oid);
   return new Map<string, { mode: string; oid: string; type: string }>(
     entries
       .filter((entry) => entry.type === 'blob')
@@ -730,8 +719,8 @@ const treeEntries = async (
 
 const verifyCoordinationTree = async (
   token: string,
-  commit: GitCommit,
-  parent: GitCommit,
+  commit: ValidatedGitCommit,
+  parent: ValidatedGitCommit,
   manifest: PatchbackManifest,
 ): Promise<void> => {
   const [actual, base] = await Promise.all([
@@ -765,18 +754,8 @@ const verifyCoordinationTree = async (
         `Patchback coordination record is not one regular file: ${expected.path}`
       );
     }
-    const blob = await githubRequest(
-      `/repos/${PILOT_REPOSITORY}/git/blobs/${record.oid}`,
-      { token }
-    );
-    if (
-      !isRecord(blob) ||
-      blob['encoding'] !== 'base64' ||
-      typeof blob['content'] !== 'string' ||
-      Buffer.from(blob['content'].replaceAll('\n', ''), 'base64').toString(
-        'utf8'
-      ) !== expected.content
-    ) {
+    const content = await readGitBlobText(token, record.oid).catch(() => null);
+    if (content !== expected.content) {
       throw new Error(
         `Patchback coordination record changed after preparation: ${expected.path}`
       );
@@ -832,16 +811,10 @@ const verifyMainAncestry = async (token: string, baseMainOid: string): Promise<v
   if (main === null || main.type !== 'commit') {
     throw new Error('main does not identify a commit.');
   }
-  const comparison = await githubRequest(
-    `/repos/${PILOT_REPOSITORY}/compare/${baseMainOid}...${main.oid}`,
-    { token }
-  );
-  const mergeBase = isRecord(comparison) ? comparison['merge_base_commit'] : undefined;
+  const comparison = await compareGitCommits(token, baseMainOid, main.oid);
   if (
-    !isRecord(comparison) ||
-    !['ahead', 'identical'].includes(String(comparison['status'])) ||
-    !isRecord(mergeBase) ||
-    mergeBase['sha'] !== baseMainOid
+    !['ahead', 'identical'].includes(comparison.status) ||
+    comparison.mergeBaseOid !== baseMainOid
   ) {
     throw new Error('Patchback coordination is not based on an ancestor of current main.');
   }
@@ -1002,42 +975,24 @@ export async function applyPatchback(options: ApplyPatchbackOptions): Promise<vo
       manifest.releaseRecord,
       ...manifest.migrationRecords,
     ];
-    const recordTree = await githubRequest(`/repos/${PILOT_REPOSITORY}/git/trees`, {
-      body: {
-        base_tree: manifest.baseMainTreeOid,
-        tree: communicationRecords.map(({ content, path }) => ({
-          content,
-          mode: '100644',
-          path,
-          type: 'blob',
-        })),
-      },
-      method: 'POST',
-      token,
-    });
-    if (!isRecord(recordTree)) {
-      throw new Error('GitHub coordination tree response must be an object.');
-    }
-    const recordTreeSha = fullOid(recordTree['sha'], 'Patchback coordination tree');
+    const recordTreeSha = fullOid(await createGitTree(token, {
+      baseTreeOid: manifest.baseMainTreeOid,
+      entries: communicationRecords.map(({ content, path }) => ({
+        content,
+        mode: '100644',
+        path,
+        type: 'blob',
+      })),
+    }), 'Patchback coordination tree');
     if (recordTreeSha === manifest.baseMainTreeOid) {
       throw new Error('Patchback release communication is already identical on main.');
     }
-    const coordination = validatedGitCommitResponse(
-      await githubRequest(`/repos/${PILOT_REPOSITORY}/git/commits`, {
-        body: {
-          message: manifest.coordinationMessage,
-          parents: [manifest.baseMainOid],
-          tree: recordTreeSha,
-        },
-        method: 'POST',
-        token,
-      }),
-    );
-    await githubRequest(`/repos/${PILOT_REPOSITORY}/git/refs`, {
-      body: { ref: `refs/${branchRefName}`, sha: coordination.sha },
-      method: 'POST',
-      token,
+    const coordination = await createGitCommit(token, {
+      message: manifest.coordinationMessage,
+      parents: [manifest.baseMainOid],
+      treeOid: recordTreeSha,
     });
+    await createGitRef(token, `refs/${branchRefName}`, coordination.sha);
     branch = { oid: coordination.sha, type: 'commit' };
   }
   if (branch.type !== 'commit') {

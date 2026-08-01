@@ -13,29 +13,20 @@ import { materializeVersion } from '../../shared/version/materialize.ts';
 import { repositoryRoot } from '../../shared/workspace/packages.ts';
 import { run } from '../../shared/process/run.ts';
 import type { RunOptions } from '../../shared/process/run.ts';
-import { PILOT_REPOSITORY } from '../../shared/repository.ts';
-import { githubRequest } from '../release-repository/transport.ts';
 import {
-  getRef,
-  validatedGitCommitResponse,
-} from '../release-repository/github.ts';
-import type { GitCommit } from '../release-repository/github.ts';
+  createGitCommit,
+  createGitTree,
+} from '../release-repository/commits.ts';
+import type { ValidatedGitCommit } from '../release-repository/commits.ts';
+import { getRef } from '../release-repository/refs.ts';
 
 const ARTIFACT_PREFIX = 'refs/release-pilot/artifact/';
 const IMPORT_PREFIX = 'refs/release-pilot/imported/';
-
-export type PreparedFile = Readonly<{
-  content: string;
-  path: string;
-}>;
 
 export type BundleRef = Readonly<{
   name: string;
   oid: string;
 }>;
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const stringValue = (value: unknown, label: string): string => {
   if (typeof value !== 'string' || value.length === 0) {
@@ -84,15 +75,10 @@ export const uploadCommitObject = async (token: string, oid: string): Promise<st
 
   const sourceTree = (await git(['show', '-s', '--format=%T', sourceOid])).stdout.trim();
   const expectedTree = (await git(['show', '-s', '--format=%T', oid])).stdout.trim();
-  const remoteTreeResponse = await githubRequest(`/repos/${PILOT_REPOSITORY}/git/trees`, {
-    body: { base_tree: sourceTree, tree },
-    method: 'POST',
-    token,
+  const remoteTreeSha = await createGitTree(token, {
+    baseTreeOid: sourceTree,
+    entries: tree,
   });
-  if (!isRecord(remoteTreeResponse)) {
-    throw new Error('GitHub created-tree response must be an object.');
-  }
-  const remoteTreeSha = stringValue(remoteTreeResponse['sha'], 'GitHub created tree SHA');
   if (remoteTreeSha !== expectedTree) {
     throw new Error(`GitHub created tree ${remoteTreeSha}, expected ${expectedTree}.`);
   }
@@ -110,26 +96,20 @@ export const uploadCommitObject = async (token: string, oid: string): Promise<st
   const committerEmail = stringValue(identity[4], 'Prepared committer email');
   const committerDate = stringValue(identity[5], 'Prepared committer date');
   const message = await commitMessageAt(oid);
-  const remoteCommit = validatedGitCommitResponse(
-    await githubRequest(`/repos/${PILOT_REPOSITORY}/git/commits`, {
-      body: {
-        author: { date: authorDate, email: authorEmail, name: authorName },
-        committer: {
-          date: committerDate,
-          email: committerEmail,
-          name: committerName,
-        },
-        message,
-        parents: [sourceOid],
-        tree: remoteTreeSha,
-      },
-      method: 'POST',
-      token,
-    }),
-  );
+  const remoteCommit = await createGitCommit(token, {
+    author: { date: authorDate, email: authorEmail, name: authorName },
+    committer: {
+      date: committerDate,
+      email: committerEmail,
+      name: committerName,
+    },
+    message,
+    parents: [sourceOid],
+    treeOid: remoteTreeSha,
+  });
   validateFullOid(remoteCommit.sha, 'Uploaded GitHub commit');
   const sameIdentity = (
-    remote: GitCommit['author'],
+    remote: ValidatedGitCommit['author'],
     name: string,
     email: string,
     date: string,
@@ -176,7 +156,7 @@ export const materializeCommit = async ({
   sourceOid,
   version,
 }: {
-  files?: readonly PreparedFile[];
+  files?: readonly Readonly<{ content: string; path: string }>[];
   message: string;
   sourceOid: string;
   version: string;

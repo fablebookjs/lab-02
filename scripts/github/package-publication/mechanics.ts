@@ -9,8 +9,8 @@ import type { PublicationPackage } from '../../shared/package-publication/public
 import { run } from '../../shared/process/run.ts';
 import { PILOT_REPOSITORY } from '../../shared/repository.ts';
 import { githubRequest } from '../release-repository/transport.ts';
+import { createGitRef, getRef } from '../release-repository/refs.ts';
 import {
-  getRef,
   getReleaseByTag,
   validatedReleaseResponse,
 } from '../release-repository/github.ts';
@@ -233,11 +233,7 @@ export const ensureAnnotatedTag = async (
         token,
       }),
     );
-    await githubRequest(`/repos/${PILOT_REPOSITORY}/git/refs`, {
-      body: { ref: `refs/tags/${tag}`, sha: tagObject.sha },
-      method: 'POST',
-      token,
-    });
+    await createGitRef(token, `refs/tags/${tag}`, tagObject.sha);
     tagObject = await waitFor(async () => {
       const observed = await readAnnotatedTag(token, tag);
       if (observed === null) throw new Error(`${tag} is not visible yet.`);

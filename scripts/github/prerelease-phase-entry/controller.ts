@@ -56,12 +56,10 @@ import {
 } from '../release-history/history.ts';
 import {
   closePullRequest,
-  createRefUpdate,
-  getRef,
   getRepository,
   listPrereleasePulls,
-  updateRefs,
 } from '../release-repository/github.ts';
+import { createRefUpdate, getRef, updateRefs } from '../release-repository/refs.ts';
 
 const PHASE_ENTRY_BUNDLE_REF =
   'refs/release-pilot/artifact/prerelease-phase-entry';

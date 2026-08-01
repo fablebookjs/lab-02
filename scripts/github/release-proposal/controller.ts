@@ -24,20 +24,23 @@ import {
 import {
   closePullRequest,
   createDraftReleasePr,
-  createRefUpdate,
-  getGitCommit,
-  getRef,
   getPullRequest,
   getReleaseByTag,
   getRepository,
-  listMatchingRefs,
   listPrereleasePulls,
   listReleasePulls,
-  resolveRefObject,
   updatePullRequestBody,
-  updateRefs,
 } from '../release-repository/github.ts';
-import type { GitPullRequest, GitReference } from '../release-repository/github.ts';
+import { getGitCommit } from '../release-repository/commits.ts';
+import {
+  createRefUpdate,
+  getRef,
+  listMatchingRefs,
+  resolveRefObject,
+  updateRefs,
+} from '../release-repository/refs.ts';
+import type { GitReference } from '../release-repository/refs.ts';
+import type { GitPullRequest } from '../release-repository/github.ts';
 import { repositoryRoot } from '../../shared/workspace/packages.ts';
 import { run } from '../../shared/process/run.ts';
 import type { RunOptions } from '../../shared/process/run.ts';

@@ -4,7 +4,7 @@ import {
   authenticatedToken,
 } from '../runtime.ts';
 import type { GitHubHandlerRuntime } from '../runtime.ts';
-import { getRef } from '../release-repository/github.ts';
+import { getRef } from '../release-repository/refs.ts';
 import { PRIMARY_BRANCH } from '../../shared/repository.ts';
 
 export default async function handler({

@@ -1,6 +1,3 @@
-import { randomUUID } from 'node:crypto';
-
-import { ZERO_OID } from '../../shared/release-proposal/core.ts';
 import { RELEASE_PR_TEMPLATE_MARKER } from '../../shared/release-proposal/body.ts';
 import { PRERELEASE_PR_TEMPLATE_MARKER } from '../../shared/prerelease-proposal/body.ts';
 import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../../shared/repository.ts';
@@ -17,16 +14,6 @@ import {
   githubRequestOrNull,
 } from './transport.ts';
 
-export type GitObject = {
-  sha: string;
-  type: string;
-};
-
-export type GitReference = {
-  object: GitObject;
-  ref: string;
-};
-
 export type GitPullRequest = {
   base: { ref: string; repo: { full_name: string }; sha: string };
   body: string | null;
@@ -37,15 +24,6 @@ export type GitPullRequest = {
   number: number;
   state: string;
   title: string;
-};
-
-export type GitCommit = {
-  author: { date: string; email: string; name: string };
-  committer: { date: string; email: string; name: string };
-  message: string;
-  parents: Array<{ sha: string }>;
-  sha: string;
-  tree: { sha: string };
 };
 
 export type GitHubRelease = {
@@ -134,39 +112,6 @@ export const validatedPullRequestResponse = (value: unknown): GitPullRequest => 
   };
 };
 
-const identityValue = (
-  value: unknown,
-  label: string,
-): { date: string; email: string; name: string } => {
-  const identity = objectValue(value, label);
-  return {
-    date: stringValue(identity['date'], `${label}.date`),
-    email: stringValue(identity['email'], `${label}.email`),
-    name: stringValue(identity['name'], `${label}.name`),
-  };
-};
-
-export const validatedGitCommitResponse = (value: unknown): GitCommit => {
-  const commit = objectValue(value, 'GitHub commit');
-  const parents = commit['parents'];
-  if (!Array.isArray(parents)) throw new Error('GitHub commit parents must be an array.');
-  return {
-    author: identityValue(commit['author'], 'GitHub commit author'),
-    committer: identityValue(commit['committer'], 'GitHub commit committer'),
-    message: stringValue(commit['message'], 'GitHub commit message'),
-    parents: parents.map((parent) => ({
-      sha: stringValue(objectValue(parent, 'GitHub commit parent')['sha'], 'GitHub parent SHA'),
-    })),
-    sha: stringValue(commit['sha'], 'GitHub commit SHA'),
-    tree: {
-      sha: stringValue(
-        objectValue(commit['tree'], 'GitHub commit tree')['sha'],
-        'GitHub commit tree SHA',
-      ),
-    },
-  };
-};
-
 export const validatedReleaseResponse = (value: unknown): GitHubRelease => {
   const release = objectValue(value, 'GitHub Release');
   const body = release['body'];
@@ -199,73 +144,6 @@ export async function getRepository(token: string): Promise<{
     full_name: PILOT_REPOSITORY,
     node_id: stringValue(value['node_id'], 'GitHub repository node_id'),
   };
-}
-
-export async function getRef(
-  token: string,
-  ref: string,
-): Promise<{ oid: string; type: string } | null> {
-  const value = await githubRequestOrNull(
-    `/repos/${PILOT_REPOSITORY}/git/ref/${encodeURIComponent(ref)}`,
-    token,
-  );
-  if (value === null) {
-    return null;
-  }
-  const object = objectValue(objectValue(value, 'Git ref')['object'], 'Git ref object');
-  return {
-    oid: stringValue(object['sha'], 'Git ref object SHA'),
-    type: stringValue(object['type'], 'Git ref object type'),
-  };
-}
-
-export async function listMatchingRefs(
-  token: string,
-  prefix: string,
-): Promise<GitReference[]> {
-  const refs: GitReference[] = [];
-  for (let page = 1; ; page += 1) {
-    const query = new URLSearchParams({ page: String(page), per_page: '100' });
-    const batch = await githubRequest(
-      `/repos/${PILOT_REPOSITORY}/git/matching-refs/${prefix}?${query}`,
-      { token }
-    );
-    if (!Array.isArray(batch)) throw new Error('GitHub matching refs must be an array.');
-    refs.push(
-      ...batch.map((candidate) => {
-        const ref = objectValue(candidate, 'GitHub matching ref');
-        const object = objectValue(ref['object'], 'GitHub matching ref object');
-        return {
-          object: {
-            sha: stringValue(object['sha'], 'GitHub matching ref SHA'),
-            type: stringValue(object['type'], 'GitHub matching ref type'),
-          },
-          ref: stringValue(ref['ref'], 'GitHub matching ref name'),
-        };
-      }),
-    );
-    if (batch.length < 100) {
-      return refs;
-    }
-  }
-}
-
-export async function resolveRefObject(token: string, object: GitObject): Promise<string> {
-  if (object.type === 'commit') {
-    return object.sha;
-  }
-  if (object.type !== 'tag') {
-    throw new Error(`Unsupported Git ref object type: ${object.type}`);
-  }
-  const tag = await githubRequest(
-    `/repos/${PILOT_REPOSITORY}/git/tags/${object.sha}`,
-    { token }
-  );
-  const tagObject = objectValue(objectValue(tag, 'Git tag')['object'], 'Git tag object');
-  return resolveRefObject(token, {
-    sha: stringValue(tagObject['sha'], 'Git tag object SHA'),
-    type: stringValue(tagObject['type'], 'Git tag object type'),
-  });
 }
 
 export async function listReleasePulls(
@@ -380,12 +258,6 @@ export async function withPullRequestMergeCommit(
   };
 }
 
-export async function getGitCommit(token: string, oid: string): Promise<GitCommit> {
-  return validatedGitCommitResponse(
-    await githubRequest(`/repos/${PILOT_REPOSITORY}/git/commits/${oid}`, { token }),
-  );
-}
-
 export async function getReleaseByTag(
   token: string,
   tag: string,
@@ -398,33 +270,6 @@ export async function getReleaseByTag(
     return null;
   }
   return validatedReleaseResponse(value);
-}
-
-export async function updateRefs(
-  token: string,
-  repositoryId: string,
-  refUpdates: ReturnType<typeof createRefUpdate>[],
-): Promise<Record<string, unknown>> {
-  const query = `mutation UpdateRefs($input: UpdateRefsInput!) {
-    updateRefs(input: $input) { clientMutationId }
-  }`;
-  const result = await githubGraphqlRequest(
-    query,
-    {
-      input: {
-        clientMutationId: `fablebook-release-${randomUUID()}`,
-        refUpdates,
-        repositoryId,
-      },
-    },
-    token,
-  );
-  const errors = isRecord(result) ? result['errors'] : undefined;
-  if (Array.isArray(errors) && errors.length > 0) {
-    throw new Error(`GitHub updateRefs rejected the transition: ${JSON.stringify(errors)}`);
-  }
-  const data = objectValue(objectValue(result, 'GitHub updateRefs result')['data'], 'GitHub updateRefs data');
-  return objectValue(data['updateRefs'], 'GitHub updateRefs payload');
 }
 
 export async function createDraftReleasePr(
@@ -497,25 +342,4 @@ export async function updatePullRequestBody(
     method: 'PATCH',
     token,
   }));
-}
-
-export function createRefUpdate({
-  afterOid,
-  beforeOid,
-  force = false,
-  name,
-}: {
-  afterOid: string;
-  beforeOid?: string;
-  force?: boolean;
-  name: string;
-}) {
-  if (
-    name !== `refs/heads/${PRIMARY_BRANCH}` &&
-    name !== 'refs/heads/prerelease' &&
-    !/^refs\/heads\/(?:releases|staged)\/v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(name)
-  ) {
-    throw new Error(`Ref is outside the release controller allowlist: ${name}`);
-  }
-  return { afterOid, beforeOid: beforeOid ?? ZERO_OID, force, name };
 }
