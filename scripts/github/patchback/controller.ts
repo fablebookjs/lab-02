@@ -5,7 +5,6 @@ import {
   derivePatchbackItems,
   PATCHBACK_BODY_MARKER,
   PATCHBACK_COMMENT_MARKER,
-  parsePatchbackCommitMessage,
   patchbackCommitMessage,
   patchbackExamplesComment,
   patchbackIdentity,
@@ -25,13 +24,8 @@ import {
 import { parseStableVersion } from '../../shared/release-proposal/core.ts';
 import {
   compareGitCommits,
-  createGitCommit,
-  createGitTree,
   getGitCommit,
-  getGitTreeEntries,
-  readGitBlobText,
 } from '../release-repository/commits.ts';
-import type { ValidatedGitCommit } from '../release-repository/commits.ts';
 import {
   createGitRef,
   getRef,
@@ -61,6 +55,10 @@ import type {
   PatchbackManifest,
   PatchbackMigrationRecord,
 } from './manifest-schema.ts';
+import {
+  createPatchbackCoordinationCommit,
+  findPatchbackCoordinationCommit,
+} from './coordination.ts';
 
 export type PatchbackResolution =
   | { patchback: false }
@@ -375,134 +373,6 @@ const listPatchbackPulls = async (
   );
 };
 
-const coordinationMatches = (
-  metadata: ReturnType<typeof parsePatchbackCommitMessage>,
-  manifest: PatchbackManifest,
-): boolean =>
-  metadata.boundaryOid === manifest.boundaryOid &&
-  metadata.line === manifest.authority.line &&
-  JSON.stringify(metadata.migrationRecordPaths) ===
-    JSON.stringify(manifest.migrationRecords.map(({ path }) => path)) &&
-  metadata.recordPath === manifest.releaseRecord.path &&
-  metadata.snapshotOid === manifest.authority.snapshotOid &&
-  metadata.version === manifest.authority.version;
-
-const treeEntries = async (
-  token: string,
-  oid: string,
-): Promise<Map<string, { mode: string; oid: string; type: string }>> => {
-  const entries = await getGitTreeEntries(token, oid);
-  return new Map<string, { mode: string; oid: string; type: string }>(
-    entries
-      .filter((entry) => entry.type === 'blob')
-      .map((entry) => [
-        entry.path,
-        {
-          mode: entry.mode,
-          oid: entry.sha,
-          type: entry.type,
-        },
-      ]),
-  );
-};
-
-const verifyCoordinationTree = async (
-  token: string,
-  commit: ValidatedGitCommit,
-  parent: ValidatedGitCommit,
-  manifest: PatchbackManifest,
-): Promise<void> => {
-  const [actual, base] = await Promise.all([
-    treeEntries(token, commit.tree.sha),
-    treeEntries(token, parent.tree.sha),
-  ]);
-  const paths = new Set([...actual.keys(), ...base.keys()]);
-  const changed = [...paths].filter((path) => {
-    const left = actual.get(path);
-    const right = base.get(path);
-    return (
-      left?.mode !== right?.mode ||
-      left?.oid !== right?.oid ||
-      left?.type !== right?.type
-    );
-  });
-  const records = [manifest.releaseRecord, ...manifest.migrationRecords];
-  const allowed = new Set(records.map(({ path }) => path));
-  if (
-    !changed.includes(manifest.releaseRecord.path) ||
-    changed.some((path) => !allowed.has(path))
-  ) {
-    throw new Error(
-      'Patchback coordination commit must change only its release communication records.',
-    );
-  }
-  for (const expected of records) {
-    const record = actual.get(expected.path);
-    if (record?.mode !== '100644' || record.type !== 'blob') {
-      throw new Error(
-        `Patchback coordination record is not one regular file: ${expected.path}`,
-      );
-    }
-    const content = await readGitBlobText(token, record.oid).catch(() => null);
-    if (content !== expected.content) {
-      throw new Error(
-        `Patchback coordination record changed after preparation: ${expected.path}`,
-      );
-    }
-  }
-};
-
-const findCoordinationCommit = async (
-  token: string,
-  headOid: string,
-  manifest: PatchbackManifest,
-): Promise<{ baseMainOid: string; oid: string }> => {
-  let oid = fullOid(headOid, 'Patchback branch head');
-  for (let depth = 0; depth < 500; depth += 1) {
-    const commit = await getGitCommit(token, oid);
-    try {
-      const metadata = parsePatchbackCommitMessage(commit.message);
-      if (coordinationMatches(metadata, manifest)) {
-        if (commit.parents.length !== 1) {
-          throw new Error(
-            'Patchback coordination commit must have exactly one parent.',
-          );
-        }
-        const firstParent = commit.parents[0];
-        if (firstParent === undefined) {
-          throw new Error('Patchback coordination commit has no parent.');
-        }
-        const parent = await getGitCommit(token, firstParent.sha);
-        if (firstParent.sha !== metadata.baseMainOid) {
-          throw new Error(
-            'Patchback coordination commit is not based on its recorded main.',
-          );
-        }
-        await verifyCoordinationTree(token, commit, parent, manifest);
-        return { baseMainOid: metadata.baseMainOid, oid: commit.sha };
-      }
-    } catch (error) {
-      if (
-        !(error instanceof Error) ||
-        !error.message.includes(
-          'not a structured patchback coordination commit',
-        )
-      ) {
-        throw error;
-      }
-    }
-    if (commit.parents.length === 0) {
-      break;
-    }
-    const firstParent = commit.parents[0];
-    if (firstParent === undefined) break;
-    oid = firstParent.sha;
-  }
-  throw new Error(
-    'Patchback branch does not contain its structured coordination commit.',
-  );
-};
-
 const verifyMainAncestry = async (
   token: string,
   baseMainOid: string,
@@ -590,7 +460,7 @@ export async function applyPatchback(options: {
   let pull = pulls[0] ?? null;
   if (pull !== null) {
     validateExistingPull(pull, manifest);
-    const coordination = await findCoordinationCommit(
+    const coordination = await findPatchbackCoordinationCommit(
       token,
       pull.head.sha,
       manifest,
@@ -627,39 +497,17 @@ export async function applyPatchback(options: {
         'The prepared main tree changed before patchback creation.',
       );
     }
-    const communicationRecords = [
-      manifest.releaseRecord,
-      ...manifest.migrationRecords,
-    ];
-    const recordTreeSha = fullOid(
-      await createGitTree(token, {
-        baseTreeOid: manifest.baseMainTreeOid,
-        entries: communicationRecords.map(({ content, path }) => ({
-          content,
-          mode: '100644',
-          path,
-          type: 'blob',
-        })),
-      }),
-      'Patchback coordination tree',
+    const coordinationOid = await createPatchbackCoordinationCommit(
+      token,
+      manifest,
     );
-    if (recordTreeSha === manifest.baseMainTreeOid) {
-      throw new Error(
-        'Patchback release communication is already identical on main.',
-      );
-    }
-    const coordination = await createGitCommit(token, {
-      message: manifest.coordinationMessage,
-      parents: [manifest.baseMainOid],
-      treeOid: recordTreeSha,
-    });
-    await createGitRef(token, `refs/${branchRefName}`, coordination.sha);
-    branch = { oid: coordination.sha, type: 'commit' };
+    await createGitRef(token, `refs/${branchRefName}`, coordinationOid);
+    branch = { oid: coordinationOid, type: 'commit' };
   }
   if (branch.type !== 'commit') {
     throw new Error(`${manifest.branch} does not identify a commit.`);
   }
-  const coordination = await findCoordinationCommit(
+  const coordination = await findPatchbackCoordinationCommit(
     token,
     branch.oid,
     manifest,
