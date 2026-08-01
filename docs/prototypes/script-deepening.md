@@ -58,7 +58,7 @@ lines minus blank lines and comment-only lines.
 The raw increase is real. The embedded utility contributes 93 lines, including
 its 31-line MIT notice, while new contextual documentation contributes most of
 the remaining comment-only increase. The five pre-existing publication files
-shrink from 1,932 to 1,901 lines; the three explicit new owners add 265 lines.
+shrink from 1,932 to 1,903 lines; the three explicit new owners add 263 lines.
 
 The separate constant consolidation is deliberately measured across its wider
 mechanical reach:
@@ -75,17 +75,31 @@ Across every changed production TypeScript file, raw LOC rises from 9,440 to
 named exports rise from 212 to 213 (+1). Constant ownership improves without
 creating a total-LOC or total-surface win.
 
+### Measurement limits
+
+- Locality has a concrete proxy: GitHub-specific rendering leaves the shared
+  stable/prerelease cores, which shrink by 107 lines, and is owned by two
+  feature-local template modules.
+- Interface depth has only partial proxies. The named export count stays flat
+  for the publication slice, while 53 controller-visible completion lines
+  become 37 controller lines plus one 44-line, two-call-site mechanic. That
+  supports a qualitative depth improvement but is not a scalar depth measure.
+- Test readability has no defensible numeric measure here. Two tests gain
+  feature-specific renderer imports and names while their cases and assertions
+  remain unchanged. The clearer intent is a qualitative review judgement.
+
 ## Observations
 
 - **Locality improves.** A reader looking for human-facing GitHub presentation
   now finds it beside each GitHub publication controller. The zero-install
-  domain cores lose 105 lines of GitHub-specific presentation assembly.
+  domain cores lose 107 lines of GitHub-specific presentation assembly.
 - **The controller seam becomes more intentional.** Both controllers delegate
   the same tag-and-Release state matrix to a two-call-site mechanic, while their
   policy-specific completion decisions and exact errors remain visible.
 - **Test intent becomes more explicit.** Existing assertions and cases remain
   unchanged, but rendering tests now import from a GitHub template owner instead
-  of a general release domain core.
+  of a general release domain core. This is not evidence of a measurable
+  readability gain.
 - **Interface depth improves locally, not globally.** The mechanic hides a
   meaningful coordination rule and `dedent` hides nontrivial indentation logic.
   The publication-slice export count stays flat, but the complete prototype
@@ -101,8 +115,8 @@ creating a total-LOC or total-surface win.
 
 ## Prototype conclusion
 
-This slice improves ownership, workflow locality, and the meaning of controller
-seams without hiding stable/prerelease policy. It also shows the cost of applying
-all documentation and template decisions at once: the result is clearer but
-larger. The design is representative only if that trade is acceptable; it is
-not evidence that the wider refactor will reduce LOC or exported entities.
+This slice measurably improves locality and removes repeated repository facts,
+while total LOC and total named exports regress. Interface depth and test intent
+look better under review, but the available proxies do not establish a numeric
+improvement. The design is representative only if that trade is acceptable; it
+is not evidence that the wider refactor will reduce LOC or exported entities.
