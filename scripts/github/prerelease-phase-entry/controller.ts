@@ -4,10 +4,7 @@ import { join, resolve } from 'node:path';
 import {
   extractPrereleasePrIdentity,
 } from '../../shared/prerelease-proposal/body.ts';
-import {
-  nextPrereleaseVersion,
-  parsePrereleaseProposalMessage,
-} from '../../shared/prerelease-proposal/core.ts';
+import { nextPrereleaseVersion } from '../../shared/prerelease-proposal/core.ts';
 import {
   parseManualPrereleasePhase,
   parsePhaseEntryCommitMessageIfPresent,
@@ -61,7 +58,12 @@ import {
   closePullRequest,
   listPrereleasePulls,
 } from '../release-repository/pull-requests.ts';
-import { createRefUpdate, getRef, updateRefs } from '../release-repository/refs.ts';
+import { createRefUpdate, updateRefs } from '../release-repository/refs.ts';
+import {
+  observeStagedPrereleaseProposal,
+  parseStagedPrereleaseProposal,
+  validateStagedPrereleaseProposal,
+} from '../staged-prerelease-proposal/observation.ts';
 
 const PHASE_ENTRY_BUNDLE_REF =
   'refs/release-pilot/artifact/prerelease-phase-entry';
@@ -355,28 +357,6 @@ const findPhaseEntrySnapshot = async (
   return null;
 };
 
-const loadStagedProposal = async (
-  token: string,
-): Promise<
-  | (ReturnType<typeof parsePrereleaseProposalMessage> & { oid: string })
-  | null
-> => {
-  const ref = await getRef(token, 'heads/prerelease');
-  if (ref === null) return null;
-  await git([
-    'fetch',
-    '--no-tags',
-    'origin',
-    '+refs/heads/prerelease:refs/remotes/origin/prerelease',
-  ]);
-  const proposal = parsePrereleaseProposalMessage(
-    await commitMessageAt(repositoryRoot, ref.oid),
-  );
-  assert.deepEqual(await commitParents(repositoryRoot, ref.oid), [proposal.sourceOid]);
-  await validateVersionTree(repositoryRoot, ref.oid, proposal.version);
-  return { ...proposal, oid: ref.oid };
-};
-
 const canonicalPrereleaseState = async (
   token: string,
   {
@@ -389,18 +369,14 @@ const canonicalPrereleaseState = async (
     mainOid: string;
   },
 ): Promise<CanonicalPrereleaseState> => {
-  const pulls = (await listPrereleasePulls(token)).filter(
-    ({ state }) => state === 'open',
-  );
-  if (pulls.length > 1) {
-    throw new Error('More than one canonical Prerelease PR is open.');
-  }
-  const pull = pulls[0];
-  const staged = await loadStagedProposal(token);
+  const observation = await observeStagedPrereleaseProposal(token);
+  const pull = observation.openPull ?? undefined;
+  const staged = await parseStagedPrereleaseProposal(observation.stagedOid);
   if (pull !== undefined && staged === null) {
     throw new Error('The open Prerelease PR has no canonical proposal ref.');
   }
   if (staged !== null) {
+    await validateStagedPrereleaseProposal(staged);
     if (
       staged.boundaryOid !== boundaryOid ||
       staged.version !== nextPrereleaseVersion(currentVersion)

@@ -13,10 +13,7 @@ import {
   planPrereleaseProposal,
   prereleaseProposalCommitMessage,
 } from '../../shared/prerelease-proposal/core.ts';
-import type {
-  PrereleaseProposal,
-  PrereleaseProposalPlan,
-} from '../../shared/prerelease-proposal/core.ts';
+import type { PrereleaseProposalPlan } from '../../shared/prerelease-proposal/core.ts';
 import {
   ZERO_OID,
 } from '../../shared/release-proposal/core.ts';
@@ -61,7 +58,11 @@ import {
   listPrereleasePulls,
   updatePullRequestBody,
 } from '../release-repository/pull-requests.ts';
-import { createRefUpdate, getRef, updateRefs } from '../release-repository/refs.ts';
+import { createRefUpdate, updateRefs } from '../release-repository/refs.ts';
+import {
+  observeStagedPrereleaseProposal,
+  parseStagedPrereleaseProposal,
+} from '../staged-prerelease-proposal/observation.ts';
 
 const ARTIFACT_PREFIX = 'refs/release-pilot/artifact/';
 
@@ -322,23 +323,6 @@ const actionBody = (
     version: action.version,
   });
 
-const loadStagedProposal = async (
-  token: string,
-): Promise<(PrereleaseProposal & { oid: string }) | null> => {
-  const ref = await getRef(token, 'heads/prerelease');
-  if (ref === null) return null;
-  await git([
-    'fetch',
-    '--no-tags',
-    'origin',
-    '+refs/heads/prerelease:refs/remotes/origin/prerelease',
-  ]);
-  return {
-    ...parsePrereleaseProposalMessage(await commitMessageAt(repositoryRoot, ref.oid)),
-    oid: ref.oid,
-  };
-};
-
 export async function preparePrereleaseProposal(
   options: PreparePrereleaseProposalOptions,
 ): Promise<void> {
@@ -355,13 +339,9 @@ export async function preparePrereleaseProposal(
       `main carries ${lineVersion}, but its latest managed prerelease snapshot carries ${boundary.version}.`,
     );
   }
-  const staged = await loadStagedProposal(token);
-  const pulls = await listPrereleasePulls(token);
-  const openPulls = pulls.filter(({ state }) => state === 'open');
-  if (openPulls.length > 1) {
-    throw new Error('More than one canonical Prerelease PR is open.');
-  }
-  const openPull = openPulls[0] ?? null;
+  const observation = await observeStagedPrereleaseProposal(token);
+  const staged = await parseStagedPrereleaseProposal(observation.stagedOid);
+  const openPull = observation.openPull;
   const identity = extractPrereleasePrIdentity(openPull?.body);
   const bodyCurrent =
     staged !== null &&
