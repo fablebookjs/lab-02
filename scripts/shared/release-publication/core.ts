@@ -5,8 +5,6 @@ import {
 } from '../release-proposal/core.ts';
 import {
   cleanReleaseTitle,
-  migrationRecordDirectory,
-  parseReleaseRecordChanges,
 } from '../release-communication/records.ts';
 import {
   extractReleasePrIdentity,
@@ -293,80 +291,4 @@ export function deriveReleaseCommunication({
     },
     authority.version
   );
-}
-
-const renderMigrationSection = (
-  records: Array<{ filename: string; title: string }>,
-  version: string,
-): string => {
-  const { major, minor } = parseStableVersion(version);
-  if (!Array.isArray(records)) {
-    throw new Error('GitHub Release migration records must be an array.');
-  }
-  const filenames = new Set();
-  const directory = migrationRecordDirectory(`v${major}.${minor}`);
-  const links = records.map((record) => {
-    if (
-      !/^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/.test(record?.filename ?? '') ||
-      typeof record?.title !== 'string' ||
-      cleanReleaseTitle(record.title, record.filename.replace(/\.md$/, '')) !== record.title ||
-      filenames.has(record.filename)
-    ) {
-      throw new Error(`Invalid GitHub Release migration record: ${record?.filename}`);
-    }
-    filenames.add(record.filename);
-    const url = `https://github.com/${PILOT_REPOSITORY}/blob/v${version}/${directory}/${record.filename}`;
-    return `- [${record.title}](${url})`;
-  });
-  return links.length === 0
-    ? ''
-    : `\n\n## Migrations\n\n${links.join('\n')}`;
-};
-
-type ComposeGitHubReleaseBodyOptions = {
-  communication: unknown;
-  migrationRecords?: Array<{ filename: string; title: string }>;
-  releaseRecord: string;
-  version: string;
-};
-
-export function composeGitHubReleaseBody({
-  communication,
-  migrationRecords = [],
-  releaseRecord,
-  version,
-}: ComposeGitHubReleaseBodyOptions) {
-  const normalized = validateReleaseCommunication(communication, version);
-  const recordChanges = parseReleaseRecordChanges({
-    source: releaseRecord,
-    version,
-  });
-  const publicChanges = normalized.changes.filter(
-    ({ releaseNoteSkip }) => !releaseNoteSkip
-  );
-  if (
-    JSON.stringify(
-      publicChanges.map(({ title, url }) => ({ title, url }))
-    ) !== JSON.stringify(recordChanges)
-  ) {
-    throw new Error(
-      `Generated v${version} release record contradicts its authorized communication.`
-    );
-  }
-  const renderedChanges = publicChanges
-    .map(({ title, url }) => `- [${title}](${url})`)
-    .join('\n');
-  const migrationSection = renderMigrationSection(migrationRecords, version);
-  const title = `# Lab-02 ${version}`;
-  if (normalized.kind === 'initial') {
-    const noteworthyChanges =
-      renderedChanges.length === 0
-        ? ''
-        : `\n\n## Noteworthy changes\n\n${renderedChanges}`;
-    return `${title}\n\n## Release highlights\n\n${normalized.releaseHighlights}${noteworthyChanges}${migrationSection}\n`;
-  }
-  if (normalized.kind === 'patch') {
-    return `${title}\n\n## What's changed\n\n${renderedChanges}${migrationSection}\n`;
-  }
-  return `${title}\n\nThis maintenance release contains no user-facing changes worth mentioning.${migrationSection}\n`;
 }

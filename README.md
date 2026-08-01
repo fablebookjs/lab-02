@@ -15,6 +15,16 @@ Both packages compile TypeScript into the `dist/` files that npm packs. Package
 operations discover the public workspace set from the current Git tree rather
 than from an operator-maintained list.
 
+## Terminology
+
+| Term | Meaning | Distinguish from |
+|---|---|---|
+| Release proposal | Replaceable, version-materialized package state derived from one release-line revision for an intended stable version. | A Release snapshot has already been authorized and is immutable. |
+| Release snapshot | The immutable Release proposal authorized by a merged Release PR and named by its version tag. | A Release proposal may still be refreshed or replaced. |
+| Prerelease snapshot | The immutable development-line revision authorized by a merged Prerelease PR, phase advancement, or Release cut. | An ordinary Prerelease proposal remains replaceable until authorized. |
+| Publication authority | Validated evidence permitting publication of one exact snapshot and version through one accepted workflow path. | Authority permits publication; it does not prove that publication completed. |
+| Query-first publication | Reconciliation that observes an exact package version before writing, accepts matching integrity, publishes absence, and rejects conflicts. | It is a recovery rule, not permission to publish a different package set. |
+
 ## Local check
 
 ```sh

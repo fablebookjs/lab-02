@@ -25,6 +25,22 @@ export type AnnotatedTag = Readonly<{
   tag: string;
 }>;
 
+/**
+ * The observed state of one expected Git tag and GitHub Release pair.
+ *
+ * @remarks
+ * Missing artifacts are incomplete and may be reconciled. Contradictions are
+ * reported separately so stable and prerelease controllers can preserve their
+ * domain-specific failure messages.
+ */
+type GitHubReleaseObservation =
+  | Readonly<{ kind: 'complete' }>
+  | Readonly<{ kind: 'incomplete' }>
+  | Readonly<{
+      kind: 'contradiction';
+      reason: 'release-mismatch' | 'release-without-tag';
+    }>;
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -210,6 +226,50 @@ export const assertTagTarget = (
     throw new Error(`${tag} does not identify the authorized release snapshot.`);
   }
 };
+
+/**
+ * Observes whether an exact Git tag and GitHub Release pair is complete.
+ *
+ * @remarks
+ * The expected body is optional because stable finalization verifies its body
+ * during reconciliation, while prerelease preflight must verify the body before
+ * deciding to skip every mutating job.
+ *
+ * @throws
+ * The annotated tag targets a different snapshot or GitHub observation fails.
+ */
+export async function observeGitHubReleaseCompletion(
+  token: string,
+  expected: Readonly<{
+    body?: string;
+    prerelease: boolean;
+    snapshotOid: string;
+    tag: string;
+  }>,
+): Promise<GitHubReleaseObservation> {
+  const tagObject = await readAnnotatedTag(token, expected.tag);
+  const release = await getReleaseByTag(token, expected.tag);
+
+  if (tagObject === null) {
+    return release === null
+      ? { kind: 'incomplete' }
+      : { kind: 'contradiction', reason: 'release-without-tag' };
+  }
+
+  assertTagTarget(tagObject, expected.tag, expected.snapshotOid);
+  if (release === null) return { kind: 'incomplete' };
+
+  if (
+    release.tag_name !== expected.tag ||
+    release.draft !== false ||
+    release.prerelease !== expected.prerelease ||
+    (expected.body !== undefined && release.body !== expected.body)
+  ) {
+    return { kind: 'contradiction', reason: 'release-mismatch' };
+  }
+
+  return { kind: 'complete' };
+}
 
 export const ensureAnnotatedTag = async (
   token: string,

@@ -7,7 +7,6 @@ import {
   registryIntegrity,
 } from '../../shared/package-publication/core.ts';
 import {
-  composeGitHubReleaseBody,
   deriveReleaseAuthority,
   deriveReleaseCommunication,
   lineChannel,
@@ -48,11 +47,14 @@ import {
   assertTagTarget,
   ensureAnnotatedTag,
   ensureGitHubRelease,
+  observeGitHubReleaseCompletion,
   packPublicationPackageSet,
   readAnnotatedTag,
   readRegistryDocument,
   validatePublicationSnapshot,
 } from '../package-publication/mechanics.ts';
+import { renderStableGitHubReleaseBody } from './templates.ts';
+
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 type ReleaseAuthorityDocument = ReleaseAuthority & {
@@ -266,7 +268,7 @@ export async function preparePublication(
   );
   const migrationRecords = await loadMigrationRecords(snapshot, authority.line);
   const { releaseCommunication, ...releaseAuthority } = authority;
-  const releaseBody = composeGitHubReleaseBody({
+  const releaseBody = renderStableGitHubReleaseBody({
     communication: releaseCommunication,
     migrationRecords,
     releaseRecord,
@@ -352,28 +354,28 @@ const releaseCompletionState = async (
   manifest: PublicationManifest,
 ): Promise<boolean> => {
   const tag = `v${manifest.version}`;
-  const tagObject = await readAnnotatedTag(token, tag);
-  const release = await getReleaseByTag(token, tag);
-  if (tagObject === null) {
-    if (release !== null) {
+  const observation = await observeGitHubReleaseCompletion(token, {
+    prerelease: false,
+    snapshotOid: manifest.snapshotOid,
+    tag,
+  });
+  if (observation.kind === 'contradiction') {
+    if (observation.reason === 'release-without-tag') {
       throw new Error(`GitHub Release ${tag} exists without its annotated tag.`);
     }
-    return false;
-  }
-  assertTagTarget(tagObject, tag, manifest.snapshotOid);
-  if (release === null) {
-    return false;
-  }
-  if (
-    release.tag_name !== tag ||
-    release.draft !== false ||
-    release.prerelease !== false
-  ) {
     throw new Error(`GitHub Release ${tag} contradicts the completed stable release.`);
   }
-  return true;
+  return observation.kind === 'complete';
 };
 
+/**
+ * Reconciles the exact annotated tag and public GitHub Release for a sealed
+ * stable publication manifest.
+ *
+ * @remarks
+ * The operation is safe to retry. Existing matching state is accepted; missing
+ * state is created; contradictory tag or Release state stops finalization.
+ */
 export async function finalizeRelease(options: FinalizeReleaseOptions): Promise<void> {
   ensureTrustedMain();
   const manifest = await loadPublication(options);

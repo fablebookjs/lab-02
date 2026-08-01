@@ -2,7 +2,6 @@ import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 import {
-  composePrereleaseGitHubReleaseBody,
   derivePrereleaseAuthority,
   derivePrereleaseCommunication,
   PILOT_REPOSITORY,
@@ -53,20 +52,19 @@ import {
   writeJson,
 } from '../controller-support.ts';
 import {
-  assertTagTarget,
   ensureAnnotatedTag,
   ensureGitHubRelease,
+  observeGitHubReleaseCompletion,
   packPublicationPackageSet,
-  readAnnotatedTag,
   readRegistryDocument,
   validatePublicationSnapshot,
 } from '../package-publication/mechanics.ts';
 import {
   getGitCommit,
   getPullRequest,
-  getReleaseByTag,
   isCanonicalPrereleasePull,
 } from '../release-repository/github.ts';
+import { renderPrereleaseGitHubReleaseBody } from './templates.ts';
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
@@ -386,7 +384,7 @@ export async function preparePrereleasePublication(
     authority.version,
   );
   const { changes, ...releaseAuthority } = authority;
-  const releaseBody = composePrereleaseGitHubReleaseBody({
+  const releaseBody = renderPrereleaseGitHubReleaseBody({
     changes,
     version: authority.version,
   });
@@ -501,29 +499,33 @@ const prereleaseCompletionState = async (
   manifest: PrereleasePublicationManifest,
 ): Promise<boolean> => {
   const tag = `v${manifest.version}`;
-  const tagObject = await readAnnotatedTag(token, tag);
-  const release = await getReleaseByTag(token, tag);
-  if (tagObject === null) {
-    if (release !== null) {
+  const observation = await observeGitHubReleaseCompletion(token, {
+    body: manifest.releaseBody,
+    prerelease: true,
+    snapshotOid: manifest.snapshotOid,
+    tag,
+  });
+  if (observation.kind === 'contradiction') {
+    if (observation.reason === 'release-without-tag') {
       throw new Error(`GitHub prerelease ${tag} exists without its tag.`);
     }
-    return false;
-  }
-  assertTagTarget(tagObject, tag, manifest.snapshotOid);
-  if (release === null) {
-    return false;
-  }
-  if (
-    release.tag_name !== tag ||
-    release.draft !== false ||
-    release.prerelease !== true ||
-    release.body !== manifest.releaseBody
-  ) {
     throw new Error(`GitHub prerelease ${tag} contradicts its snapshot.`);
   }
-  return true;
+  return observation.kind === 'complete';
 };
 
+/**
+ * Observes whether an authorized prerelease is already complete across npm,
+ * `next`, its annotated tag, and its GitHub prerelease.
+ *
+ * @remarks
+ * Incomplete state is a normal `{ complete: false }` result. The preflight does
+ * not mutate state, allowing a complete phase-entry retry to skip every
+ * privileged job.
+ *
+ * @throws
+ * Published integrity or GitHub state contradicts the sealed manifest.
+ */
 export async function checkPrereleaseCompletion(
   options: CheckPrereleaseCompletionOptions,
 ): Promise<{ complete: boolean }> {
@@ -569,6 +571,14 @@ export async function checkPrereleaseCompletion(
   return { complete };
 }
 
+/**
+ * Reconciles the exact annotated tag and GitHub prerelease for a sealed
+ * prerelease publication manifest.
+ *
+ * @remarks
+ * The operation is safe to retry and does not reconcile npm packages or the
+ * mutable `next` channel; those are separate publication phases.
+ */
 export async function finalizePrerelease(
   options: FinalizePrereleaseOptions,
 ): Promise<void> {

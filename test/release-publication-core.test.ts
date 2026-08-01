@@ -10,12 +10,14 @@ import {
   SETUP_NODE_AUTH_PLACEHOLDER,
 } from '../scripts/shared/package-publication/core.ts';
 import {
-  composeGitHubReleaseBody,
   deriveReleaseAuthority,
   deriveReleaseCommunication,
   lineChannel,
   validateReleaseCommunication,
 } from '../scripts/shared/release-publication/core.ts';
+import {
+  renderStableGitHubReleaseBody,
+} from '../scripts/github/release-publication/templates.ts';
 import {
   composeMigrationRecords,
   renderReleaseRecord,
@@ -256,7 +258,7 @@ test('the initial GitHub Release renders curated highlights, public changes, and
       source: migration({ priority: '2 - setup', title: 'Adopt the new API' }),
     },
   ]);
-  const body = composeGitHubReleaseBody({
+  const body = renderStableGitHubReleaseBody({
     communication: initialCommunication,
     migrationRecords,
     releaseRecord: renderReleaseRecord({ changes, version: '1.0.0' }),
@@ -292,7 +294,7 @@ test('ordinary and maintenance patches render distinct succinct outputs', () => 
     kind: 'patch',
     releaseHighlights: null,
   };
-  const patchBody = composeGitHubReleaseBody({
+  const patchBody = renderStableGitHubReleaseBody({
     communication: patchCommunication,
     releaseRecord: renderReleaseRecord({
       changes: patchChanges,
@@ -316,7 +318,7 @@ test('ordinary and maintenance patches render distinct succinct outputs', () => 
     ...change,
     releaseNoteSkip: true,
   }));
-  const maintenanceBody = composeGitHubReleaseBody({
+  const maintenanceBody = renderStableGitHubReleaseBody({
     communication: {
       changes: maintenanceChanges.map(
         ({ key, qaSkip, releaseNoteSkip, title, url }) => ({
@@ -380,7 +382,7 @@ test('release records contain only public changes while contradictions fail clos
     releaseRecord,
     version: '2.0.3',
   };
-  const body = composeGitHubReleaseBody(input);
+  const body = renderStableGitHubReleaseBody(input);
   assert.match(body, /Add count-based summary formatting/);
   assert.doesNotMatch(
     body,
@@ -388,7 +390,7 @@ test('release records contain only public changes while contradictions fail clos
   );
   assert.throws(
     () =>
-      composeGitHubReleaseBody({
+      renderStableGitHubReleaseBody({
         ...input,
         releaseRecord: releaseRecord.replace(
           '- [Add count-based summary formatting](https://github.com/fablebookjs/lab-02/pull/44)\n',
@@ -402,7 +404,7 @@ test('release records contain only public changes while contradictions fail clos
     /release record contradicts/
   );
   assert.throws(() =>
-    composeGitHubReleaseBody({
+    renderStableGitHubReleaseBody({
       ...input,
       communication: {
         ...input.communication,
@@ -425,7 +427,7 @@ test('migration links and communication schemas fail closed', () => {
     version: '1.0.0',
   };
   assert.throws(() =>
-    composeGitHubReleaseBody({
+    renderStableGitHubReleaseBody({
       ...input,
       migrationRecords: [{ filename: 'unsafe.md', title: '[Unsafe link]' }],
     })
