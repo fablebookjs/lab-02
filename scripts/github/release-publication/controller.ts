@@ -29,6 +29,7 @@ import {
   loadMigrationRecords,
   releaseRecordPath,
 } from '../../shared/release-communication/records.ts';
+import { requireOption } from '../../shared/cli/options.ts';
 import { parseStableVersion } from '../../shared/release-proposal/core.ts';
 import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import { run } from '../../shared/process/run.ts';
@@ -39,10 +40,7 @@ import {
   githubRequest,
   isCanonicalReleasePull,
 } from '../release-repository/github.ts';
-import {
-  requireGithubToken,
-  requireOption,
-} from '../controller-support.ts';
+import { requireControllerGitHubToken } from '../controller-inputs.ts';
 import {
   assertTagTarget,
   ensureAnnotatedTag,
@@ -219,7 +217,7 @@ export async function resolvePublication(
   }
   const pullRequest = positiveInteger(signal['pullRequest'], 'Release signal pull request');
 
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   const pull = await getPullRequest(token, pullRequest);
   if (!isCanonicalReleasePull(pull) || pull.merged_at === null) {
     const outputs: PublicationResolution = { publish: false };
@@ -376,7 +374,7 @@ const releaseCompletionState = async (
 export async function finalizeRelease(options: FinalizeReleaseOptions): Promise<void> {
   ensureTrustedMain();
   const manifest = await loadPublication(options);
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   if (await releaseCompletionState(token, manifest)) {
     await ensureGitHubRelease(
       token,
@@ -421,7 +419,7 @@ export async function resolvePromotion(
   ensureTrustedMain();
   const version = requireOption(options, 'version');
   parseStableVersion(version);
-  const snapshotOid = await validateCompletedRelease(requireGithubToken(options), version);
+  const snapshotOid = await validateCompletedRelease(requireControllerGitHubToken(options), version);
   const outputs: PromotionResolution = { snapshot: snapshotOid };
   console.log(`Resolved completed v${version} at ${snapshotOid}.`);
   return outputs;

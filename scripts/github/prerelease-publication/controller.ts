@@ -39,6 +39,7 @@ import {
   parseDevelopmentVersion,
   parseReleaseLine,
 } from '../../shared/release-proposal/core.ts';
+import { requireOption } from '../../shared/cli/options.ts';
 import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import {
   isPrereleaseAuthorityKind,
@@ -47,10 +48,7 @@ import type {
   PublicationAuthorityKind,
 } from '../../shared/publication-routing/core.ts';
 import { run } from '../../shared/process/run.ts';
-import {
-  requireGithubToken,
-  requireOption,
-} from '../controller-support.ts';
+import { requireControllerGitHubToken } from '../controller-inputs.ts';
 import {
   assertTagTarget,
   ensureAnnotatedTag,
@@ -317,7 +315,7 @@ export async function resolvePrereleasePublication(
     signal['pullRequest'],
     'Prerelease signal pull request',
   );
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   const pull = await getPullRequest(token, pullRequest);
   if (!isCanonicalPrereleasePull(pull) || pull.merged_at === null) {
     console.log(
@@ -528,7 +526,7 @@ export async function checkPrereleaseCompletion(
 ): Promise<{ complete: boolean }> {
   ensureTrustedMain();
   const manifest = await loadManifest(options);
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   for (const pkg of manifest.packages) {
     const document = await readRegistryDocument(pkg.name);
     const publishedIntegrity = registryIntegrity({
@@ -573,7 +571,7 @@ export async function finalizePrerelease(
 ): Promise<void> {
   ensureTrustedMain();
   const manifest = await loadManifest(options);
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   const tag = `v${manifest.version}`;
   if (!(await prereleaseCompletionState(token, manifest))) {
     await ensureAnnotatedTag(token, manifest);

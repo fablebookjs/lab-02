@@ -47,6 +47,7 @@ import {
   renderReleaseRecord,
 } from '../../shared/release-communication/records.ts';
 import type { ReleaseChange } from '../../shared/release-communication/records.ts';
+import { requireOption } from '../../shared/cli/options.ts';
 import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import {
   extractReleasePrIdentity,
@@ -55,10 +56,7 @@ import {
   validateReleasePrBody,
 } from '../../shared/release-proposal/body.ts';
 import type { ValidatedPullRequest } from '../events.ts';
-import {
-  requireGithubToken,
-  requireOption,
-} from '../controller-support.ts';
+import { requireControllerGitHubToken } from '../controller-inputs.ts';
 import {
   commitMessageAt,
   commitParents,
@@ -593,7 +591,7 @@ export async function prepareCut(options: PrepareCutOptions): Promise<void> {
   await ensureCleanReleaseRepository();
   const nextDevelopment = requireOption(options, 'next-development');
   const output = await prepareOutput(requireOption(options, 'output'));
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   const sourceOid = (await git(['rev-parse', 'HEAD'])).stdout.trim();
   const versions = deriveCutVersions(await rootVersionAt(sourceOid), nextDevelopment);
   const bootstrap = await findDevelopmentBootstrap({
@@ -758,7 +756,7 @@ export async function applyCut(options: ApplyCutOptions): Promise<void> {
   const transitionPath = resolve(requireOption(options, 'transition'));
   const bundlePath = resolve(requireOption(options, 'bundle'));
   const transition = cutTransitionValue(await readJsonFile(transitionPath));
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   if (
     process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
     process.env['GITHUB_REF'] !== 'refs/heads/main'
@@ -1018,7 +1016,7 @@ export async function prepareMaintenance(
 ): Promise<void> {
   await ensureCleanReleaseRepository();
   const output = await prepareOutput(requireOption(options, 'output'));
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   const states = await loadMaintenanceStates(token);
   const planned = planProposalMaintenance(states);
   const actions: unknown[] = [];
@@ -1134,7 +1132,7 @@ export async function applyMaintenance(
   const transitionPath = resolve(requireOption(options, 'transition'));
   const transition = maintenanceTransitionValue(await readJsonFile(transitionPath));
   const bundle = options.bundle ? resolve(options.bundle) : null;
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   if (
     process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
     process.env['GITHUB_REF'] !== 'refs/heads/main'

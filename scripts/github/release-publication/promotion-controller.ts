@@ -10,13 +10,11 @@ import {
 import {
   PILOT_REPOSITORY,
 } from '../../shared/release-publication/core.ts';
+import { requireOption } from '../../shared/cli/options.ts';
 import { NPM_REGISTRY } from '../../shared/package-publication/core.ts';
 import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import { parseStableVersion } from '../../shared/release-proposal/core.ts';
 import { run } from '../../shared/process/run.ts';
-import {
-  requireOption,
-} from '../controller-support.ts';
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 

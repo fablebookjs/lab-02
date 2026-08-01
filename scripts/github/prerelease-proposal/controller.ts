@@ -22,15 +22,13 @@ import {
 } from '../../shared/release-proposal/core.ts';
 import type { ReleaseChange } from '../../shared/release-communication/records.ts';
 import { derivePrereleaseChanges } from '../../shared/release-communication/records.ts';
+import { requireOption } from '../../shared/cli/options.ts';
 import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import { repositoryRoot } from '../../shared/workspace/packages.ts';
 import { run } from '../../shared/process/run.ts';
 import type { RunOptions } from '../../shared/process/run.ts';
 import type { ValidatedPullRequest } from '../events.ts';
-import {
-  requireGithubToken,
-  requireOption,
-} from '../controller-support.ts';
+import { requireControllerGitHubToken } from '../controller-inputs.ts';
 import {
   commitMessageAt,
   commitParents,
@@ -344,7 +342,7 @@ export async function preparePrereleaseProposal(
   const output = await prepareOutput(
     requireOption(options, 'output'),
   );
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   const mainOid = await currentOid();
   const lineVersion = await rootVersionAt(mainOid);
   const boundary = await findManagedPrereleaseBoundary(mainOid);
@@ -514,7 +512,7 @@ export async function applyPrereleaseProposal(
   const transition = transitionValue(
     await readJsonFile(resolve(requireOption(options, 'transition'))),
   );
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   const action = transition.action;
   await getRepository(token);
   await assertExpectedRef(token, 'heads/main', action.mainOid);

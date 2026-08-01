@@ -46,12 +46,10 @@ import type {
 } from '../release-repository/github.ts';
 import type { ReleaseAuthority } from '../../shared/release-publication/core.ts';
 import type { PatchbackItem } from '../../shared/patchback/core.ts';
+import { requireOption } from '../../shared/cli/options.ts';
 import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import { run } from '../../shared/process/run.ts';
-import {
-  requireGithubToken,
-  requireOption,
-} from '../controller-support.ts';
+import { requireControllerGitHubToken } from '../controller-inputs.ts';
 
 type IssueComment = {
   body: string | null;
@@ -235,7 +233,7 @@ export async function resolvePatchback(
   }
   const pullRequest = positiveInteger(signal['pullRequest'], 'Release signal pull request');
 
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   const pull = await getPullRequest(token, pullRequest);
   if (!isCanonicalReleasePull(pull) || pull.merged_at === null) {
     const outputs: PatchbackResolution = { patchback: false };
@@ -571,7 +569,7 @@ export async function preparePatchback(
     throw new Error('The checked-out snapshot does not match patchback authority.');
   }
 
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   const parsed = parseStableVersion(authority.version);
   let boundary: { label: string; oid: string } | null;
   if (parsed.patch === 0) {
@@ -969,7 +967,7 @@ export async function applyPatchback(options: ApplyPatchbackOptions): Promise<vo
   const manifest = validateManifest(
     await readJsonFile(resolve(requireOption(options, 'manifest')))
   );
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   compareAuthority(
     await readLiveAuthority(token, manifest.authority.pullRequest),
     manifest.authority

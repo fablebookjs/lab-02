@@ -8,13 +8,3 @@ export function requireOption<Name extends string>(
   }
   return value;
 }
-
-export function requireGithubToken(options: {
-  'github-token': string;
-}): string {
-  const token = options['github-token'];
-  if (!token) {
-    throw new Error('An authenticated GitHub capability is required.');
-  }
-  return token;
-}
