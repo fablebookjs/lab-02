@@ -7,15 +7,16 @@ import {
   commitParents,
   validateFullOid,
 } from '../../shared/prepared-commit/inspection.ts';
+import { resolveHeadOid } from '../../shared/git/repository.ts';
 import { ZERO_OID } from '../../shared/release-proposal/core.ts';
 import { materializeVersion } from '../../shared/version/materialize.ts';
 import { repositoryRoot } from '../../shared/workspace/packages.ts';
 import { run } from '../../shared/process/run.ts';
 import type { RunOptions } from '../../shared/process/run.ts';
+import { PILOT_REPOSITORY } from '../../shared/repository.ts';
 import {
   getRef,
   githubRequest,
-  PILOT_REPOSITORY,
   validatedGitCommitResponse,
 } from '../release-repository/github.ts';
 import type { GitCommit } from '../release-repository/github.ts';
@@ -229,7 +230,7 @@ export const materializeCommit = async ({
       GIT_COMMITTER_NAME: 'fablebook-release-app[bot]',
     };
     await git(['commit', '--no-gpg-sign', '-m', message], { cwd: worktree, env: identity });
-    return (await git(['rev-parse', 'HEAD'], { cwd: worktree })).stdout.trim();
+    return resolveHeadOid(worktree);
   } finally {
     if (added) {
       await git(['worktree', 'remove', '--force', worktree]).catch(() => undefined);

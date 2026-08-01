@@ -2,12 +2,13 @@ import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 
 import { loadReleasePackageSet } from '../../shared/package-publication/package-set.ts';
+import { resolveHeadOid } from '../../shared/git/repository.ts';
 import {
   createPromotionManifest,
   promoteSealedPackageSet,
   validatePromotionManifest,
 } from '../../shared/release-publication/promotion.ts';
-import { PILOT_REPOSITORY } from '../../shared/repository.ts';
+import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../../shared/repository.ts';
 import { requireOption } from '../../shared/cli/options.ts';
 import { NPM_REGISTRY } from '../../shared/package-publication/core.ts';
 import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
@@ -32,20 +33,17 @@ export type PromoteLatestOptions = {
 const ensureTrustedMain = (): void => {
   if (
     process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
-    process.env['GITHUB_REF'] !== 'refs/heads/main'
+    process.env['GITHUB_REF'] !== `refs/heads/${PRIMARY_BRANCH}`
   ) {
     throw new Error('Promotion authority is restricted to trusted main in the pilot repository.');
   }
 };
 
-const gitHead = async (root: string): Promise<string> =>
-  (await run('git', ['rev-parse', 'HEAD'], { cwd: root })).stdout.trim();
-
 const validateSnapshot = async (root: string, expectedOid: string): Promise<void> => {
   if (!/^[0-9a-f]{40}$/.test(expectedOid)) {
     throw new Error('Expected promotion snapshot is not a full commit OID.');
   }
-  if ((await gitHead(root)) !== expectedOid) {
+  if ((await resolveHeadOid(root)) !== expectedOid) {
     throw new Error('The checked-out snapshot does not match promotion authority.');
   }
 };

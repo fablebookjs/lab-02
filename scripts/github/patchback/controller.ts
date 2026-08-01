@@ -16,7 +16,8 @@ import {
   renderPatchbackBody,
 } from '../../shared/patchback/core.ts';
 import { deriveReleaseAuthority } from '../../shared/release-publication/core.ts';
-import { PILOT_REPOSITORY } from '../../shared/repository.ts';
+import { resolveHeadOid } from '../../shared/git/repository.ts';
+import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../../shared/repository.ts';
 import {
   migrationRecordDirectory,
   releaseRecordPath,
@@ -141,7 +142,7 @@ const fullOid = (value: unknown, label: string): string => {
 const ensureTrustedMain = (): void => {
   if (
     process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
-    process.env['GITHUB_REF'] !== 'refs/heads/main'
+    process.env['GITHUB_REF'] !== `refs/heads/${PRIMARY_BRANCH}`
   ) {
     throw new Error('Patchback authority is restricted to trusted main in the pilot repository.');
   }
@@ -254,9 +255,6 @@ export async function resolvePatchback(
   console.log(`Resolved patchback authority for ${authority.version}.`);
   return outputs;
 }
-
-const gitHead = async (root: string): Promise<string> =>
-  (await git(['rev-parse', 'HEAD'], root)).stdout.trim();
 
 const commitParents = async (root: string, oid: string): Promise<string[]> =>
   (await git(['show', '-s', '--format=%P', oid], root)).stdout.trim().split(/\s+/).filter(Boolean);
@@ -563,7 +561,7 @@ export async function preparePatchback(
   const authority = validateAuthorityDocument(
     await readJsonFile(resolve(requireOption(options, 'authority')))
   );
-  if ((await gitHead(snapshot)) !== authority.snapshotOid) {
+  if ((await resolveHeadOid(snapshot)) !== authority.snapshotOid) {
     throw new Error('The checked-out snapshot does not match patchback authority.');
   }
 
@@ -606,7 +604,7 @@ export async function preparePatchback(
     authority.line
   );
 
-  const main = await getRef(token, 'heads/main');
+  const main = await getRef(token, `heads/${PRIMARY_BRANCH}`);
   if (main === null || main.type !== 'commit') {
     throw new Error('main does not identify a commit.');
   }
@@ -674,7 +672,7 @@ const listPatchbackPulls = async (
   }
   return pulls.filter(
     (pull) =>
-      pull.base.ref === 'main' &&
+      pull.base.ref === PRIMARY_BRANCH &&
       pull.base.repo.full_name === PILOT_REPOSITORY &&
       pull.head.ref === branch &&
       pull.head.repo.full_name === PILOT_REPOSITORY
@@ -830,7 +828,7 @@ const findCoordinationCommit = async (
 };
 
 const verifyMainAncestry = async (token: string, baseMainOid: string): Promise<void> => {
-  const main = await getRef(token, 'heads/main');
+  const main = await getRef(token, `heads/${PRIMARY_BRANCH}`);
   if (main === null || main.type !== 'commit') {
     throw new Error('main does not identify a commit.');
   }
@@ -945,7 +943,7 @@ const validateExistingPull = (
 ): void => {
   const body = pull.body;
   if (
-    pull.base.ref !== 'main' ||
+    pull.base.ref !== PRIMARY_BRANCH ||
     pull.base.repo.full_name !== PILOT_REPOSITORY ||
     pull.head.ref !== manifest.branch ||
     pull.head.repo.full_name !== PILOT_REPOSITORY ||
@@ -988,7 +986,7 @@ export async function applyPatchback(options: ApplyPatchbackOptions): Promise<vo
   const branchRefName = `heads/${manifest.branch}`;
   let branch = await getRef(token, branchRefName);
   if (branch === null) {
-    const main = await getRef(token, 'heads/main');
+    const main = await getRef(token, `heads/${PRIMARY_BRANCH}`);
     if (
       main === null ||
       main.type !== 'commit' ||
@@ -1051,7 +1049,7 @@ export async function applyPatchback(options: ApplyPatchbackOptions): Promise<vo
   pull = validatedPullRequestResponse(
     await githubRequest(`/repos/${PILOT_REPOSITORY}/pulls`, {
       body: {
-        base: 'main',
+        base: PRIMARY_BRANCH,
         body: manifest.body,
         draft: true,
         head: manifest.branch,

@@ -9,7 +9,7 @@ import {
   registryNextVersion,
   validatePrereleaseCommunication,
 } from '../../shared/prerelease-publication/core.ts';
-import { PILOT_REPOSITORY } from '../../shared/repository.ts';
+import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../../shared/repository.ts';
 import type {
   PrereleaseAuthority,
   PrereleaseAuthorityBase,
@@ -285,7 +285,7 @@ const readLivePrerelease = async (
 const ensureTrustedMain = (): void => {
   if (
     process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
-    process.env['GITHUB_REF'] !== 'refs/heads/main'
+    process.env['GITHUB_REF'] !== `refs/heads/${PRIMARY_BRANCH}`
   ) {
     throw new Error(
       'Prerelease publication authority is restricted to trusted main.',

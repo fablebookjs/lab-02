@@ -3,8 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { ZERO_OID } from '../../shared/release-proposal/core.ts';
 import { RELEASE_PR_TEMPLATE_MARKER } from '../../shared/release-proposal/body.ts';
 import { PRERELEASE_PR_TEMPLATE_MARKER } from '../../shared/prerelease-proposal/body.ts';
-
-export const PILOT_REPOSITORY = 'fablebookjs/lab-02';
+import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../../shared/repository.ts';
 
 const apiUrl = process.env['GITHUB_API_URL'] ?? 'https://api.github.com';
 const graphqlUrl = process.env['GITHUB_GRAPHQL_URL'] ?? 'https://api.github.com/graphql';
@@ -60,7 +59,7 @@ export function isCanonicalReleasePull(pull: GitPullRequest): boolean {
 
 export function isCanonicalPrereleasePull(pull: GitPullRequest): boolean {
   return (
-    pull.base.ref === 'main' &&
+    pull.base.ref === PRIMARY_BRANCH &&
     pull.head.ref === 'prerelease' &&
     pull.base.repo.full_name === PILOT_REPOSITORY &&
     pull.head.repo.full_name === PILOT_REPOSITORY
@@ -247,11 +246,14 @@ export async function getRepository(token: string): Promise<{
 }> {
   const repository = await githubRequest(`/repos/${PILOT_REPOSITORY}`, { token });
   const value = objectValue(repository, 'GitHub repository');
-  if (value['full_name'] !== PILOT_REPOSITORY || value['default_branch'] !== 'main') {
+  if (
+    value['full_name'] !== PILOT_REPOSITORY ||
+    value['default_branch'] !== PRIMARY_BRANCH
+  ) {
     throw new Error('The controller is not operating on the allowlisted pilot repository.');
   }
   return {
-    default_branch: 'main',
+    default_branch: PRIMARY_BRANCH,
     full_name: PILOT_REPOSITORY,
     node_id: stringValue(value['node_id'], 'GitHub repository node_id'),
   };
@@ -364,7 +366,7 @@ export async function listPrereleasePulls(
   const pulls: GitPullRequest[] = [];
   for (let page = 1; ; page += 1) {
     const query = new URLSearchParams({
-      base: 'main',
+      base: PRIMARY_BRANCH,
       direction: 'desc',
       head: 'fablebookjs:prerelease',
       page: String(page),
@@ -545,7 +547,7 @@ export async function createDraftPrereleasePr(
   return validatedPullRequestResponse(
     await githubRequest(`/repos/${PILOT_REPOSITORY}/pulls`, {
       body: {
-        base: 'main',
+        base: PRIMARY_BRANCH,
         body,
         draft: true,
         head: 'prerelease',
@@ -590,7 +592,7 @@ export function createRefUpdate({
   name: string;
 }) {
   if (
-    name !== 'refs/heads/main' &&
+    name !== `refs/heads/${PRIMARY_BRANCH}` &&
     name !== 'refs/heads/prerelease' &&
     !/^refs\/heads\/(?:releases|staged)\/v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(name)
   ) {

@@ -13,7 +13,7 @@ import {
   lineChannel,
   validateReleaseCommunication,
 } from '../../shared/release-publication/core.ts';
-import { PILOT_REPOSITORY } from '../../shared/repository.ts';
+import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../../shared/repository.ts';
 import type {
   ReleaseAuthority,
   ReleaseCommunication,
@@ -128,7 +128,7 @@ const validateOid = (oid: unknown, label: string): string => {
 const ensureTrustedMain = (): void => {
   if (
     process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
-    process.env['GITHUB_REF'] !== 'refs/heads/main'
+    process.env['GITHUB_REF'] !== `refs/heads/${PRIMARY_BRANCH}`
   ) {
     throw new Error('Publication authority is restricted to trusted main in the pilot repository.');
   }

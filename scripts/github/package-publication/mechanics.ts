@@ -3,14 +3,15 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 
 import { NPM_REGISTRY } from '../../shared/package-publication/core.ts';
+import { resolveHeadOid } from '../../shared/git/repository.ts';
 import { loadReleasePackageSet } from '../../shared/package-publication/package-set.ts';
 import type { PublicationPackage } from '../../shared/package-publication/publication.ts';
 import { run } from '../../shared/process/run.ts';
+import { PILOT_REPOSITORY } from '../../shared/repository.ts';
 import {
   getRef,
   getReleaseByTag,
   githubRequest,
-  PILOT_REPOSITORY,
   validatedReleaseResponse,
 } from '../release-repository/github.ts';
 
@@ -42,15 +43,12 @@ const validateOid = (oid: unknown, label: string): string => {
   return oid;
 };
 
-const gitHead = async (root: string): Promise<string> =>
-  (await run('git', ['rev-parse', 'HEAD'], { cwd: root })).stdout.trim();
-
 export const validatePublicationSnapshot = async (
   root: string,
   expectedOid: string,
 ): Promise<void> => {
   validateOid(expectedOid, 'Expected snapshot');
-  if ((await gitHead(root)) !== expectedOid) {
+  if ((await resolveHeadOid(root)) !== expectedOid) {
     throw new Error('The checked-out snapshot does not match release authority.');
   }
 };
