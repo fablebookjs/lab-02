@@ -184,33 +184,6 @@ export function validatePrereleaseCommunication(
   });
 }
 
-export function composePrereleaseGitHubReleaseBody({
-  changes,
-  version,
-}: {
-  changes: readonly PrereleasePrChange[];
-  version: string;
-}): string {
-  parseDevelopmentVersion(version);
-  const publicChanges = validatePrereleaseCommunication(changes).filter(
-    ({ releaseNoteSkip }) => !releaseNoteSkip,
-  );
-  const rendered =
-    publicChanges.length === 0
-      ? 'This prerelease contains no user-facing changes worth mentioning.'
-      : publicChanges
-          .map(({ title, url }) => `- [${title}](${url})`)
-          .join('\n');
-  return [
-    `# Lab-02 ${version}`,
-    '',
-    `## What's changed`,
-    '',
-    rendered,
-    '',
-  ].join('\n');
-}
-
 export function registryNextVersion({
   document,
   name,

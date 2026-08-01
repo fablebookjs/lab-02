@@ -7,7 +7,6 @@ import {
   registryIntegrity,
 } from '../../shared/package-publication/core.ts';
 import {
-  composeGitHubReleaseBody,
   deriveReleaseAuthority,
   deriveReleaseCommunication,
 } from '../../shared/release-publication/core.ts';
@@ -56,6 +55,7 @@ import {
   readAnnotatedTag,
 } from '../release-repository/releases.ts';
 import { parseReleaseAuthorityDocument } from './authority-schema.ts';
+import { renderStableGitHubReleaseBody } from './templates.ts';
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 export type PromotionResolution = {
@@ -182,7 +182,7 @@ export async function preparePublication(
   );
   const migrationRecords = await loadMigrationRecords(snapshot, authority.line);
   const { releaseCommunication, ...releaseAuthority } = authority;
-  const releaseBody = composeGitHubReleaseBody({
+  const releaseBody = renderStableGitHubReleaseBody({
     communication: releaseCommunication,
     migrationRecords,
     releaseRecord,

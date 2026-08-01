@@ -2,7 +2,6 @@ import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 import {
-  composePrereleaseGitHubReleaseBody,
   derivePrereleaseAuthority,
   derivePrereleaseCommunication,
   PRERELEASE_CHANNEL,
@@ -59,6 +58,7 @@ import {
 } from '../release-repository/pull-requests.ts';
 import { parsePrereleaseAuthorityDocument } from './authority-schema.ts';
 import type { PrereleaseAuthorityDocument } from './authority-schema.ts';
+import { renderPrereleaseGitHubReleaseBody } from './templates.ts';
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
@@ -235,7 +235,7 @@ export async function preparePrereleasePublication(
     authority.version,
   );
   const { changes, ...releaseAuthority } = authority;
-  const releaseBody = composePrereleaseGitHubReleaseBody({
+  const releaseBody = renderPrereleaseGitHubReleaseBody({
     changes,
     version: authority.version,
   });

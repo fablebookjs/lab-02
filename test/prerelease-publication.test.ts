@@ -5,11 +5,11 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import {
-  composePrereleaseGitHubReleaseBody,
   derivePrereleaseAuthority,
   derivePrereleaseCommunication,
   registryNextVersion,
 } from '../scripts/shared/prerelease-publication/core.ts';
+import { renderPrereleaseGitHubReleaseBody } from '../scripts/github/prerelease-publication/templates.ts';
 import {
   reconcileNextPackageSet,
   validatePrereleasePublicationManifest,
@@ -128,7 +128,7 @@ test('the merged canonical PR authorizes its exact materialized snapshot', () =>
 test('prerelease communication is incremental, filtered, and output-only', () => {
   const fixture = authorityFixture();
   const authority = derivePrereleaseAuthority(fixture);
-  const body = composePrereleaseGitHubReleaseBody({
+  const body = renderPrereleaseGitHubReleaseBody({
     changes: derivePrereleaseCommunication({
       authority,
       body: fixture.body,
@@ -146,7 +146,7 @@ test('prerelease communication is incremental, filtered, and output-only', () =>
   );
   assert.doesNotMatch(body, /Refine internal|migration|checkbox/i);
   assert.equal(
-    composePrereleaseGitHubReleaseBody({
+    renderPrereleaseGitHubReleaseBody({
       changes: [
         {
           key: 'pr:92',
