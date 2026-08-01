@@ -40,6 +40,7 @@ import { run } from '../../shared/process/run.ts';
 import { requireControllerGitHubToken } from '../controller-inputs.ts';
 import {
   packPublicationPackageSet,
+  observeGitHubReleaseCompletion,
   readRegistryDocument,
   validatePublicationSnapshot,
 } from '../package-publication/mechanics.ts';
@@ -48,11 +49,8 @@ import type {
   PublicationArtifactOptions,
 } from '../package-publication/mechanics.ts';
 import {
-  assertTagTarget,
   ensureAnnotatedTag,
   ensureGitHubRelease,
-  getReleaseByTag,
-  readAnnotatedTag,
 } from '../release-repository/releases.ts';
 import { getGitCommit } from '../release-repository/commits.ts';
 import {
@@ -352,27 +350,19 @@ const prereleaseCompletionState = async (
   manifest: PrereleasePublicationManifest,
 ): Promise<boolean> => {
   const tag = `v${manifest.version}`;
-  const tagObject = await readAnnotatedTag(token, tag);
-  const release = await getReleaseByTag(token, tag);
-  if (tagObject === null) {
-    if (release !== null) {
+  const observation = await observeGitHubReleaseCompletion(token, {
+    body: manifest.releaseBody,
+    prerelease: true,
+    snapshotOid: manifest.snapshotOid,
+    tag,
+  });
+  if (observation.kind === 'contradiction') {
+    if (observation.reason === 'release-without-tag') {
       throw new Error(`GitHub prerelease ${tag} exists without its tag.`);
     }
-    return false;
-  }
-  assertTagTarget(tagObject, tag, manifest.snapshotOid);
-  if (release === null) {
-    return false;
-  }
-  if (
-    release.tag_name !== tag ||
-    release.draft !== false ||
-    release.prerelease !== true ||
-    release.body !== manifest.releaseBody
-  ) {
     throw new Error(`GitHub prerelease ${tag} contradicts its snapshot.`);
   }
-  return true;
+  return observation.kind === 'complete';
 };
 
 export async function checkPrereleaseCompletion(

@@ -7,6 +7,11 @@ import { resolveHeadOid } from '../../shared/git/repository.ts';
 import { loadReleasePackageSet } from '../../shared/package-publication/package-set.ts';
 import type { PublicationPackage } from '../../shared/package-publication/publication.ts';
 import { run } from '../../shared/process/run.ts';
+import {
+  assertTagTarget,
+  getReleaseByTag,
+  readAnnotatedTag,
+} from '../release-repository/releases.ts';
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
@@ -21,6 +26,14 @@ export type AuthenticatedPublicationArtifactOptions =
   PublicationArtifactOptions & {
     'github-token': string;
   };
+
+type GitHubReleaseObservation =
+  | Readonly<{ kind: 'complete' }>
+  | Readonly<{ kind: 'incomplete' }>
+  | Readonly<{
+      kind: 'contradiction';
+      reason: 'release-mismatch' | 'release-without-tag';
+    }>;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -140,3 +153,36 @@ export const readRegistryDocument = async (name: string): Promise<unknown> => {
   const value: unknown = await response.json();
   return value;
 };
+
+export async function observeGitHubReleaseCompletion(
+  token: string,
+  expected: Readonly<{
+    body?: string;
+    prerelease: boolean;
+    snapshotOid: string;
+    tag: string;
+  }>,
+): Promise<GitHubReleaseObservation> {
+  const tagObject = await readAnnotatedTag(token, expected.tag);
+  const release = await getReleaseByTag(token, expected.tag);
+
+  if (tagObject === null) {
+    return release === null
+      ? { kind: 'incomplete' }
+      : { kind: 'contradiction', reason: 'release-without-tag' };
+  }
+
+  assertTagTarget(tagObject, expected.tag, expected.snapshotOid);
+  if (release === null) return { kind: 'incomplete' };
+
+  if (
+    release.tag_name !== expected.tag ||
+    release.draft !== false ||
+    release.prerelease !== expected.prerelease ||
+    (expected.body !== undefined && release.body !== expected.body)
+  ) {
+    return { kind: 'contradiction', reason: 'release-mismatch' };
+  }
+
+  return { kind: 'complete' };
+}

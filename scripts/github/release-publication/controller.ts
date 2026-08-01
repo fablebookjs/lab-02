@@ -41,6 +41,7 @@ import { requireControllerGitHubToken } from '../controller-inputs.ts';
 import type { PublicationResolution } from '../publication-routing/core.ts';
 import {
   packPublicationPackageSet,
+  observeGitHubReleaseCompletion,
   readRegistryDocument,
   validatePublicationSnapshot,
 } from '../package-publication/mechanics.ts';
@@ -264,26 +265,18 @@ const releaseCompletionState = async (
   manifest: PublicationManifest,
 ): Promise<boolean> => {
   const tag = `v${manifest.version}`;
-  const tagObject = await readAnnotatedTag(token, tag);
-  const release = await getReleaseByTag(token, tag);
-  if (tagObject === null) {
-    if (release !== null) {
+  const observation = await observeGitHubReleaseCompletion(token, {
+    prerelease: false,
+    snapshotOid: manifest.snapshotOid,
+    tag,
+  });
+  if (observation.kind === 'contradiction') {
+    if (observation.reason === 'release-without-tag') {
       throw new Error(`GitHub Release ${tag} exists without its annotated tag.`);
     }
-    return false;
-  }
-  assertTagTarget(tagObject, tag, manifest.snapshotOid);
-  if (release === null) {
-    return false;
-  }
-  if (
-    release.tag_name !== tag ||
-    release.draft !== false ||
-    release.prerelease !== false
-  ) {
     throw new Error(`GitHub Release ${tag} contradicts the completed stable release.`);
   }
-  return true;
+  return observation.kind === 'complete';
 };
 
 export async function finalizeRelease(
