@@ -6,10 +6,12 @@ import {
   normalizeReleaseChanges,
 } from '../release-communication/records.ts';
 import type { ReleaseChange } from '../release-communication/records.ts';
+import { PILOT_REPOSITORY } from '../repository.ts';
+import { escapeRegExp } from '../text/regexp.ts';
 import { renderMarkdownTemplate } from './template.ts';
 
-const REPOSITORY = 'fablebookjs/lab-02';
-const repositoryUrl = `https://github.com/${REPOSITORY}`;
+const repositoryUrl = `https://github.com/${PILOT_REPOSITORY}`;
+const repositoryUrlPattern = escapeRegExp(repositoryUrl);
 const fullOidPattern = /^[0-9a-f]{40}$/;
 const packageNamePattern = /^@fablebook\/[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const checkTaskPattern =
@@ -17,8 +19,10 @@ const checkTaskPattern =
 const proposalIdentityPattern =
   /<!-- fablebook:proposal=([0-9a-f]{40}) source=([0-9a-f]{40}) version=([^ ]+) -->/g;
 const releaseKindPattern = /<!-- fablebook:release-kind=(initial|patch) -->/g;
-const changeTaskPattern =
-  /^- \[([ xX])\] \[([^\]\r\n]+)\]\((https:\/\/github\.com\/fablebookjs\/lab-02\/(?:pull\/[1-9]\d*|commit\/[0-9a-f]{40}))\) — (.+) <!-- fablebook:change=(pr:[1-9]\d*|commit:[0-9a-f]{40}) release-note=(include|skip) qa=(required|skip) -->\s*$/gm;
+const changeTaskPattern = new RegExp(
+  String.raw`^- \[([ xX])\] \[([^\]\r\n]+)\]\((${repositoryUrlPattern}/(?:pull/[1-9]\d*|commit/[0-9a-f]{40}))\) — (.+) <!-- fablebook:change=(pr:[1-9]\d*|commit:[0-9a-f]{40}) release-note=(include|skip) qa=(required|skip) -->\s*$`,
+  'gm',
+);
 
 type ParsedReleasePrChange = {
   checked: boolean;

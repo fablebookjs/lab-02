@@ -8,6 +8,7 @@ import {
   migrationRecordDirectory,
   parseReleaseRecordChanges,
 } from '../release-communication/records.ts';
+import { PILOT_REPOSITORY } from '../repository.ts';
 import {
   extractReleasePrIdentity,
   requireReleaseHighlights,
@@ -15,8 +16,6 @@ import {
   RELEASE_HIGHLIGHTS_START,
   validateReleasePrBody,
 } from '../release-proposal/body.ts';
-export const PILOT_REPOSITORY = 'fablebookjs/lab-02';
-
 export type ReleaseAuthority = {
   channel: string;
   line: string;

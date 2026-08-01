@@ -2,13 +2,16 @@ import { readdir, readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 
 import { parseReleaseLine, parseStableVersion } from '../release-proposal/core.ts';
+import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../repository.ts';
+import { escapeRegExp } from '../text/regexp.ts';
 
-const REPOSITORY = 'fablebookjs/lab-02';
-const repositoryUrl = `https://github.com/${REPOSITORY}`;
+const repositoryUrl = `https://github.com/${PILOT_REPOSITORY}`;
+const repositoryUrlPattern = escapeRegExp(repositoryUrl);
 const fullOidPattern = /^[0-9a-f]{40}$/;
 const changeKeyPattern = /^(?:pr:[1-9]\d*|commit:[0-9a-f]{40})$/;
-const releaseRecordChangePattern =
-  /^- \[([^\]\r\n]+)\]\((https:\/\/github\.com\/fablebookjs\/lab-02\/(?:pull\/[1-9]\d*|commit\/[0-9a-f]{40}))\)$/;
+const releaseRecordChangePattern = new RegExp(
+  String.raw`^- \[([^\]\r\n]+)\]\((${repositoryUrlPattern}/(?:pull/[1-9]\d*|commit/[0-9a-f]{40}))\)$`,
+);
 const migrationFilenamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/;
 const metadataKeyPattern = /^[a-z][a-z0-9-]*$/;
 const priorityOrder = new Intl.Collator('en', {
@@ -90,7 +93,7 @@ const canonicalBranchPull = (
     isRecord(base) &&
     base['ref'] === branch &&
     isRecord(base['repo']) &&
-    base['repo']['full_name'] === REPOSITORY &&
+    base['repo']['full_name'] === PILOT_REPOSITORY &&
     pull['merge_commit_sha'] === oid
   );
 };
@@ -132,7 +135,10 @@ const deriveBranchChanges = ({
   branch: string;
   commits: unknown;
 }): ReleaseChange[] => {
-  if (branch !== 'main' && !/^releases\/v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(branch)) {
+  if (
+    branch !== PRIMARY_BRANCH &&
+    !/^releases\/v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(branch)
+  ) {
     throw new Error(`Unsupported change-history branch: ${branch}`);
   }
   if (!Array.isArray(commits)) {
@@ -190,7 +196,7 @@ export function derivePrereleaseChanges({
 }: {
   commits: unknown;
 }): ReleaseChange[] {
-  return deriveBranchChanges({ branch: 'main', commits });
+  return deriveBranchChanges({ branch: PRIMARY_BRANCH, commits });
 }
 
 export function normalizeReleaseChanges(changes: unknown): ReleaseChange[] {

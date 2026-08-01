@@ -5,8 +5,8 @@ import {
   migrationRecordDirectory,
   releaseRecordPath,
 } from '../release-communication/records.ts';
+import { PILOT_REPOSITORY } from '../repository.ts';
 
-export const PATCHBACK_REPOSITORY = 'fablebookjs/lab-02';
 export const PATCHBACK_BODY_SCHEMA_VERSION = 3;
 export const PATCHBACK_FULL_OID_PATTERN_SOURCE = '[0-9a-f]{40}';
 export const PATCHBACK_COMMENT_MARKER = '<!-- fablebook-patchback-outcome-examples -->';
@@ -253,7 +253,7 @@ const canonicalPull = (
     isRecord(base) &&
     base['ref'] === `releases/${line}` &&
     isRecord(base['repo']) &&
-    base['repo']['full_name'] === PATCHBACK_REPOSITORY &&
+    base['repo']['full_name'] === PILOT_REPOSITORY &&
     pull['merge_commit_sha'] === oid
   );
 };
@@ -316,7 +316,7 @@ export function derivePatchbackItems({
 
 const itemHeading = (item: PatchbackItem): string => {
   if (item.kind === 'pull-request') {
-    return `[PR #${item.pullRequest}](https://github.com/${PATCHBACK_REPOSITORY}/pull/${item.pullRequest}) — ${item.subject}`;
+    return `[PR #${item.pullRequest}](https://github.com/${PILOT_REPOSITORY}/pull/${item.pullRequest}) — ${item.subject}`;
   }
   const label = item.kind === 'direct-merge' ? 'Direct merge' : 'Direct commit';
   return `${label} — ${item.subject}`;
@@ -370,19 +370,19 @@ export function renderPatchbackBody({
     PATCHBACK_BODY_MARKER,
     `# Patchback for v${version}`,
     '',
-    `Authorized snapshot: [\`${snapshotOid}\`](https://github.com/${PATCHBACK_REPOSITORY}/commit/${snapshotOid})`,
-    `Scope starts after ${boundaryLabel}: [\`${boundaryOid}\`](https://github.com/${PATCHBACK_REPOSITORY}/commit/${boundaryOid})`,
+    `Authorized snapshot: [\`${snapshotOid}\`](https://github.com/${PILOT_REPOSITORY}/commit/${snapshotOid})`,
+    `Scope starts after ${boundaryLabel}: [\`${boundaryOid}\`](https://github.com/${PILOT_REPOSITORY}/commit/${boundaryOid})`,
     '',
     '## Mechanically synchronized release communication',
     '',
-    `- Generated release record: [\`${recordPath}\`](https://github.com/${PATCHBACK_REPOSITORY}/blob/${snapshotOid}/${recordPath})`,
+    `- Generated release record: [\`${recordPath}\`](https://github.com/${PILOT_REPOSITORY}/blob/${snapshotOid}/${recordPath})`,
     ...(migrationRecords.length === 0
       ? ['- Migration records: _None target this release line._']
       : [
           '- Migration records:',
           ...migrationRecords.map(
             ({ path, title }) =>
-              `  - [${title}](https://github.com/${PATCHBACK_REPOSITORY}/blob/${snapshotOid}/${path}) (\`${path}\`)`
+              `  - [${title}](https://github.com/${PILOT_REPOSITORY}/blob/${snapshotOid}/${path}) (\`${path}\`)`
           ),
         ]),
     '',
@@ -400,7 +400,7 @@ export function renderPatchbackBody({
   const queue = items.flatMap((item) => [
     '',
     `- [ ] **${itemHeading(item)}**`,
-    `  - Release commit: [\`${item.oid}\`](https://github.com/${PATCHBACK_REPOSITORY}/commit/${item.oid})`,
+    `  - Release commit: [\`${item.oid}\`](https://github.com/${PILOT_REPOSITORY}/commit/${item.oid})`,
     `  - Apply: \`${item.command}\``,
     '  - Outcome: _record `applied`, `already-present`, or `not-applicable` before checking this item_',
   ]);

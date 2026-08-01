@@ -7,12 +7,12 @@ import {
   parseReleaseLine,
 } from '../release-proposal/core.ts';
 import {
-  PILOT_REPOSITORY,
   PRERELEASE_CHANNEL,
   type PrereleaseAuthority,
   type PrereleaseAuthorityBase,
 } from './core.ts';
 import { parseManualPrereleasePhase } from '../prerelease-phase-entry/core.ts';
+import { PILOT_REPOSITORY } from '../repository.ts';
 
 type PrereleasePublicationBase = PrereleaseAuthorityBase &
   Readonly<{

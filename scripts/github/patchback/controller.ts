@@ -15,10 +15,8 @@ import {
   releaseMergerAssignee,
   renderPatchbackBody,
 } from '../../shared/patchback/core.ts';
-import {
-  deriveReleaseAuthority,
-  PILOT_REPOSITORY,
-} from '../../shared/release-publication/core.ts';
+import { deriveReleaseAuthority } from '../../shared/release-publication/core.ts';
+import { PILOT_REPOSITORY } from '../../shared/repository.ts';
 import {
   migrationRecordDirectory,
   releaseRecordPath,

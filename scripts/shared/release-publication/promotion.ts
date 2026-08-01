@@ -1,5 +1,5 @@
 import { parseStableVersion } from '../release-proposal/core.ts';
-import { PILOT_REPOSITORY } from './core.ts';
+import { PILOT_REPOSITORY } from '../repository.ts';
 
 export type PromotionManifest = Readonly<{
   packages: readonly string[];

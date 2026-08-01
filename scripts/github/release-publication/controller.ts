@@ -11,9 +11,9 @@ import {
   deriveReleaseAuthority,
   deriveReleaseCommunication,
   lineChannel,
-  PILOT_REPOSITORY,
   validateReleaseCommunication,
 } from '../../shared/release-publication/core.ts';
+import { PILOT_REPOSITORY } from '../../shared/repository.ts';
 import type {
   ReleaseAuthority,
   ReleaseCommunication,

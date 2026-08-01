@@ -25,7 +25,7 @@ export type PublicationRouteDecision =
 
 type PublicationSource = Readonly<{
   authorityKind: PublicationAuthorityKind;
-  branch?: 'main';
+  branch?: typeof PRIMARY_BRANCH;
   event: 'pull_request_target' | 'workflow_dispatch';
   path: string;
 }>;
@@ -43,13 +43,13 @@ const PUBLICATION_SOURCES: readonly PublicationSource[] = [
   },
   {
     authorityKind: 'phase-entry',
-    branch: 'main',
+    branch: PRIMARY_BRANCH,
     event: 'workflow_dispatch',
     path: '.github/workflows/enter-prerelease-phase.yml',
   },
   {
     authorityKind: 'release-cut-bootstrap',
-    branch: 'main',
+    branch: PRIMARY_BRANCH,
     event: 'workflow_dispatch',
     path: '.github/workflows/cut-release-line.yml',
   },
@@ -106,3 +106,4 @@ export const isPrereleaseAuthorityKind = (
   value === 'ordinary-prerelease-pr' ||
   value === 'phase-entry' ||
   value === 'release-cut-bootstrap';
+import { PRIMARY_BRANCH } from '../repository.ts';

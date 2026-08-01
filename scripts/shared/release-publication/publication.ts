@@ -4,10 +4,10 @@ import {
 } from '../package-publication/publication.ts';
 import {
   lineChannel,
-  PILOT_REPOSITORY,
   type ReleaseAuthority,
 } from './core.ts';
 import { parseStableVersion } from '../release-proposal/core.ts';
+import { PILOT_REPOSITORY } from '../repository.ts';
 
 export type PublicationManifest = ReleaseAuthority &
   Readonly<{

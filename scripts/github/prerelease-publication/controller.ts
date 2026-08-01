@@ -5,11 +5,11 @@ import {
   composePrereleaseGitHubReleaseBody,
   derivePrereleaseAuthority,
   derivePrereleaseCommunication,
-  PILOT_REPOSITORY,
   PRERELEASE_CHANNEL,
   registryNextVersion,
   validatePrereleaseCommunication,
 } from '../../shared/prerelease-publication/core.ts';
+import { PILOT_REPOSITORY } from '../../shared/repository.ts';
 import type {
   PrereleaseAuthority,
   PrereleaseAuthorityBase,
