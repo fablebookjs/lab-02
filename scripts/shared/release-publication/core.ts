@@ -16,6 +16,7 @@ import {
   RELEASE_HIGHLIGHTS_START,
   validateReleasePrBody,
 } from '../release-proposal/body.ts';
+/** Exact reviewed stable snapshot authorized by a canonical merged Release PR. */
 export type ReleaseAuthority = {
   channel: string;
   line: string;
@@ -28,6 +29,7 @@ export type ReleaseAuthority = {
 
 export type CommunicationChange = Omit<ReleaseChange, 'oid'>;
 
+/** Validated human-facing stable release content derived from the reviewed PR. */
 export type ReleaseCommunication = {
   changes: CommunicationChange[];
   kind: 'initial' | 'maintenance' | 'patch';
@@ -62,11 +64,17 @@ const stableVersionOnLine = (version: string, line: string) => {
   return parsedVersion;
 };
 
+/** Derives the stable line-scoped npm channel from a canonical release line. */
 export function lineChannel(line: string): string {
   const { major, minor } = parseReleaseLine(line);
   return `v-${major}.${minor}`;
 }
 
+/**
+ * Proves that GitHub PR and commit observations identify the exact two-parent
+ * merge of a reviewed proposal. The result is provider-neutral authority for
+ * later credentialless preparation.
+ */
 export function deriveReleaseAuthority({
   headCommit,
   mergeCommit,
@@ -173,6 +181,10 @@ const normalizeCommunicationChanges = (changes: unknown): CommunicationChange[] 
   });
 };
 
+/**
+ * Narrows serialized release communication and enforces the version-derived
+ * initial, patch, or maintenance shape.
+ */
 export function validateReleaseCommunication(
   communication: unknown,
   version: string,
@@ -215,6 +227,10 @@ export function validateReleaseCommunication(
   return { changes, kind: expectedKind, releaseHighlights };
 }
 
+/**
+ * Derives stable communication only when the generated, attested PR body is
+ * bound to the authorized proposal, source, and version.
+ */
 export function deriveReleaseCommunication({
   authority,
   body,

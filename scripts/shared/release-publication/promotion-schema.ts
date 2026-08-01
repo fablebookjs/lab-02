@@ -2,6 +2,7 @@ import { parseStableVersion } from '../release-proposal/core.ts';
 import { PILOT_REPOSITORY } from '../repository.ts';
 import type { PublicationBinding } from '../package-publication/publication.ts';
 
+/** Schema-1 package set sealed for a stable `latest` promotion. */
 export type PromotionManifest = Readonly<{
   packages: readonly string[];
   repository: typeof PILOT_REPOSITORY;
@@ -10,6 +11,7 @@ export type PromotionManifest = Readonly<{
   version: string;
 }>;
 
+/** Injectable dist-tag effects used by the serialized promotion procedure. */
 export type PromotionOperations = Readonly<{
   addLatest: (name: string, version: string) => Promise<void>;
   wait: (milliseconds: number) => Promise<void>;
@@ -72,6 +74,10 @@ const requireExactKeys = (value: Record<string, unknown>): void => {
   }
 };
 
+/**
+ * Narrows an untrusted promotion artifact and binds it to invocation-owned
+ * repository, snapshot, and stable-version facts.
+ */
 export function validatePromotionManifest(
   value: unknown,
   expected: PublicationBinding,
@@ -116,6 +122,7 @@ export function validatePromotionManifest(
   };
 }
 
+/** Creates a sealed promotion artifact through the same validator used by consumers. */
 export function createPromotionManifest({
   packages,
   snapshotOid,
@@ -142,6 +149,10 @@ export function createPromotionManifest({
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+/**
+ * Applies `latest` to every sealed package with bounded retries. Packages are
+ * attempted independently so one failure does not hide later outcomes.
+ */
 export async function promoteSealedPackageSet(
   manifest: PromotionManifest,
   operations: PromotionOperations,

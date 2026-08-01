@@ -5,6 +5,7 @@ const fullOidPattern = /^[0-9a-f]{40}$/;
 export type PrereleasePhase = 'alpha' | 'beta' | 'rc';
 export type ManualPrereleasePhase = Exclude<PrereleasePhase, 'alpha'>;
 
+/** Durable authority recorded when a maintainer manually enters beta or rc. */
 export type PhaseEntryCommit = {
   boundaryOid: string;
   phase: ManualPrereleasePhase;
@@ -12,10 +13,12 @@ export type PhaseEntryCommit = {
   version: string;
 };
 
+/** Phase-entry trailers paired with the applied commit that carries them. */
 export type PhaseEntrySnapshot = PhaseEntryCommit & {
   snapshotOid: string;
 };
 
+/** Establish-or-reconcile intent for the requested manual phase boundary. */
 export type PhaseEntryPlan =
   | {
       kind: 'establish';
@@ -68,6 +71,7 @@ const requiredTrailer = (
   return value;
 };
 
+/** Restricts manual phase entry to forward phases; alpha begins at release cut. */
 export function parseManualPrereleasePhase(
   value: string,
 ): ManualPrereleasePhase {
@@ -90,6 +94,7 @@ const validateEntry = (entry: PhaseEntryCommit): PhaseEntryCommit => {
   return { ...entry, phase };
 };
 
+/** Encodes a validated phase-entry boundary as durable commit trailers. */
 export function phaseEntryCommitMessage(entry: PhaseEntryCommit): string {
   const valid = validateEntry(entry);
   return [
@@ -102,6 +107,7 @@ export function phaseEntryCommitMessage(entry: PhaseEntryCommit): string {
   ].join('\n');
 }
 
+/** Parses the complete manual phase-entry trailer protocol. */
 export function parsePhaseEntryCommitMessage(
   message: string,
 ): PhaseEntryCommit {
@@ -116,6 +122,10 @@ export function parsePhaseEntryCommitMessage(
   });
 }
 
+/**
+ * Returns `null` only when no phase-entry marker exists; a partial marked
+ * commit is malformed history and therefore throws.
+ */
 export function parsePhaseEntryCommitMessageIfPresent(
   message: string,
 ): PhaseEntryCommit | null {
@@ -125,6 +135,10 @@ export function parsePhaseEntryCommitMessageIfPresent(
   return parsePhaseEntryCommitMessage(message);
 }
 
+/**
+ * Plans a forward phase transition or validates an idempotent same-phase retry.
+ * Backward movement and an unproven same-phase boundary are rejected.
+ */
 export function planPhaseEntry({
   currentVersion,
   entry,

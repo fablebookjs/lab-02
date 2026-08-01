@@ -14,6 +14,7 @@ import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../repository.ts';
 
 export const PRERELEASE_CHANNEL = 'next';
 
+/** Facts common to every managed path that can authorize a prerelease snapshot. */
 export type PrereleaseAuthorityBase = {
   boundaryOid: string;
   channel: typeof PRERELEASE_CHANNEL;
@@ -22,11 +23,16 @@ export type PrereleaseAuthorityBase = {
   version: string;
 };
 
+/** Authority proved by merging the canonical reviewed Prerelease PR. */
 export type OrdinaryPrereleaseAuthority = PrereleaseAuthorityBase & {
   proposalOid: string;
   pullRequest: number;
 };
 
+/**
+ * Provider-neutral authority discriminated by ordinary proposal, release cut,
+ * or manual phase-entry evidence.
+ */
 export type PrereleaseAuthority =
   | (PrereleaseAuthorityBase & { cutLine: string })
   | OrdinaryPrereleaseAuthority
@@ -52,6 +58,10 @@ const fullOid = (value: unknown, label: string): string => {
   return value;
 };
 
+/**
+ * Proves that a canonical Prerelease PR produced the exact reviewed two-parent
+ * snapshot and returns authority independent of the GitHub response shape.
+ */
 export function derivePrereleaseAuthority({
   headCommit,
   mergeCommit,
@@ -120,6 +130,10 @@ export function derivePrereleaseAuthority({
   };
 }
 
+/**
+ * Extracts prerelease communication only from the generated body bound to the
+ * authorized proposal, source, boundary, and version.
+ */
 export function derivePrereleaseCommunication({
   authority,
   body,
@@ -144,6 +158,7 @@ export function derivePrereleaseCommunication({
   );
 }
 
+/** Narrows serialized prerelease changes and rejects duplicate or forged identities. */
 export function validatePrereleaseCommunication(
   input: unknown,
 ): PrereleasePrChange[] {
@@ -184,6 +199,10 @@ export function validatePrereleaseCommunication(
   });
 }
 
+/**
+ * Observes npm's `next` tag from an untrusted registry document. Absence is a
+ * normal null result; contradictory package metadata fails closed.
+ */
 export function registryNextVersion({
   document,
   name,

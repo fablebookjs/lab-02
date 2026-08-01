@@ -23,9 +23,14 @@ type PrereleasePublicationBase = PrereleaseAuthorityBase &
     schema: 1;
   }>;
 
+/**
+ * Schema-1 sealed prerelease artifact. Its discriminated authority records
+ * whether an ordinary proposal, release cut, or phase entry authorized it.
+ */
 export type PrereleasePublicationManifest = PrereleaseAuthority &
   PrereleasePublicationBase;
 
+/** Injectable npm dist-tag effects for retryable `next` reconciliation. */
 export type NextOperations = Readonly<{
   addNext: (name: string, version: string) => Promise<void>;
   observeNext: (name: string) => Promise<string | null>;
@@ -93,6 +98,10 @@ const hasExactKeys = (
   );
 };
 
+/**
+ * Narrows an untrusted prerelease artifact and binds it to trusted invocation
+ * facts. Unknown fields and authority-shape contradictions fail closed.
+ */
 export async function validatePrereleasePublicationManifest(
   input: unknown,
   artifactRoot: string,
@@ -201,6 +210,11 @@ export async function validatePrereleasePublicationManifest(
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+/**
+ * Query-first reconciles every package to the sealed `next` version, retries
+ * transient failures three times, then reads the complete set back before
+ * succeeding. Per-package write failures are reported together.
+ */
 export async function reconcileNextPackageSet(
   manifest: PrereleasePublicationManifest,
   operations: NextOperations,

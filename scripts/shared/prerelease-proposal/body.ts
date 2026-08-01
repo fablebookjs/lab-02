@@ -20,6 +20,7 @@ const taskPattern = /^- \[[ xX]\]/m;
 export const PRERELEASE_PR_TEMPLATE_MARKER =
   '<!-- fablebook:prerelease-pr=v1 -->';
 
+/** Hidden binding between a generated Prerelease PR and its immutable Git facts. */
 export type PrereleasePrIdentity = {
   boundaryOid: string;
   proposalOid: string;
@@ -27,6 +28,7 @@ export type PrereleasePrIdentity = {
   version: string;
 };
 
+/** One ordered, human-facing prerelease change with publication classification. */
 export type PrereleasePrChange = {
   key: string;
   releaseNoteSkip: boolean;
@@ -64,6 +66,10 @@ const validateIdentity = (
   return identity;
 };
 
+/**
+ * Reads exactly one identity from a current generated Prerelease PR. Bodies
+ * outside the template return null; malformed current metadata fails.
+ */
 export function extractPrereleasePrIdentity(
   body: unknown,
 ): PrereleasePrIdentity | null {
@@ -89,6 +95,7 @@ export function extractPrereleasePrIdentity(
   });
 }
 
+/** Parses ordered prerelease change links and proves visible and hidden metadata agree. */
 export function extractPrereleasePrChanges(
   body: unknown,
 ): PrereleasePrChange[] {
@@ -126,6 +133,10 @@ export function extractPrereleasePrChanges(
   return changes;
 }
 
+/**
+ * Validates that a generated Prerelease PR is bound to the expected immutable
+ * proposal facts and contains no QA task surface.
+ */
 export function validatePrereleasePrBody(
   body: unknown,
   expected: PrereleasePrIdentity,

@@ -6,6 +6,10 @@ export const SETUP_NODE_AUTH_PLACEHOLDER = 'XXXXX-XXXXX-XXXXX-XXXXX';
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
+/**
+ * Fails when ambient npm credentials could bypass trusted OIDC publication.
+ * setup-node's inert placeholder is the sole accepted token-shaped value.
+ */
 export function assertOidcPublishEnvironment({
   nodeAuthToken,
   npmToken,
@@ -46,6 +50,10 @@ const packageVersion = (
   return published;
 };
 
+/**
+ * Observes one exact package version's integrity from untrusted npm metadata.
+ * Missing versions return null; contradictory documents are unsafe and throw.
+ */
 export function registryIntegrity({
   document,
   name,

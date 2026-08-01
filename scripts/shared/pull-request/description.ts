@@ -4,6 +4,10 @@ import {
   RELEASE_HIGHLIGHTS_START,
 } from '../release-proposal/body.ts';
 
+/**
+ * Returns every maintainer-actionable readiness error without performing GitHub
+ * I/O. Canonical initial Release PRs receive the additional highlights check.
+ */
 export function descriptionErrors(input: {
   baseRef: string;
   body: string;

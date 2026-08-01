@@ -17,6 +17,7 @@ type WorkspaceManifest = {
   workspaces?: string[] | { packages?: string[] };
 } & Record<string, unknown>;
 
+/** A validated public workspace with both release metadata and local file paths. */
 export type PublicWorkspacePackage = {
   directory: string;
   location: string;
@@ -26,6 +27,7 @@ export type PublicWorkspacePackage = {
   version: string;
 };
 
+/** A validated workspace catalog entry before private packages are projected out. */
 export type DiscoveredWorkspacePackage = PublicWorkspacePackage & {
   private: boolean;
 };
@@ -84,6 +86,10 @@ const compareLocation = (
 ): number =>
   left.location < right.location ? -1 : left.location > right.location ? 1 : 0;
 
+/**
+ * Discovers every single-level workspace from the root manifest, rejects
+ * ambiguous names or locations, and returns stable repository-location order.
+ */
 export async function listWorkspacePackages(
   root = repositoryRoot,
 ): Promise<DiscoveredWorkspacePackage[]> {
@@ -141,6 +147,10 @@ export async function listWorkspacePackages(
   return packages.sort(compareLocation);
 }
 
+/**
+ * Returns the releaseable Lab-02 workspace set in stable package-name order.
+ * Private workspaces and unexpected public package namespaces are rejected.
+ */
 export async function listPublicPackages(
   root = repositoryRoot,
 ): Promise<PublicWorkspacePackage[]> {

@@ -19,6 +19,7 @@ const priorityOrder = new Intl.Collator('en', {
   sensitivity: 'base',
 });
 
+/** One first-parent release-history entry with its normalized public identity. */
 export type ReleaseChange = {
   key: string;
   oid: string;
@@ -28,6 +29,7 @@ export type ReleaseChange = {
   url: string;
 };
 
+/** Validated authored migration guidance with ordering metadata kept out of its body. */
 export type MigrationRecord = {
   body: string;
   filename: string;
@@ -52,6 +54,10 @@ const positiveInteger = (value: unknown, label: string): number => {
   return value;
 };
 
+/**
+ * Normalizes an untrusted subject for one-line Markdown presentation without
+ * allowing control characters or link/HTML punctuation to alter its structure.
+ */
 export const cleanReleaseTitle = (value: unknown, fallback: string): string => {
   const title = (String(value ?? '').split(/\r?\n/, 1)[0] ?? '')
     .replace(/[\u0000-\u001f\u007f]/g, ' ')
@@ -61,6 +67,7 @@ export const cleanReleaseTitle = (value: unknown, fallback: string): string => {
   return (title || fallback).slice(0, 180);
 };
 
+/** Provider-neutral merged-PR evidence used to classify one history commit. */
 export type ReleaseHistoryPull = Readonly<{
   baseBranch: string;
   canonicalRepository: boolean;
@@ -71,6 +78,7 @@ export type ReleaseHistoryPull = Readonly<{
   title: string;
 }>;
 
+/** Normalized first-parent commit observation consumed by communication planners. */
 export type ReleaseHistoryCommit = Readonly<{
   associatedPulls: readonly ReleaseHistoryPull[];
   oid: string;
@@ -146,6 +154,10 @@ const deriveBranchChanges = ({
   });
 };
 
+/**
+ * Classifies stable first-parent history in its existing order. Ambiguous PR
+ * associations fail rather than dropping or guessing at a change.
+ */
 export function deriveReleaseChanges({
   commits,
   line,
@@ -157,6 +169,7 @@ export function deriveReleaseChanges({
   return deriveBranchChanges({ branch: `releases/${line}`, commits });
 }
 
+/** Classifies `main` first-parent history using the same conservative change rules. */
 export function derivePrereleaseChanges({
   commits,
 }: {
@@ -165,6 +178,10 @@ export function derivePrereleaseChanges({
   return deriveBranchChanges({ branch: PRIMARY_BRANCH, commits });
 }
 
+/**
+ * Narrows serialized release changes, enforcing unique canonical identities,
+ * URLs, and the rule that direct commits cannot inherit PR-only exemptions.
+ */
 export function normalizeReleaseChanges(changes: unknown): ReleaseChange[] {
   if (!Array.isArray(changes)) {
     throw new Error('Release changes must be an array.');
@@ -219,6 +236,10 @@ export function releaseRecordPath(version: string): string {
   return `releases/v${version}.md`;
 }
 
+/**
+ * Renders the deterministic per-version record of public changes. The record is
+ * generated history, not the curated Release highlights surface.
+ */
 export function renderReleaseRecord({
   changes,
   version,
@@ -242,6 +263,10 @@ export function renderReleaseRecord({
   ].join('\n');
 }
 
+/**
+ * Extracts the change section from current and accepted historical generated
+ * record formats without silently accepting arbitrary Markdown.
+ */
 export function extractReleaseRecordChanges({
   source,
   version,
@@ -281,6 +306,7 @@ export function extractReleaseRecordChanges({
   return changes;
 }
 
+/** Parses a generated record into ordered, unique canonical release links. */
 export function parseReleaseRecordChanges({
   source,
   version,
@@ -370,6 +396,10 @@ const nonemptySection = (lines: string[], headingIndex: number): boolean => {
     .some((line) => line.trim().length > 0 && !line.trim().startsWith('<!--'));
 };
 
+/**
+ * Validates one authored migration file. Ordering priority remains metadata;
+ * the returned body contains only the Markdown shown to maintainers.
+ */
 export function parseMigrationRecord({
   filename,
   source,
@@ -482,6 +512,10 @@ function orderMigrationRecords(records: unknown): MigrationRecord[] {
   );
 }
 
+/**
+ * Validates and deterministically orders migration records by natural,
+ * case-insensitive priority and then filename, omitting priority from output.
+ */
 export function composeMigrationRecords(
   records: unknown,
 ): Array<{ body: string; filename: string; title: string }> {
@@ -492,6 +526,10 @@ export function composeMigrationRecords(
   }));
 }
 
+/**
+ * Loads a release line's migration records in composition order. A missing
+ * line directory is the supported empty result; malformed records still fail.
+ */
 export async function loadMigrationRecords(
   root: string,
   line: string,

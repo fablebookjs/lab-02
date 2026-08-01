@@ -48,6 +48,10 @@ const stringRecord = (
 const git = (root: string, args: string[], options: RunOptions = {}) =>
   run('git', args, { ...options, cwd: options.cwd ?? root });
 
+/**
+ * Guards local preparation against the wrong repository root or uncommitted
+ * changes before any inert Git objects are created.
+ */
 export const ensureCleanReleaseRepository = async (): Promise<void> => {
   const { stdout } = await git(repositoryRoot, ['rev-parse', '--show-toplevel']);
   if (resolve(stdout.trim()) !== resolve(repositoryRoot)) {
@@ -61,16 +65,19 @@ export const ensureCleanReleaseRepository = async (): Promise<void> => {
   }
 };
 
+/** Reads a commit's ordered parent OIDs from local Git history. */
 export const commitParents = async (root: string, oid: string): Promise<string[]> => {
   const { stdout } = await git(root, ['show', '-s', '--format=%P', oid]);
   return stdout.trim().split(/\s+/).filter(Boolean);
 };
 
+/** Reads a commit message without its trailing Git formatting newline. */
 export const commitMessageAt = async (root: string, oid: string): Promise<string> => {
   const { stdout } = await git(root, ['show', '-s', '--format=%B', oid]);
   return stdout.trimEnd();
 };
 
+/** Reads untrusted JSON directly from an immutable Git tree. */
 export const manifestAt = async (root: string, oid: string, path: string): Promise<unknown> => {
   const { stdout } = await git(root, ['show', `${oid}:${path}`]);
   const value: unknown = JSON.parse(stdout);
@@ -120,6 +127,10 @@ const packageManifestValue = (value: unknown, path: string): PublicPackageManife
   };
 };
 
+/**
+ * Inspects the accepted snapshot workspace shape and returns every public
+ * package manifest without checking out or executing the commit.
+ */
 export const publicPackagesAt = async (
   repository: string,
   oid: string,
@@ -149,6 +160,7 @@ export const publicPackagesAt = async (
   return { packages, root };
 };
 
+/** Reads the required root version from an immutable commit tree. */
 export async function rootVersionAt(root: string, oid: string): Promise<string> {
   const manifest = rootManifestValue(await manifestAt(root, oid, 'package.json'));
   if (typeof manifest.version !== 'string') {
@@ -157,6 +169,10 @@ export async function rootVersionAt(root: string, oid: string): Promise<string> 
   return manifest.version;
 }
 
+/**
+ * Proves that root, public packages, and internal public dependencies all
+ * materialize one exact lockstep version at the inspected commit.
+ */
 export const validateVersionTree = async (
   root: string,
   oid: string,
@@ -189,6 +205,7 @@ export const validateVersionTree = async (
   }
 };
 
+/** Narrows an untrusted value to the full lowercase commit OID used by artifacts. */
 export function validateFullOid(oid: unknown, label: string): asserts oid is string {
   if (typeof oid !== 'string' || !/^[0-9a-f]{40}$/.test(oid)) {
     throw new Error(`${label} is not a full commit OID.`);

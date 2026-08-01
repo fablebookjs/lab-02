@@ -91,6 +91,10 @@ const extractReleaseKind = (body: unknown): 'initial' | 'patch' => {
   return kind;
 };
 
+/**
+ * Reads the generated Release PR identity. Bodies outside the current template
+ * return null, while duplicate or malformed current metadata fails.
+ */
 export function extractReleasePrIdentity(body: unknown): ReleasePrIdentity | null {
   if (!String(body ?? '').includes(RELEASE_PR_TEMPLATE_MARKER)) {
     return null;
@@ -98,6 +102,7 @@ export function extractReleasePrIdentity(body: unknown): ReleasePrIdentity | nul
   return extractProposalIdentity(body);
 }
 
+/** Extracts exactly one marked Release highlights block without judging completeness. */
 export function extractReleaseHighlights(body: unknown): string {
   const source = String(body ?? '');
   const starts = source.split(RELEASE_HIGHLIGHTS_START).length - 1;
@@ -133,10 +138,15 @@ function validateReleaseHighlights(highlights: unknown): string {
   return highlights;
 }
 
+/** Requires non-placeholder, visibly nonempty highlights from a generated body. */
 export function requireReleaseHighlights(body: unknown): string {
   return validateReleaseHighlights(extractReleaseHighlights(body));
 }
 
+/**
+ * Preserves valid maintainer-authored highlights during regeneration and falls
+ * back to the blocking placeholder when previous content cannot be trusted.
+ */
 export function recoverReleaseHighlights(body: unknown): string {
   try {
     return requireReleaseHighlights(body);
@@ -145,6 +155,7 @@ export function recoverReleaseHighlights(body: unknown): string {
   }
 }
 
+/** Selects the newest closed predecessor body for the exact proposed version. */
 export function selectLatestMatchingReleasePrBody({
   pulls,
   version,
@@ -180,6 +191,10 @@ export function selectLatestMatchingReleasePrBody({
   );
 }
 
+/**
+ * Parses generated change tasks and proves their visible links, classifications,
+ * and hidden identities agree. Source order is preserved.
+ */
 export function extractReleasePrChanges(body: unknown): ParsedReleasePrChange[] {
   const source = String(body ?? '');
   const changes: ParsedReleasePrChange[] = [];
@@ -223,6 +238,7 @@ export function extractReleasePrChanges(body: unknown): ParsedReleasePrChange[] 
   return changes;
 }
 
+/** Captures generated checkbox state by durable identity for safe PR refreshes. */
 export function extractReleasePrCheckboxes(body: unknown): Map<string, boolean> {
   const states = new Map<string, boolean>();
   for (const match of String(body ?? '').matchAll(checkTaskPattern)) {
@@ -246,6 +262,11 @@ export function extractReleasePrCheckboxes(body: unknown): Map<string, boolean> 
 
 export const deriveReleasePrChanges = deriveReleaseChanges;
 
+/**
+ * Validates the generated stable PR protocol for one version. Publication may
+ * require maintainer attestations; maintenance can validate the same shape
+ * without requiring those boxes to be complete.
+ */
 export function validateReleasePrBody({
   body,
   requireAttestations = false,

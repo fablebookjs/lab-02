@@ -102,6 +102,7 @@ function updateInternalDependencies(
   }
 }
 
+/** Narrows versions to the stable and managed prerelease forms this pilot materializes. */
 export function validateMaterializedVersion(version: unknown): string {
   if (typeof version !== 'string' || !supportedVersion.test(version)) {
     throw new Error('Version must be X.Y.Z or X.Y.Z-alpha.N, -beta.N, or -rc.N.');
@@ -109,6 +110,11 @@ export function validateMaterializedVersion(version: unknown): string {
   return version;
 }
 
+/**
+ * Rewrites the root, every public workspace, internal public dependencies, and
+ * matching lockfile entries to one exact version. Validation completes before
+ * files are written, but callers still own repository transaction boundaries.
+ */
 export async function materializeVersion(
   root: string,
   requestedVersion: unknown,

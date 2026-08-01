@@ -10,6 +10,10 @@ import {
 import { parseStableVersion } from '../release-proposal/core.ts';
 import { PILOT_REPOSITORY } from '../repository.ts';
 
+/**
+ * Schema-3 artifact sealing stable authority, communication, and tarballs for
+ * consumption by later privileged jobs.
+ */
 export type PublicationManifest = ReleaseAuthority &
   Readonly<{
     packages: readonly PublicationPackage[];
@@ -90,6 +94,10 @@ const manifestKeys = [
   'version',
 ];
 
+/**
+ * Validates an untrusted stable artifact against invocation-owned repository,
+ * snapshot, and version facts, including every referenced tarball on disk.
+ */
 export async function validatePublicationManifest(
   input: unknown,
   artifactRoot: string,

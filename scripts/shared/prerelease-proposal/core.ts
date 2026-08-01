@@ -2,6 +2,7 @@ import { parseDevelopmentVersion } from '../release-proposal/core.ts';
 
 const fullOidPattern = /^[0-9a-f]{40}$/;
 
+/** Commit-bound identity of one ordinary prerelease candidate. */
 export type PrereleaseProposal = {
   attempt: string;
   boundaryOid: string;
@@ -9,6 +10,7 @@ export type PrereleaseProposal = {
   version: string;
 };
 
+/** Immutable Git/PR observation consumed by the prerelease proposal planner. */
 export type PrereleaseProposalState = {
   boundaryOid: string | null;
   lineVersion: string;
@@ -20,6 +22,7 @@ export type PrereleaseProposalState = {
   staged: (PrereleaseProposal & { oid: string }) | null;
 };
 
+/** Exhaustive no-op or mutation intent produced by prerelease maintenance. */
 export type PrereleaseProposalPlan =
   | { kind: 'inactive'; reason: string }
   | { kind: 'none'; reason: string }
@@ -76,6 +79,7 @@ const fullOid = (value: string, label: string): string => {
   return value;
 };
 
+/** Advances only the counter of the currently managed prerelease phase. */
 export function nextPrereleaseVersion(lineVersion: string): string {
   const current = parseDevelopmentVersion(lineVersion);
   return [
@@ -84,6 +88,10 @@ export function nextPrereleaseVersion(lineVersion: string): string {
   ].join('-');
 }
 
+/**
+ * Encodes proposal, source, and managed-boundary identity in durable commit
+ * trailers so later publication can prove what maintainers reviewed.
+ */
 export function prereleaseProposalCommitMessage(
   proposal: PrereleaseProposal,
 ): string {
@@ -103,6 +111,7 @@ export function prereleaseProposalCommitMessage(
   ].join('\n');
 }
 
+/** Parses the complete ordinary prerelease proposal trailer protocol. */
 export function parsePrereleaseProposalMessage(
   message: string,
 ): PrereleaseProposal {
@@ -145,6 +154,10 @@ const validateState = (state: PrereleaseProposalState): void => {
   }
 };
 
+/**
+ * Reduces one observed prerelease line to a deterministic maintenance intent.
+ * An unmanaged line stays inactive, while contradictory staged/PR state fails.
+ */
 export function planPrereleaseProposal(
   state: PrereleaseProposalState,
 ): PrereleaseProposalPlan {

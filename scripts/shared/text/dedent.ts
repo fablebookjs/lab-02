@@ -1,3 +1,8 @@
+/**
+ * Removes indentation introduced by TypeScript source layout while preserving
+ * intentional indentation inside interpolated multiline values. It can be used
+ * as a template tag or with a plain string.
+ */
 export function dedent(
   template: TemplateStringsArray | string,
   ...values: unknown[]

@@ -11,6 +11,7 @@ export const PATCHBACK_FULL_OID_PATTERN_SOURCE = '[0-9a-f]{40}';
 
 const fullOidPattern = new RegExp(`^${PATCHBACK_FULL_OID_PATTERN_SOURCE}$`);
 
+/** One immutable product-history item for maintainer disposition in a patchback. */
 export type PatchbackItem = {
   command: string;
   kind: 'direct-commit' | 'direct-merge' | 'pull-request';
@@ -40,6 +41,7 @@ const cleanText = (value: unknown, fallback: string): string => {
   return (text || fallback).slice(0, 160);
 };
 
+/** Derives the canonical branch, line, and PR title for one stable version. */
 export function patchbackIdentity(version: string): {
   branch: string;
   line: string;
@@ -61,6 +63,7 @@ export function previousReleaseVersion(version: string): string | null {
   return `${parsed.major}.${parsed.minor}.${parsed.patch - 1}`;
 }
 
+/** Validates and projects the exact generated release record into patchback content. */
 export function patchbackReleaseRecord({
   source,
   version,
@@ -76,6 +79,10 @@ export function patchbackReleaseRecord({
   return { content: source, path };
 }
 
+/**
+ * Validates migration records through the shared composition rules while
+ * preserving their exact source text for synchronization.
+ */
 export function patchbackMigrationRecords({
   line,
   records,
@@ -105,6 +112,7 @@ export function patchbackMigrationRecords({
   }));
 }
 
+/** Returns a syntactically safe merger login for best-effort assignment. */
 export function releaseMergerAssignee(pull: unknown): string | null {
   const mergedBy = isRecord(pull) ? pull['merged_by'] : undefined;
   const login = isRecord(mergedBy) ? mergedBy['login'] : undefined;
@@ -115,6 +123,10 @@ export function releaseMergerAssignee(pull: unknown): string | null {
     : null;
 }
 
+/**
+ * Narrows unique migration paths to one release-line directory; paths are
+ * serialized into the coordination commit and must remain repository-relative.
+ */
 export const validatePatchbackMigrationRecordPaths = (
   paths: unknown,
   line: string,
@@ -138,6 +150,10 @@ export const validatePatchbackMigrationRecordPaths = (
   return paths.filter((path): path is string => typeof path === 'string');
 };
 
+/**
+ * Encodes the immutable patchback coordination boundary and synchronized file
+ * set as commit trailers. Product-change outcomes intentionally live elsewhere.
+ */
 export function patchbackCommitMessage({
   baseMainOid,
   boundaryOid,
@@ -180,6 +196,7 @@ export function patchbackCommitMessage({
   ].join('\n');
 }
 
+/** Parses and revalidates the complete patchback coordination trailer protocol. */
 export function parsePatchbackCommitMessage(message: unknown) {
   const trailers = Object.fromEntries(
     String(message ?? '')
@@ -246,6 +263,11 @@ const canonicalPull = (
   );
 };
 
+/**
+ * Accounts for every first-parent entry before the authorized snapshot in
+ * source order. Ambiguous PR metadata degrades to commit identity instead of
+ * dropping work; merge commits receive an explicit mainline cherry-pick form.
+ */
 export function derivePatchbackItems({
   commits,
   line,
