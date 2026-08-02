@@ -9,6 +9,10 @@ export function total(values: number[]): number {
   return values.reduce((sum, value) => add(sum, value), 0);
 }
 
+export function product(values: number[]): number {
+  return values.reduce((result, value) => result * value, 1);
+}
+
 export function average(values: number[]): number | undefined {
   return values.length === 0 ? undefined : total(values) / values.length;
 }

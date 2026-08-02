@@ -21,11 +21,13 @@ import {
   maximum,
   median,
   minimum,
+  product,
   range,
   total,
 } from '@fablebook/lab-02-addon';
 import {
   add,
+  clamp,
   formatChapterNavigation,
   multiply,
   normalizeLabel,
@@ -133,6 +135,12 @@ test('the core package exposes subtraction', () => {
   assert.equal(subtract(2, 7), -5);
 });
 
+test('the core package clamps values to an inclusive range', () => {
+  assert.equal(clamp(-1, 0, 10), 0);
+  assert.equal(clamp(4, 0, 10), 4);
+  assert.equal(clamp(12, 0, 10), 10);
+});
+
 test('the core label API accepts locale options', () => {
   assert.equal(normalizeLabel(' I ', { locale: 'tr' }), 'ı');
 });
@@ -146,6 +154,11 @@ test('average summaries handle populated and empty values', () => {
   assert.equal(average([]), undefined);
   assert.equal(formatAverageSummary(' Demo ', [2, 4]), 'demo:3');
   assert.equal(formatAverageSummary(' Demo ', []), 'demo:n/a');
+});
+
+test('product summaries multiply every value', () => {
+  assert.equal(product([2, 3, 4]), 24);
+  assert.equal(product([]), 1);
 });
 
 test('count summaries report the number of values', () => {
