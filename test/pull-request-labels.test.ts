@@ -5,6 +5,7 @@ import {
   ensurePullRequestLabels,
   type GitPullRequest,
 } from '../scripts/github/release-repository/pull-requests.ts';
+import { reconcilePatchbackLabels } from '../scripts/github/patchback/controller.ts';
 
 const pullRequest = (labels: string[]): GitPullRequest => ({
   base: {
@@ -98,6 +99,40 @@ test('required PR labels reject a contradictory GitHub response', async () => {
       ]),
       /did not apply required pull request label.*release-note:skip/,
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('the Patchback controller applies exclusions to every open PR path', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify([{ name: 'qa:skip' }, { name: 'release-note:skip' }]),
+      { status: 200 },
+    );
+  try {
+    const pull = await reconcilePatchbackLabels(
+      'token',
+      pullRequest(['qa:skip']),
+    );
+    assert.deepEqual(pull.labels, [
+      { name: 'qa:skip' },
+      { name: 'release-note:skip' },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('the Patchback controller never mutates a terminal PR', async () => {
+  const pull = { ...pullRequest([]), state: 'closed' };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new Error('No request was expected.');
+  };
+  try {
+    assert.strictEqual(await reconcilePatchbackLabels('token', pull), pull);
   } finally {
     globalThis.fetch = originalFetch;
   }

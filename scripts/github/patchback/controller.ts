@@ -74,6 +74,15 @@ export type PatchbackResolution =
 
 const PATCHBACK_RELEASE_LABELS = ['qa:skip', 'release-note:skip'];
 
+/** Applies public-release exclusions only while a Patchback PR is mutable. */
+export const reconcilePatchbackLabels = (
+  token: string,
+  pull: GitPullRequest,
+): Promise<GitPullRequest> =>
+  pull.state === 'open'
+    ? ensurePullRequestLabels(token, pull, PATCHBACK_RELEASE_LABELS)
+    : Promise.resolve(pull);
+
 const positiveInteger = (value: unknown, label: string): number => {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
     throw new Error(`${label} must be a positive integer.`);
@@ -474,6 +483,7 @@ export async function applyPatchback(options: {
     );
   }
   let pull = pulls[0] ?? null;
+  const existingPull = pull !== null;
   if (pull !== null) {
     validateExistingPull(pull, manifest);
     const coordination = await findPatchbackCoordinationCommit(
@@ -482,72 +492,52 @@ export async function applyPatchback(options: {
       manifest,
     );
     await verifyMainAncestry(token, coordination.baseMainOid);
-    if (pull.state === 'open') {
-      pull = await ensurePullRequestLabels(
+  } else {
+    const branchRefName = `heads/${manifest.branch}`;
+    let branch = await getRef(token, branchRefName);
+    if (branch === null) {
+      const main = await getRef(token, `heads/${PRIMARY_BRANCH}`);
+      if (
+        main === null ||
+        main.type !== 'commit' ||
+        main.oid !== manifest.baseMainOid
+      ) {
+        throw new Error(
+          'main advanced after patchback preparation; no branch was created.',
+        );
+      }
+      const mainCommit = await getGitCommit(token, main.oid);
+      if (mainCommit.tree.sha !== manifest.baseMainTreeOid) {
+        throw new Error(
+          'The prepared main tree changed before patchback creation.',
+        );
+      }
+      const coordinationOid = await createPatchbackCoordinationCommit(
         token,
-        pull,
-        PATCHBACK_RELEASE_LABELS,
+        manifest,
       );
+      await createGitRef(token, `refs/${branchRefName}`, coordinationOid);
+      branch = { oid: coordinationOid, type: 'commit' };
     }
-    await reconcileUniqueMarkedIssueComment(
+    if (branch.type !== 'commit') {
+      throw new Error(`${manifest.branch} does not identify a commit.`);
+    }
+    const coordination = await findPatchbackCoordinationCommit(
       token,
-      pull.number,
-      PATCHBACK_COMMENT_MARKER,
-      manifest.comment,
-    );
-    console.log(
-      `Patchback #${pull.number} already exists; no action is required.`,
-    );
-    return;
-  }
-
-  const branchRefName = `heads/${manifest.branch}`;
-  let branch = await getRef(token, branchRefName);
-  if (branch === null) {
-    const main = await getRef(token, `heads/${PRIMARY_BRANCH}`);
-    if (
-      main === null ||
-      main.type !== 'commit' ||
-      main.oid !== manifest.baseMainOid
-    ) {
-      throw new Error(
-        'main advanced after patchback preparation; no branch was created.',
-      );
-    }
-    const mainCommit = await getGitCommit(token, main.oid);
-    if (mainCommit.tree.sha !== manifest.baseMainTreeOid) {
-      throw new Error(
-        'The prepared main tree changed before patchback creation.',
-      );
-    }
-    const coordinationOid = await createPatchbackCoordinationCommit(
-      token,
+      branch.oid,
       manifest,
     );
-    await createGitRef(token, `refs/${branchRefName}`, coordinationOid);
-    branch = { oid: coordinationOid, type: 'commit' };
-  }
-  if (branch.type !== 'commit') {
-    throw new Error(`${manifest.branch} does not identify a commit.`);
-  }
-  const coordination = await findPatchbackCoordinationCommit(
-    token,
-    branch.oid,
-    manifest,
-  );
-  await verifyMainAncestry(token, coordination.baseMainOid);
+    await verifyMainAncestry(token, coordination.baseMainOid);
 
-  pull = await createDraftPatchbackPr(token, {
-    body: manifest.body,
-    branch: manifest.branch,
-    title: manifest.title,
-  });
-  validateExistingPull(pull, manifest);
-  pull = await ensurePullRequestLabels(
-    token,
-    pull,
-    PATCHBACK_RELEASE_LABELS,
-  );
+    pull = await createDraftPatchbackPr(token, {
+      body: manifest.body,
+      branch: manifest.branch,
+      title: manifest.title,
+    });
+    validateExistingPull(pull, manifest);
+  }
+
+  pull = await reconcilePatchbackLabels(token, pull);
 
   await reconcileUniqueMarkedIssueComment(
     token,
@@ -555,6 +545,12 @@ export async function applyPatchback(options: {
     PATCHBACK_COMMENT_MARKER,
     manifest.comment,
   );
+  if (existingPull) {
+    console.log(
+      `Patchback #${pull.number} already exists; no action is required.`,
+    );
+    return;
+  }
   await assignNewPatchback(token, pull.number, manifest.authority.assignee);
   console.log(
     `Patchback #${pull.number} is open for ${manifest.authority.version}.`,
