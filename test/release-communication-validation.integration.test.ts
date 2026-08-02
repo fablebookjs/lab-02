@@ -14,6 +14,7 @@ import test from 'node:test';
 import { promisify } from 'node:util';
 
 import { repositoryRoot } from '../scripts/shared/workspace/packages.ts';
+import { isRecord, stringValue } from '../scripts/shared/validation.ts';
 
 const execute = promisify(execFile);
 const git = (args: string[], cwd: string) =>
@@ -108,6 +109,20 @@ test('CI passes immutable Patchback PR identity to Migration validation', async 
 
 test('only the release bot canonical Patchback PR receives the version exception', async () => {
   await withWorktree('fablebook-migration-pr-identity-', async (worktree) => {
+    const packageJson: unknown = JSON.parse(
+      await readFile(join(worktree, 'package.json'), 'utf8'),
+    );
+    assert(isRecord(packageJson));
+    const developmentVersion = stringValue(
+      packageJson['version'],
+      'Root package version',
+    );
+    const version = /^(\d+)\.(\d+)\./.exec(developmentVersion);
+    assert(version !== null);
+    const expectedVersion = `${version[1]}.${version[2]}.0`;
+    const expectedError = new RegExp(
+      `must declare introduced-in: ${expectedVersion.replaceAll('.', '\\.')}`,
+    );
     const directory = join(worktree, 'migration-notes', 'v5.0');
     await mkdir(directory, { recursive: true });
     await writeFile(join(directory, 'test-exact-validation.md'), migration('5.0.1'));
@@ -122,18 +137,18 @@ test('only the release bot canonical Patchback PR receives the version exception
     await validate(worktree, patchback);
     await assert.rejects(
       validate(worktree, { ...patchback, GITHUB_PR_AUTHOR_LOGIN: 'maintainer' }),
-      /must declare introduced-in: 5\.1\.0/,
+      expectedError,
     );
     await assert.rejects(
       validate(worktree, {
         ...patchback,
         GITHUB_HEAD_REPOSITORY: 'someone/lab-02',
       }),
-      /must declare introduced-in: 5\.1\.0/,
+      expectedError,
     );
     await assert.rejects(
       validate(worktree, { ...patchback, GITHUB_HEAD_REF: 'staged/v5.0' }),
-      /must declare introduced-in: 5\.1\.0/,
+      expectedError,
     );
   });
 });
