@@ -1,15 +1,12 @@
 /**
  * Removes indentation introduced by TypeScript source layout while preserving
- * intentional indentation inside interpolated multiline values. It can be used
- * as a template tag or with a plain string.
+ * intentional indentation inside interpolated multiline values.
  */
 export function dedent(
-  template: TemplateStringsArray | string,
+  template: TemplateStringsArray,
   ...values: unknown[]
 ): string {
-  let segments = Array.from(
-    typeof template === 'string' ? [template] : template,
-  );
+  let segments = Array.from(template);
   const lastIndex = segments.length - 1;
   const finalSegment = segments[lastIndex];
   if (finalSegment === undefined) return '';

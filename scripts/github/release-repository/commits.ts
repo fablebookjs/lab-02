@@ -1,5 +1,6 @@
 import { PILOT_REPOSITORY } from '../../shared/repository.ts';
-import { isRecord, objectValue, stringValue } from './response-schema.ts';
+import { isRecord, stringValue } from '../../shared/validation.ts';
+import { objectValue } from './response-schema.ts';
 import { githubRequest } from './transport.ts';
 
 /** Narrow commit shape shared by release controllers after response validation. */
@@ -25,7 +26,7 @@ const identityValue = (
 };
 
 /** Narrows an untrusted GitHub Git-commit response to the fields controllers use. */
-export const validatedGitCommitResponse = (value: unknown): ValidatedGitCommit => {
+const validatedGitCommitResponse = (value: unknown): ValidatedGitCommit => {
   const commit = objectValue(value, 'GitHub commit');
   const parents = commit['parents'];
   if (!Array.isArray(parents)) throw new Error('GitHub commit parents must be an array.');

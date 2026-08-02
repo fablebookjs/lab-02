@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 
 import { ZERO_OID } from '../../shared/release-proposal/core.ts';
 import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../../shared/repository.ts';
-import { isRecord, objectValue, stringValue } from './response-schema.ts';
+import { isRecord, stringValue } from '../../shared/validation.ts';
+import { objectValue } from './response-schema.ts';
 import {
   githubGraphqlRequest,
   githubRequest,

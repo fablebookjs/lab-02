@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 
 import { readJsonFile, writeJsonFile } from '../io/json.ts';
+import { isRecord } from '../validation.ts';
 import { listPublicPackages } from '../workspace/packages.ts';
 
 type MutablePackageManifest = Record<string, unknown> & {
@@ -27,9 +28,6 @@ const dependencyFields = [
   MutablePackageManifest,
   'dependencies' | 'devDependencies' | 'optionalDependencies' | 'peerDependencies'
 >>;
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const stringMap = (value: unknown, label: string): Record<string, string> | undefined => {
   if (value === undefined) return undefined;

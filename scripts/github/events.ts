@@ -1,5 +1,7 @@
 import type { components } from '@octokit/openapi-webhooks-types';
 
+import { isRecord } from '../shared/validation.ts';
+
 type AuthoritativePullRequest = components['schemas']['pull-request-webhook'];
 type AuthoritativeWorkflowRun =
   components['schemas']['webhook-workflow-run-completed']['workflow_run'];
@@ -43,9 +45,6 @@ export type ValidatedWorkflowRunCompletion = {
   path: AuthoritativeWorkflowRun['path'];
   runId: AuthoritativeWorkflowRun['id'];
 };
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const requiredString = (value: unknown, label: string): string => {
   if (typeof value !== 'string' || value.length === 0) {

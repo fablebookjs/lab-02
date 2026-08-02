@@ -18,6 +18,7 @@ import {
   releaseRecordPath,
 } from '../../shared/release-communication/records.ts';
 import { parseStableVersion } from '../../shared/release-proposal/core.ts';
+import { isRecord } from '../../shared/validation.ts';
 import {
   compareGitCommits,
   getGitCommit,
@@ -69,9 +70,6 @@ export type PatchbackResolution =
       snapshot: string;
       version: string;
     };
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const positiveInteger = (value: unknown, label: string): number => {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {

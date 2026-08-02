@@ -13,6 +13,7 @@ import { materializeVersion } from '../../shared/version/materialize.ts';
 import { repositoryRoot } from '../../shared/workspace/packages.ts';
 import { run } from '../../shared/process/run.ts';
 import type { RunOptions } from '../../shared/process/run.ts';
+import { stringValue } from '../../shared/validation.ts';
 import {
   createGitCommit,
   createGitTree,
@@ -28,13 +29,6 @@ export type BundleRef = Readonly<{
   name: string;
   oid: string;
 }>;
-
-const stringValue = (value: unknown, label: string): string => {
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`${label} must be a nonempty string.`);
-  }
-  return value;
-};
 
 const git = (args: string[], options: RunOptions = {}) =>
   run('git', args, { ...options, cwd: options.cwd ?? repositoryRoot });
@@ -219,7 +213,7 @@ export const materializeCommit = async ({
       GIT_COMMITTER_NAME: 'fablebook-release-app[bot]',
     };
     await git(['commit', '--no-gpg-sign', '-m', message], { cwd: worktree, env: identity });
-    return resolveHeadOid(worktree);
+    return await resolveHeadOid(worktree);
   } finally {
     if (added) {
       await git(['worktree', 'remove', '--force', worktree]).catch(() => undefined);

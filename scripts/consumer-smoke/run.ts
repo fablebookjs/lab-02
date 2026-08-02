@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { readJsonFile } from '../shared/io/json.ts';
+import { isRecord } from '../shared/validation.ts';
 import { listPublicPackages, repositoryRoot } from '../shared/workspace/packages.ts';
 
 const execute = promisify(execFile);
@@ -13,9 +14,6 @@ const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const node = process.execPath;
 
 type PackedArtifact = { filename: string; files: Array<{ path: string }> };
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const packedArtifact = (value: unknown, name: string): PackedArtifact => {
   if (

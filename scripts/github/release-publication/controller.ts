@@ -30,6 +30,7 @@ import { requireOption } from '../../shared/cli/options.ts';
 import { parseStableVersion } from '../../shared/release-proposal/core.ts';
 import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import { run } from '../../shared/process/run.ts';
+import { isRecord } from '../../shared/validation.ts';
 import { getReleaseByTag } from '../release-repository/releases.ts';
 import { getGitCommit } from '../release-repository/commits.ts';
 import {
@@ -61,9 +62,6 @@ const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 export type PromotionResolution = {
   snapshot: string;
 };
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const positiveInteger = (value: unknown, label: string): number => {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {

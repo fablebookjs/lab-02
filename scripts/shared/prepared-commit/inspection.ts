@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 
 import { run } from '../process/run.ts';
 import type { RunOptions } from '../process/run.ts';
+import { isRecord, stringValue } from '../validation.ts';
 import { repositoryRoot } from '../workspace/packages.ts';
 
 type RootManifest = {
@@ -17,16 +18,6 @@ type PublicPackageManifest = {
   peerDependencies?: Record<string, string>;
   private?: boolean;
   version?: string;
-};
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
-
-const stringValue = (value: unknown, label: string): string => {
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`${label} must be a nonempty string.`);
-  }
-  return value;
 };
 
 const stringRecord = (

@@ -1,3 +1,4 @@
+import { isRecord, stringValue } from '../../shared/validation.ts';
 import { parseManualPrereleasePhase } from '../../shared/prerelease-phase-entry/core.ts';
 import {
   PRERELEASE_CHANNEL,
@@ -16,16 +17,6 @@ import { PILOT_REPOSITORY } from '../../shared/repository.ts';
 /** Schema-1 prerelease authority document emitted by any accepted upstream path. */
 export type PrereleaseAuthorityDocument = PrereleaseAuthority & {
   changes: ReturnType<typeof validatePrereleaseCommunication>;
-};
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
-
-const stringValue = (value: unknown, label: string): string => {
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`${label} must be a nonempty string.`);
-  }
-  return value;
 };
 
 const positiveInteger = (value: unknown, label: string): number => {

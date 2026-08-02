@@ -1,5 +1,6 @@
 import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../../shared/repository.ts';
-import { objectValue, stringValue } from './response-schema.ts';
+import { stringValue } from '../../shared/validation.ts';
+import { objectValue } from './response-schema.ts';
 import { githubRequest } from './transport.ts';
 
 /**

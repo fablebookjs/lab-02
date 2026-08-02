@@ -1,5 +1,6 @@
 import { PILOT_REPOSITORY } from '../../shared/repository.ts';
-import { booleanValue, objectValue, stringValue } from './response-schema.ts';
+import { stringValue } from '../../shared/validation.ts';
+import { booleanValue, objectValue } from './response-schema.ts';
 import { createGitRef, getRef } from './refs.ts';
 import { githubRequest, githubRequestOrNull } from './transport.ts';
 

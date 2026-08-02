@@ -4,6 +4,7 @@ import { basename, join } from 'node:path';
 import { parseReleaseLine, parseStableVersion } from '../release-proposal/core.ts';
 import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../repository.ts';
 import { escapeRegExp } from '../text/regexp.ts';
+import { isRecord } from '../validation.ts';
 
 const repositoryUrl = `https://github.com/${PILOT_REPOSITORY}`;
 const repositoryUrlPattern = escapeRegExp(repositoryUrl);
@@ -36,9 +37,6 @@ export type MigrationRecord = {
   priority: string;
   title: string;
 };
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const fullOid = (value: unknown, label: string): string => {
   if (typeof value !== 'string' || !fullOidPattern.test(value)) {

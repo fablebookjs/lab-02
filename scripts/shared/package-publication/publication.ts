@@ -1,6 +1,8 @@
 import { lstat } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 
+import { isRecord, stringValue } from '../validation.ts';
+
 /** Immutable tarball identity passed from credentialless preparation to publication. */
 export type PublicationPackage = Readonly<{
   filename: string;
@@ -35,16 +37,6 @@ export type PublicationBinding = Readonly<{
   snapshotOid: string;
   version: string;
 }>;
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
-
-const stringValue = (value: unknown, label: string): string => {
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`${label} must be a nonempty string.`);
-  }
-  return value;
-};
 
 const hasExactKeys = (
   value: Record<string, unknown>,

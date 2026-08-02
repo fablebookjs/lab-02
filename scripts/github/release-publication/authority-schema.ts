@@ -1,3 +1,4 @@
+import { isRecord, stringValue } from '../../shared/validation.ts';
 import {
   lineChannel,
   validateReleaseCommunication,
@@ -12,16 +13,6 @@ import { PILOT_REPOSITORY } from '../../shared/repository.ts';
 /** Schema-2 stable authority document downloaded from an unprivileged upstream job. */
 export type ReleaseAuthorityDocument = ReleaseAuthority & {
   releaseCommunication: ReleaseCommunication;
-};
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
-
-const stringValue = (value: unknown, label: string): string => {
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`${label} must be a nonempty string.`);
-  }
-  return value;
 };
 
 const positiveInteger = (value: unknown, label: string): number => {

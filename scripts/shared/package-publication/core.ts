@@ -1,10 +1,8 @@
+import { isRecord } from '../validation.ts';
 import { validateMaterializedVersion } from '../version/materialize.ts';
 
 export const NPM_REGISTRY = 'https://registry.npmjs.org/';
 export const SETUP_NODE_AUTH_PLACEHOLDER = 'XXXXX-XXXXX-XXXXX-XXXXX';
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /**
  * Fails when ambient npm credentials could bypass trusted OIDC publication.

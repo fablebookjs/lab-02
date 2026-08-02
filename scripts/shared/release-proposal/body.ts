@@ -1,3 +1,4 @@
+import { isRecord } from '../validation.ts';
 import { parseStableVersion } from './core.ts';
 import {
   cleanReleaseTitle,
@@ -33,9 +34,6 @@ type ReleasePrIdentity = {
   version: string;
 };
 
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 export const RELEASE_PR_TEMPLATE_MARKER = '<!-- fablebook:release-pr=v7 -->';
 export const RELEASE_HIGHLIGHTS_START = '<!-- fablebook:release-highlights:start -->';
