@@ -14,6 +14,7 @@ import test from 'node:test';
 import { promisify } from 'node:util';
 
 import { repositoryRoot } from '../scripts/shared/workspace/packages.ts';
+import { materializeVersion } from '../scripts/shared/version/materialize.ts';
 
 const execute = promisify(execFile);
 const git = (args: string[], cwd: string) =>
@@ -46,6 +47,18 @@ const withWorktree = async (
     added = true;
     await git(['config', 'user.name', 'Lab 02 test'], worktree);
     await git(['config', 'user.email', 'lab-02-test@example.com'], worktree);
+    await materializeVersion(worktree, '5.1.0-alpha.0');
+    await git(
+      [
+        'add',
+        'package.json',
+        'package-lock.json',
+        'packages/addon/package.json',
+        'packages/core/package.json',
+      ],
+      worktree,
+    );
+    await git(['commit', '-m', 'Create main development fixture'], worktree);
     await run(worktree);
   } finally {
     if (added) {
