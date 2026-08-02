@@ -50,14 +50,12 @@ test('unreleased Migrations may be edited, removed, or renamed within their targ
     beforeSource: migration('5.0.0'),
     expectedVersion: '5.0.0',
     path,
-    sealedVersion: null,
   });
   validateMigrationEvolution({
     afterSource: null,
     beforeSource: migration('5.0.0'),
     expectedVersion: '5.0.0',
     path,
-    sealedVersion: null,
   });
   assert.throws(
     () =>
@@ -66,7 +64,6 @@ test('unreleased Migrations may be edited, removed, or renamed within their targ
         beforeSource: null,
         expectedVersion: '5.0.0',
         path,
-        sealedVersion: null,
       }),
     /must declare introduced-in: 5\.0\.0/,
   );
@@ -78,7 +75,6 @@ test('released Migration identity is permanent while guidance remains correctabl
     beforeSource: migration('5.0.0'),
     expectedVersion: '5.0.1',
     path,
-    sealedVersion: null,
   });
   assert.throws(
     () =>
@@ -87,7 +83,6 @@ test('released Migration identity is permanent while guidance remains correctabl
         beforeSource: migration('5.0.0'),
         expectedVersion: '5.0.1',
         path,
-        sealedVersion: null,
       }),
     /cannot be deleted or renamed/,
   );
@@ -98,8 +93,17 @@ test('released Migration identity is permanent while guidance remains correctabl
         beforeSource: migration('5.0.0'),
         expectedVersion: '5.0.1',
         path,
-        sealedVersion: null,
       }),
     /identity cannot change/,
+  );
+  assert.throws(
+    () =>
+      validateMigrationEvolution({
+        afterSource: migration('5.0.2'),
+        beforeSource: migration('5.0.2'),
+        expectedVersion: '5.0.1',
+        path,
+      }),
+    /targets future version 5\.0\.2/,
   );
 });

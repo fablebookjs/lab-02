@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  derivePatchbackMigrationPaths,
   derivePatchbackItems,
   parsePatchbackCommitMessage,
   planPatchbackMigrationSync,
@@ -19,7 +20,10 @@ import {
   PATCHBACK_EXAMPLES_COMMENT,
   renderPatchbackPrBody,
 } from '../scripts/github/patchback/templates.ts';
-import { renderReleaseRecord } from '../scripts/shared/release-communication/records.ts';
+import {
+  composeMigrationRecords,
+  renderReleaseRecord,
+} from '../scripts/shared/release-communication/records.ts';
 import { PILOT_REPOSITORY } from '../scripts/shared/repository.ts';
 import { parsePatchbackManifest } from '../scripts/github/patchback/manifest-schema.ts';
 
@@ -229,6 +233,54 @@ test('Patchback Migration convergence preserves divergent main guidance', () => 
         version: '10.4.3',
       }),
     /membership contradicts|identity changed/,
+  );
+});
+
+test('Patchback discovery omits earlier Migrations unless this slice corrects them', () => {
+  const records = composeMigrationRecords(
+    [
+      {
+        filename: 'adopt-initial-api.md',
+        source: migrationSourceFor(
+          '10.4.0',
+          'Adopt the initial API',
+          'Use the initial API.',
+        ),
+      },
+      {
+        filename: 'adopt-patch-api.md',
+        source: migrationSourceFor(
+          '10.4.3',
+          'Adopt the patch API',
+          'Use the patch API.',
+        ),
+      },
+    ],
+    'v10.4',
+  );
+  assert.deepEqual(
+    derivePatchbackMigrationPaths({
+      changedPaths: [],
+      line: 'v10.4',
+      records,
+      version: '10.4.3',
+    }),
+    {
+      exactPaths: ['migration-notes/v10.4/adopt-patch-api.md'],
+      paths: ['migration-notes/v10.4/adopt-patch-api.md'],
+    },
+  );
+  assert.deepEqual(
+    derivePatchbackMigrationPaths({
+      changedPaths: ['migration-notes/v10.4/adopt-initial-api.md'],
+      line: 'v10.4',
+      records,
+      version: '10.4.3',
+    }).paths,
+    [
+      'migration-notes/v10.4/adopt-patch-api.md',
+      'migration-notes/v10.4/adopt-initial-api.md',
+    ],
   );
 });
 

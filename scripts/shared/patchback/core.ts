@@ -3,10 +3,14 @@ import { parseReleaseLine, parseStableVersion } from '../release-proposal/core.t
 import {
   composeMigrationRecords,
   extractReleaseRecordChanges,
+  migrationRecordsForVersion,
   migrationRecordDirectory,
   releaseRecordPath,
 } from '../release-communication/records.ts';
-import type { ReleaseHistoryPull } from '../release-communication/records.ts';
+import type {
+  ComposedMigrationRecord,
+  ReleaseHistoryPull,
+} from '../release-communication/records.ts';
 
 export const PATCHBACK_FULL_OID_PATTERN_SOURCE = '[0-9a-f]{40}';
 
@@ -179,6 +183,32 @@ export type PatchbackMigrationConflict = {
   path: string;
   title: string;
 };
+
+/** Selects exact-version Migrations plus older guidance corrected in this slice. */
+export function derivePatchbackMigrationPaths({
+  changedPaths,
+  line,
+  records,
+  version,
+}: {
+  changedPaths: readonly string[];
+  line: string;
+  records: readonly ComposedMigrationRecord[];
+  version: string;
+}): { exactPaths: string[]; paths: string[] } {
+  if (patchbackIdentity(version).line !== line) {
+    throw new Error(`${version} does not belong to patchback line ${line}.`);
+  }
+  const directory = `${migrationRecordDirectory(line)}/`;
+  const exactPaths = migrationRecordsForVersion(records, version).map(
+    ({ filename }) => `${directory}${filename}`,
+  );
+  const corrections = validatePatchbackMigrationRecordPaths(changedPaths, line);
+  return {
+    exactPaths,
+    paths: [...new Set([...exactPaths, ...corrections])],
+  };
+}
 
 /**
  * Plans three-way Migration convergence. Missing, already-current, and

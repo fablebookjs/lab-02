@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 
 import {
   derivePatchbackItems,
+  derivePatchbackMigrationPaths,
   planPatchbackMigrationSync,
   patchbackCommitMessage,
   patchbackIdentity,
@@ -11,11 +12,13 @@ import {
   releaseMergerAssignee,
 } from '../../shared/patchback/core.ts';
 import { deriveReleaseAuthority } from '../../shared/release-publication/core.ts';
-import { resolveHeadOid } from '../../shared/git/repository.ts';
+import {
+  readFileAtCommit,
+  resolveHeadOid,
+} from '../../shared/git/repository.ts';
 import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../../shared/repository.ts';
 import {
   loadMigrationRecords,
-  migrationRecordsForVersion,
   migrationRecordDirectory,
   releaseRecordPath,
 } from '../../shared/release-communication/records.ts';
@@ -268,18 +271,6 @@ const migrationChangesBetween = async (
     });
 };
 
-const fileAt = async (
-  root: string,
-  oid: string,
-  path: string,
-): Promise<string | null> => {
-  try {
-    return (await run('git', ['show', `${oid}:${path}`], { cwd: root })).stdout;
-  } catch {
-    return null;
-  }
-};
-
 const loadPatchbackMigrationPlan = async ({
   boundaryOid,
   line,
@@ -297,17 +288,18 @@ const loadPatchbackMigrationPlan = async ({
   token: string;
   version: string;
 }) => {
-  const exactPaths = migrationRecordsForVersion(
-    await loadMigrationRecords(root, line),
-    version,
-  ).map(({ filename }) => `${migrationRecordDirectory(line)}/${filename}`);
   const changedPaths = await migrationChangesBetween(
     root,
     line,
     boundaryOid,
     snapshotOid,
   );
-  const paths = [...new Set([...exactPaths, ...changedPaths])];
+  const { exactPaths, paths } = derivePatchbackMigrationPaths({
+    changedPaths,
+    line,
+    records: await loadMigrationRecords(root, line),
+    version,
+  });
   const mainEntries = new Map(
     (await getGitTreeEntries(token, mainTreeOid)).map((entry) => [entry.path, entry]),
   );
@@ -326,7 +318,7 @@ const loadPatchbackMigrationPlan = async ({
             ? null
             : await readGitBlobText(token, mainEntry.sha),
         path,
-        previousContent: await fileAt(root, boundaryOid, path),
+        previousContent: await readFileAtCommit(root, boundaryOid, path),
         releaseContent: await readFile(join(root, path), 'utf8'),
       };
     }),

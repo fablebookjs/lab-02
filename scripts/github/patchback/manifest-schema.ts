@@ -93,6 +93,36 @@ const patchbackItemValue = (value: unknown): PatchbackItem => {
   };
 };
 
+const patchbackMigrationCollection = (
+  value: unknown,
+  line: string,
+  label: string,
+): PatchbackMigrationRecord[] => {
+  const directory = `${migrationRecordDirectory(line)}/`;
+  const records = patchbackMigrationRecords({
+    line,
+    records: Array.isArray(value)
+      ? value.map((record) => {
+          if (!isRecord(record)) {
+            throw new Error(`${label} entry must be an object.`);
+          }
+          const path = record['path'];
+          return {
+            filename:
+              typeof path === 'string' && path.startsWith(directory)
+                ? path.slice(directory.length)
+                : path,
+            source: record['content'],
+          };
+        })
+      : value,
+  });
+  if (JSON.stringify(value) !== JSON.stringify(records)) {
+    throw new Error(`${label} are invalid.`);
+  }
+  return records;
+};
+
 /**
  * Reconstructs and validates every derived patchback surface from an untrusted
  * artifact so a privileged job never trusts pre-rendered paths or text alone.
@@ -125,54 +155,19 @@ export function parsePatchbackManifest(input: unknown): PatchbackManifest {
   if (releaseRecordInput['path'] !== releaseRecord.path) {
     throw new Error('Patchback manifest release record path is invalid.');
   }
-  const rawMigrationRecords = input['migrationRecords'];
-  const migrationDirectory = `${migrationRecordDirectory(authority.line)}/`;
-  const migrationRecords = patchbackMigrationRecords({
-    line: authority.line,
-    records: Array.isArray(rawMigrationRecords)
-      ? rawMigrationRecords.map((record) => {
-          if (!isRecord(record)) {
-            throw new Error('Patchback migration record must be an object.');
-          }
-          const path = record['path'];
-          return {
-            filename:
-              typeof path === 'string' && path.startsWith(migrationDirectory)
-                ? path.slice(migrationDirectory.length)
-                : path,
-            source: record['content'],
-          };
-        })
-      : rawMigrationRecords,
-  });
+  const migrationRecords = patchbackMigrationCollection(
+    input['migrationRecords'],
+    authority.line,
+    'Patchback manifest migration records',
+  );
+  const migrationConflicts = patchbackMigrationCollection(
+    input['migrationConflicts'],
+    authority.line,
+    'Patchback manifest Migration conflicts',
+  );
   if (
-    JSON.stringify(rawMigrationRecords) !== JSON.stringify(migrationRecords)
-  ) {
-    throw new Error('Patchback manifest migration records are invalid.');
-  }
-  const rawMigrationConflicts = input['migrationConflicts'];
-  const migrationConflicts = patchbackMigrationRecords({
-    line: authority.line,
-    records: Array.isArray(rawMigrationConflicts)
-      ? rawMigrationConflicts.map((record) => {
-          if (!isRecord(record)) {
-            throw new Error('Patchback Migration conflict must be an object.');
-          }
-          const path = record['path'];
-          return {
-            filename:
-              typeof path === 'string' && path.startsWith(migrationDirectory)
-                ? path.slice(migrationDirectory.length)
-                : path,
-            source: record['content'],
-          };
-        })
-      : rawMigrationConflicts,
-  });
-  if (
-    JSON.stringify(rawMigrationConflicts) !== JSON.stringify(migrationConflicts) ||
     migrationConflicts.some(({ path }) =>
-      migrationRecords.some((record) => record.path === path)
+      migrationRecords.some((record) => record.path === path),
     )
   ) {
     throw new Error('Patchback manifest Migration conflicts are invalid.');

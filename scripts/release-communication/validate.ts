@@ -2,6 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
 import { join } from 'node:path';
 
+import { readFileAtCommit } from '../shared/git/repository.ts';
 import { run } from '../shared/process/run.ts';
 import { repositoryRoot } from '../shared/workspace/packages.ts';
 import {
@@ -74,13 +75,6 @@ if (baseBranch === 'main' || baseBranch.startsWith('releases/')) {
   const baseOid = (
     await git(['rev-parse', 'HEAD^1'])
   ).stdout.trim();
-  const fileAt = async (oid: string, path: string): Promise<string | null> => {
-    try {
-      return (await git(['show', `${oid}:${path}`])).stdout;
-    } catch {
-      return null;
-    }
-  };
   const basePackage = JSON.parse(
     (await git(['show', `${baseOid}:package.json`])).stdout,
   );
@@ -114,8 +108,8 @@ if (baseBranch === 'main' || baseBranch.startsWith('releases/')) {
   }
 
   for (const path of changedPaths) {
-    const beforeSource = await fileAt(baseOid, path);
-    const afterSource = await fileAt('HEAD', path);
+    const beforeSource = await readFileAtCommit(repositoryRoot, baseOid, path);
+    const afterSource = await readFileAtCommit(repositoryRoot, 'HEAD', path);
     if (beforeSource !== null) {
       try {
         migrationRecordAtPath(path, beforeSource);
@@ -137,7 +131,6 @@ if (baseBranch === 'main' || baseBranch.startsWith('releases/')) {
       expectedVersion:
         generatedHead && beforeSource === null ? null : expectedVersion,
       path,
-      sealedVersion: null,
     });
   }
   console.log(

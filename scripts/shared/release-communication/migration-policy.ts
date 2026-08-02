@@ -50,6 +50,12 @@ export function expectedMigrationVersion(
   return null;
 }
 
+const compareStableVersions = (left: string, right: string): number => {
+  const a = parseStableVersion(left);
+  const b = parseStableVersion(right);
+  return a.major - b.major || a.minor - b.minor || a.patch - b.patch;
+};
+
 /**
  * Enforces exact authorship and the immutable identity of a sealed Migration.
  * Released body text remains editable; deletion, path changes, and version
@@ -60,35 +66,32 @@ export function validateMigrationEvolution({
   beforeSource,
   expectedVersion,
   path,
-  sealedVersion,
 }: {
   afterSource: string | null;
   beforeSource: string | null;
   expectedVersion: string | null;
   path: string;
-  sealedVersion: string | null;
 }): void {
   const before =
     beforeSource === null ? null : migrationRecordAtPath(path, beforeSource);
   const after =
     afterSource === null ? null : migrationRecordAtPath(path, afterSource);
-  const effectiveSealedVersion =
-    sealedVersion ??
-    (before !== null &&
-    expectedVersion !== null &&
-    before.introducedIn !== expectedVersion
-      ? before.introducedIn
-      : null);
+  const expectedComparison =
+    before === null || expectedVersion === null
+      ? null
+      : compareStableVersions(before.introducedIn, expectedVersion);
 
-  if (effectiveSealedVersion !== null) {
-    parseStableVersion(effectiveSealedVersion);
+  if (before !== null && expectedComparison !== null && expectedComparison > 0) {
+    throw new Error(
+      `Migration ${path} targets future version ${before.introducedIn}.`,
+    );
+  }
+
+  if (before !== null && expectedComparison !== null && expectedComparison < 0) {
     if (after === null) {
       throw new Error(`Released Migration cannot be deleted or renamed: ${path}`);
     }
-    if (
-      after.introducedIn !== effectiveSealedVersion ||
-      (before !== null && before.introducedIn !== effectiveSealedVersion)
-    ) {
+    if (after.introducedIn !== before.introducedIn) {
       throw new Error(`Released Migration identity cannot change: ${path}`);
     }
     return;

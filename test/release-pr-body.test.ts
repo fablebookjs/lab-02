@@ -15,6 +15,10 @@ import {
   validateReleasePrBody,
 } from '../scripts/shared/release-proposal/body.ts';
 import { renderReleasePrBody } from '../scripts/github/release-proposal/templates.ts';
+import {
+  composeMigrationRecords,
+  migrationRecordsForVersion,
+} from '../scripts/shared/release-communication/records.ts';
 const releaseOid = 'a'.repeat(40);
 const proposalOid = 'b'.repeat(40);
 const initialChanges = [
@@ -80,6 +84,21 @@ const authoredHighlights = [
   '',
   'New projects reach their first rendered story with fewer steps.',
 ].join('\n');
+
+const migration = (introducedIn: string, title: string): string => `---
+introduced-in: ${introducedIn}
+priority: required API updates
+---
+# ${title}
+
+## Who is affected
+
+Users of the old API.
+
+## How to migrate
+
+Use the new API.
+`;
 
 const writeHighlights = (body: string, highlights = authoredHighlights): string =>
   body.replace(EMPTY_RELEASE_HIGHLIGHTS, highlights);
@@ -157,30 +176,32 @@ test('the patch template omits release highlights and renders migrations only wh
     'patch'
   );
 
-  const withMigrations = render({
-    migrationRecords: [
+  const migrations = composeMigrationRecords(
+    [
       {
         filename: 'adopt-portable-stories.md',
-        title: 'Adopt portable stories',
+        source: migration('1.0.0', 'Adopt portable stories'),
       },
       {
         filename: 'remove-legacy-api.md',
-        title: 'Remove the legacy API',
+        source: migration('1.0.1', 'Remove the legacy API'),
       },
     ],
+    'v1.0',
+  );
+  const withMigrations = render({
+    migrationRecords: migrationRecordsForVersion(migrations, '1.0.1'),
     version: '1.0.1',
   });
   assert.match(withMigrations, /## Migrations/);
   assert.match(
     withMigrations,
     new RegExp(
-      `https://github.com/fablebookjs/lab-02/blob/${releaseOid}/migration-notes/v1\\.0/adopt-portable-stories\\.md`
+      `https://github.com/fablebookjs/lab-02/blob/${releaseOid}/migration-notes/v1\\.0/remove-legacy-api\\.md`
     )
   );
-  assert.ok(
-    withMigrations.indexOf('Adopt portable stories') <
-      withMigrations.indexOf('Remove the legacy API')
-  );
+  assert.doesNotMatch(withMigrations, /Adopt portable stories/);
+  assert.match(withMigrations, /Remove the legacy API/);
 });
 
 test('regeneration preserves compatible QA while resetting generated review attestations', () => {
