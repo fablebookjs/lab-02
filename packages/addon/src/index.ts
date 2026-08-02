@@ -43,6 +43,10 @@ export function median(values: number[]): number | undefined {
   return lower === undefined ? upper : average([lower, upper]);
 }
 
+export function last(values: number[]): number | undefined {
+  return values.at(-1);
+}
+
 export function formatSummary(
   label: string,
   values: number[],
@@ -97,4 +101,12 @@ export function formatMedianSummary(
   options: LabelNormalizationOptions = {}
 ): string {
   return `${normalizeLabel(label, options)}:${median(values) ?? 'n/a'}`;
+}
+
+export function formatLastSummary(
+  label: string,
+  values: number[],
+  options: LabelNormalizationOptions = {}
+): string {
+  return `${normalizeLabel(label, options)}:${last(values) ?? 'n/a'}`;
 }

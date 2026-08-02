@@ -9,11 +9,13 @@ import {
   count,
   formatAverageSummary,
   formatCountSummary,
+  formatLastSummary,
   formatMaximumSummary,
   formatMedianSummary,
   formatMinimumSummary,
   formatRangeSummary,
   formatSummary,
+  last,
   maximum,
   median,
   minimum,
@@ -184,6 +186,14 @@ test('median summaries report the middle populated value', () => {
   assert.equal(formatMedianSummary(' Scores ', values), 'scores:4');
   assert.equal(formatMedianSummary(' Scores ', []), 'scores:n/a');
   assert.equal(formatMedianSummary(' I ', values, { locale: 'tr' }), 'ı:4');
+});
+
+test('last-value summaries report the final populated value', () => {
+  assert.equal(last([8, 2, 4]), 4);
+  assert.equal(last([]), undefined);
+  assert.equal(formatLastSummary(' Scores ', [8, 2, 4]), 'scores:4');
+  assert.equal(formatLastSummary(' Scores ', []), 'scores:n/a');
+  assert.equal(formatLastSummary(' I ', [8, 2, 4], { locale: 'tr' }), 'ı:4');
 });
 
 test('label collections share one locale-aware normalization pass', () => {
