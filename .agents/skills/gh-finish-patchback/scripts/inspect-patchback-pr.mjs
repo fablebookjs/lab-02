@@ -83,7 +83,7 @@ function latestChecks(checks) {
     .map(({ timestamp: _timestamp, ...check }) => check);
 }
 
-function parseItems(body, diagnostics) {
+function parseItems(body, diagnostics, { line, snapshotOid }) {
   const queueStart = body.indexOf('## Ordered work queue');
   const queue = queueStart === -1 ? '' : body.slice(queueStart);
   const heading = /^- \[([ xX])\] \*\*(.+)\*\*$/gm;
@@ -93,6 +93,58 @@ function parseItems(body, diagnostics) {
   for (const [index, match] of headings.entries()) {
     const end = headings[index + 1]?.index ?? queue.length;
     const block = queue.slice(match.index, end);
+    const outcome = /^  - Outcome: (.+)$/m.exec(block);
+    const checked = match[1].toLowerCase() === 'x';
+    const resolved = /^(?:applied|already-present|not-applicable) — \S.+/.test(
+      outcome?.[1] ?? ''
+    );
+    const migrationPrefix = 'Resolve divergent Migration guidance — ';
+
+    if (match[2].startsWith(migrationPrefix)) {
+      const title = match[2].slice(migrationPrefix.length);
+      const file = /^  - File: `([^`\r\n]+)`$/m.exec(block);
+      const stable = new RegExp(
+        `^  - Stable source: \\[authorized snapshot\\]\\(https://github\\.com/${PATCHBACK_REPOSITORY}/blob/(${PATCHBACK_FULL_OID_PATTERN_SOURCE})/([^\\s)]+)\\)$`,
+        'm'
+      ).exec(block);
+      const placeholder =
+        '_preserve or manually reconcile the newer `main` guidance, then record the resolution_';
+      const pathPattern = line
+        ? new RegExp(`^migration-notes/${line}/[a-z0-9]+(?:-[a-z0-9]+)*\\.md$`)
+        : null;
+
+      if (
+        !title ||
+        !file ||
+        !stable ||
+        !outcome ||
+        stable[1] !== snapshotOid ||
+        stable[2] !== file[1] ||
+        !pathPattern?.test(file[1])
+      ) {
+        diagnostics.push(
+          `queue item ${index + 1} does not match the generated Migration task shape`
+        );
+        continue;
+      }
+      if (outcome[1] !== placeholder && !resolved) {
+        diagnostics.push(`queue item ${index + 1} has an invalid outcome`);
+      }
+      if (checked !== resolved) {
+        diagnostics.push(`queue item ${index + 1} checkbox and outcome disagree`);
+      }
+
+      items.push({
+        checked,
+        heading: match[2],
+        kind: 'migration-conflict',
+        outcome: outcome[1],
+        path: file[1],
+        resolved,
+      });
+      continue;
+    }
+
     const release = new RegExp(
       `^  - Release commit: \\[\\\`(${PATCHBACK_FULL_OID_PATTERN_SOURCE})\\\`\\]`,
       'm'
@@ -101,7 +153,6 @@ function parseItems(body, diagnostics) {
       `^  - Apply: \\\`git cherry-pick (?:-(m) 1 )?(${PATCHBACK_FULL_OID_PATTERN_SOURCE})\\\`$`,
       'm'
     ).exec(block);
-    const outcome = /^  - Outcome: (.+)$/m.exec(block);
 
     if (!release || !apply || !outcome) {
       diagnostics.push(`queue item ${index + 1} does not match the generated item shape`);
@@ -116,11 +167,9 @@ function parseItems(body, diagnostics) {
     ).exec(match[2]);
     const placeholder =
       '_record `applied`, `already-present`, or `not-applicable` before checking this item_';
-    const resolved = /^(?:applied|already-present|not-applicable) — \S.+/.test(outcome[1]);
     if (outcome[1] !== placeholder && !resolved) {
       diagnostics.push(`queue item ${index + 1} has an invalid outcome`);
     }
-    const checked = match[1].toLowerCase() === 'x';
     if (checked !== resolved) {
       diagnostics.push(`queue item ${index + 1} checkbox and outcome disagree`);
     }
@@ -129,6 +178,7 @@ function parseItems(body, diagnostics) {
       checked,
       command: `git cherry-pick ${apply[1] ? '-m 1 ' : ''}${apply[2]}`,
       heading: match[2],
+      kind: 'product-change',
       outcome: outcome[1],
       pullRequest: pull ? Number(pull[1]) : null,
       releaseCommit: release[1],
@@ -206,7 +256,10 @@ if (version) {
 if (!snapshot) diagnostics.push('missing full authorized snapshot OID');
 if (!boundary) diagnostics.push('missing full scope boundary OID');
 
-const items = parseItems(body, diagnostics);
+const items = parseItems(body, diagnostics, {
+  line: version ? patchbackIdentity(version).line : null,
+  snapshotOid: snapshot?.[1] ?? null,
+});
 const hasQueueHeading = /^## Ordered work queue$/m.test(body);
 const emptyQueue = /_No release-line product changes are in this snapshot scope\./.test(body);
 if (hasQueueHeading && items.length === 0) diagnostics.push('ordered queue contains no valid items');
