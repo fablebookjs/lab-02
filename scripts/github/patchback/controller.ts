@@ -80,7 +80,7 @@ export type PatchbackResolution =
 const PATCHBACK_RELEASE_LABELS = ['qa:skip', 'release-note:skip'];
 
 /** Applies public-release exclusions only while a Patchback PR is mutable. */
-export const reconcilePatchbackLabels = (
+const reconcilePatchbackLabels = (
   token: string,
   pull: GitPullRequest,
 ): Promise<GitPullRequest> =>
