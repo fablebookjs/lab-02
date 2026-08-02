@@ -137,5 +137,5 @@ export function formatFirstSummary(
   values: number[],
   options: LabelNormalizationOptions = {}
 ): string {
-  return `${normalizeLabel(label, options)}:${first(values) ?? 'n/a'}`;
+  return `${normalizeLabel(label, options)}:${first(values) ?? 'unavailable'}`;
 }
