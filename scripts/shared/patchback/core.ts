@@ -271,14 +271,14 @@ const patchbackCommitFrom = (
 };
 
 /**
- * Returns `null` only for an ordinary commit with no Patchback trailers;
- * partial or malformed coordination metadata remains a caller-visible error.
+ * Returns `null` when a commit does not contain the complete Patchback
+ * protocol; complete but malformed coordination metadata remains an error.
  */
 export function parsePatchbackCommitMessage(
   message: unknown,
 ): PatchbackCommitMetadata | null {
   const trailers = patchbackTrailersFrom(message);
-  if (patchbackTrailerNames.every((name) => !Object.hasOwn(trailers, name))) {
+  if (patchbackTrailerNames.some((name) => !Object.hasOwn(trailers, name))) {
     return null;
   }
   return patchbackCommitFrom(trailers);

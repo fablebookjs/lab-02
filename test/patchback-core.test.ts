@@ -84,12 +84,11 @@ test('patchback identity and coordination commit are version-bound', () => {
     version: '10.4.3',
   });
   assert.equal(parsePatchbackCommitMessage('ordinary commit'), null);
-  assert.throws(
-    () =>
-      parsePatchbackCommitMessage(
-        'patchback: incomplete\n\nPatchback-Version: 10.4.3',
-      ),
-    /not a structured patchback coordination commit/,
+  assert.equal(
+    parsePatchbackCommitMessage(
+      'patchback: incomplete\n\nPatchback-Version: 10.4.3',
+    ),
+    null,
   );
 });
 
