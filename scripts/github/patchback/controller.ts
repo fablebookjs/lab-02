@@ -32,6 +32,7 @@ import { getReleaseByTag } from '../release-repository/releases.ts';
 import {
   assignPullRequest,
   createDraftPatchbackPr,
+  ensurePullRequestLabels,
   getPullRequest,
   isCanonicalReleasePull,
   listPullRequests,
@@ -70,6 +71,8 @@ export type PatchbackResolution =
       snapshot: string;
       version: string;
     };
+
+const PATCHBACK_RELEASE_LABELS = ['qa:skip', 'release-note:skip'];
 
 const positiveInteger = (value: unknown, label: string): number => {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
@@ -479,6 +482,13 @@ export async function applyPatchback(options: {
       manifest,
     );
     await verifyMainAncestry(token, coordination.baseMainOid);
+    if (pull.state === 'open') {
+      pull = await ensurePullRequestLabels(
+        token,
+        pull,
+        PATCHBACK_RELEASE_LABELS,
+      );
+    }
     await reconcileUniqueMarkedIssueComment(
       token,
       pull.number,
@@ -533,6 +543,11 @@ export async function applyPatchback(options: {
     title: manifest.title,
   });
   validateExistingPull(pull, manifest);
+  pull = await ensurePullRequestLabels(
+    token,
+    pull,
+    PATCHBACK_RELEASE_LABELS,
+  );
 
   await reconcileUniqueMarkedIssueComment(
     token,
