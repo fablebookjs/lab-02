@@ -26,4 +26,7 @@ before calling the formatter rather than treating `none` as missing data.
 Keep `none` as the serialized formatter result; translate it to custom UI text
 only at the final display boundary.
 
+When a wrapper exposes the formatted string unchanged, update that wrapper's
+exact comparisons and snapshots as well.
+
 Populated last-value summaries are unchanged.
