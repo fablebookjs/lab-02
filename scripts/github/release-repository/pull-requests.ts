@@ -214,6 +214,48 @@ export async function getPullRequest(
 }
 
 /**
+ * Adds any missing required labels to one PR without disturbing labels applied
+ * by maintainers. The returned observation is verified against GitHub's reply.
+ */
+export async function ensurePullRequestLabels(
+  token: string,
+  pull: GitPullRequest,
+  requiredLabels: readonly string[],
+): Promise<GitPullRequest> {
+  const required = [
+    ...new Set(
+      requiredLabels.map((label, index) =>
+        stringValue(label, `Required pull request label ${index}`),
+      ),
+    ),
+  ];
+  const observed = new Set(pull.labels.map(({ name }) => name));
+  const missing = required.filter((label) => !observed.has(label));
+  if (missing.length === 0) {
+    return pull;
+  }
+
+  const labels = labelsValue(
+    await githubRequest(
+      `/repos/${PILOT_REPOSITORY}/issues/${pull.number}/labels`,
+      {
+        body: { labels: missing },
+        method: 'POST',
+        token,
+      },
+    ),
+  );
+  const reconciled = new Set(labels.map(({ name }) => name));
+  const absent = required.filter((label) => !reconciled.has(label));
+  if (absent.length > 0) {
+    throw new Error(
+      `GitHub did not apply required pull request label(s): ${absent.join(', ')}.`,
+    );
+  }
+  return { ...pull, labels };
+}
+
+/**
  * Lists PRs associated with a commit and resolves authoritative merge OIDs for
  * every merged result before release-history classification.
  */
