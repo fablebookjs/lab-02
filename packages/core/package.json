@@ -1,6 +1,6 @@
 {
   "name": "@fablebook/lab-02-core",
-  "version": "6.0.0-alpha.1",
+  "version": "6.0.0-alpha.2",
   "description": "Small core package for the Fablebook multi-line release pilot",
   "type": "module",
   "sideEffects": false,
