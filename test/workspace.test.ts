@@ -7,8 +7,10 @@ import test from 'node:test';
 import {
   average,
   count,
+  first,
   formatAverageSummary,
   formatCountSummary,
+  formatFirstSummary,
   formatLastSummary,
   formatMaximumSummary,
   formatMedianSummary,
@@ -194,6 +196,13 @@ test('last-value summaries report the final populated value', () => {
   assert.equal(formatLastSummary(' Scores ', [8, 2, 4]), 'scores:4');
   assert.equal(formatLastSummary(' Scores ', []), 'scores:n/a');
   assert.equal(formatLastSummary(' I ', [8, 2, 4], { locale: 'tr' }), 'ı:4');
+});
+
+test('first-value summaries report the initial populated value', () => {
+  assert.equal(first([8, 3, 5]), 8);
+  assert.equal(first([]), undefined);
+  assert.equal(formatFirstSummary(' Demo ', [8, 3, 5]), 'demo:8');
+  assert.equal(formatFirstSummary(' Demo ', []), 'demo:n/a');
 });
 
 test('label collections share one locale-aware normalization pass', () => {

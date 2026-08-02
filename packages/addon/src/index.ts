@@ -47,6 +47,10 @@ export function last(values: number[]): number | undefined {
   return values.at(-1);
 }
 
+export function first(values: number[]): number | undefined {
+  return values.at(0);
+}
+
 export function formatSummary(
   label: string,
   values: number[],
@@ -109,4 +113,12 @@ export function formatLastSummary(
   options: LabelNormalizationOptions = {}
 ): string {
   return `${normalizeLabel(label, options)}:${last(values) ?? 'n/a'}`;
+}
+
+export function formatFirstSummary(
+  label: string,
+  values: number[],
+  options: LabelNormalizationOptions = {}
+): string {
+  return `${normalizeLabel(label, options)}:${first(values) ?? 'n/a'}`;
 }
