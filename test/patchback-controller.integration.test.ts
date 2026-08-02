@@ -128,7 +128,7 @@ const releasePull = {
   title: `Release ${version}`,
 };
 
-const patchbackPull = (labels: string[]) => ({
+const patchbackPull = (labels: string[], state = 'open') => ({
   base: { ref: 'main', repo: { full_name: repository }, sha: baseMainOid },
   body,
   head: {
@@ -140,7 +140,7 @@ const patchbackPull = (labels: string[]) => ({
   merge_commit_sha: null,
   merged_at: null,
   number: 157,
-  state: 'open',
+  state,
   title: identity.title,
 });
 
@@ -150,7 +150,8 @@ const json = (value: unknown, status = 200): Response =>
     status,
   });
 
-const runScenario = async (existing: boolean) => {
+const runScenario = async (scenario: 'closed' | 'create' | 'open') => {
+  const existing = scenario !== 'create';
   const temporaryRoot = await mkdtemp(
     join(tmpdir(), 'fablebook-apply-patchback-'),
   );
@@ -214,7 +215,16 @@ const runScenario = async (existing: boolean) => {
         );
       }
       if (url.pathname.endsWith('/pulls') && method === 'GET') {
-        return json(existing ? [patchbackPull(['qa:skip'])] : []);
+        return json(
+          existing
+            ? [
+                patchbackPull(
+                  scenario === 'open' ? ['qa:skip'] : [],
+                  scenario,
+                ),
+              ]
+            : [],
+        );
       }
       if (url.pathname.endsWith('/git/ref/heads%2Fpatchbacks%2Fv10.4.3')) {
         return existing
@@ -323,8 +333,8 @@ const runScenario = async (existing: boolean) => {
   }
 };
 
-test('applyPatchback reconciles exclusions after creation and on an existing open PR', async () => {
-  const created = await runScenario(false);
+test('applyPatchback reconciles open PR exclusions without mutating a terminal PR', async () => {
+  const created = await runScenario('create');
   assert.deepEqual(
     created.filter(
       ({ method, path }) =>
@@ -343,7 +353,7 @@ test('applyPatchback reconciles exclusions after creation and on an existing ope
     ),
   );
 
-  const reconciled = await runScenario(true);
+  const reconciled = await runScenario('open');
   assert.deepEqual(
     reconciled.filter(
       ({ method, path }) =>
@@ -354,6 +364,15 @@ test('applyPatchback reconciles exclusions after creation and on an existing ope
   assert.equal(
     reconciled.filter(({ method, path }) =>
       method === 'POST' && (path.endsWith('/git/refs') || path.endsWith('/pulls'))
+    ).length,
+    0,
+  );
+
+  const closed = await runScenario('closed');
+  assert.equal(
+    closed.filter(
+      ({ method, path }) =>
+        method === 'POST' && path.endsWith('/issues/157/labels'),
     ).length,
     0,
   );
