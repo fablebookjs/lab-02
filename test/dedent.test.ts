@@ -18,3 +18,21 @@ test('dedent exposes only the template-tag interface', () => {
 ending`,
   );
 });
+
+test('dedent preserves indentation across consecutive multiline values', () => {
+  const first = `one\ntwo`;
+  const second = `three\nfour`;
+
+  assert.equal(
+    dedent`
+      list
+        ${first}
+        ${second}
+    `,
+    `list
+  one
+  two
+  three
+  four`,
+  );
+});
