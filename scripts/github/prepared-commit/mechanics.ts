@@ -213,7 +213,7 @@ export const materializeCommit = async ({
       GIT_COMMITTER_NAME: 'fablebook-release-app[bot]',
     };
     await git(['commit', '--no-gpg-sign', '-m', message], { cwd: worktree, env: identity });
-    return resolveHeadOid(worktree);
+    return await resolveHeadOid(worktree);
   } finally {
     if (added) {
       await git(['worktree', 'remove', '--force', worktree]).catch(() => undefined);
