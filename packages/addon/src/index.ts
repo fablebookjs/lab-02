@@ -59,6 +59,9 @@ export function formatSummary(
   return `${normalizeLabel(label, options)}:${total(values)}`;
 }
 
+/** Compatibility name for integrations written against the 5.x summary API. */
+export const formatClassicSummary = formatSummary;
+
 export function formatAverageSummary(
   label: string,
   values: number[],
