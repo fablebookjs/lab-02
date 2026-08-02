@@ -10,6 +10,10 @@ export function subtract(left: number, right: number): number {
   return left - right;
 }
 
+export function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(Math.max(value, minimum), maximum);
+}
+
 export interface LabelNormalizationOptions {
   locale?: string;
 }

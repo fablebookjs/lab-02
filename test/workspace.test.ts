@@ -24,6 +24,7 @@ import {
 } from '@fablebook/lab-02-addon';
 import {
   add,
+  clamp,
   formatChapterNavigation,
   multiply,
   normalizeLabel,
@@ -129,6 +130,12 @@ test('the compiled addon exercises the compiled core package', () => {
 test('the core package exposes subtraction', () => {
   assert.equal(subtract(7, 2), 5);
   assert.equal(subtract(2, 7), -5);
+});
+
+test('the core package clamps values to an inclusive range', () => {
+  assert.equal(clamp(-1, 0, 10), 0);
+  assert.equal(clamp(4, 0, 10), 4);
+  assert.equal(clamp(12, 0, 10), 10);
 });
 
 test('the core label API accepts locale options', () => {
