@@ -225,7 +225,7 @@ test('first-value summaries report the initial populated value', () => {
   assert.equal(first([8, 3, 5]), 8);
   assert.equal(first([]), undefined);
   assert.equal(formatFirstSummary(' Demo ', [8, 3, 5]), 'demo:8');
-  assert.equal(formatFirstSummary(' Demo ', []), 'demo:n/a');
+  assert.equal(formatFirstSummary(' Demo ', []), 'demo:unavailable');
 });
 
 test('label collections share one locale-aware normalization pass', () => {
