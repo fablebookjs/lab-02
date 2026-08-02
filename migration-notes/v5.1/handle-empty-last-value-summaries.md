@@ -20,4 +20,7 @@ const summary = formatLastSummary('Scores', []);
 expect(summary).toBe('scores:none');
 ```
 
+When a wrapper exposes the formatted string unchanged, update that wrapper's
+exact comparisons and snapshots as well.
+
 Populated last-value summaries are unchanged.
