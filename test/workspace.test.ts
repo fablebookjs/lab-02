@@ -201,7 +201,7 @@ test('last-value summaries report the final populated value', () => {
   assert.equal(last([8, 2, 4]), 4);
   assert.equal(last([]), undefined);
   assert.equal(formatLastSummary(' Scores ', [8, 2, 4]), 'scores:4');
-  assert.equal(formatLastSummary(' Scores ', []), 'scores:n/a');
+  assert.equal(formatLastSummary(' Scores ', []), 'scores:none');
   assert.equal(formatLastSummary(' I ', [8, 2, 4], { locale: 'tr' }), 'ı:4');
 });
 
