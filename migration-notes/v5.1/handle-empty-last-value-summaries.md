@@ -23,4 +23,7 @@ expect(summary).toBe('scores:none');
 If an application needs a custom empty label, handle the empty collection
 before calling the formatter rather than treating `none` as missing data.
 
+Keep `none` as the serialized formatter result; translate it to custom UI text
+only at the final display boundary.
+
 Populated last-value summaries are unchanged.
