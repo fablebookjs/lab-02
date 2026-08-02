@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
+import { resolveHeadOid } from '../../shared/git/repository.ts';
 
 import {
   compareReleaseLines,
@@ -17,23 +17,29 @@ import {
   ZERO_OID,
 } from '../../shared/release-proposal/core.ts';
 import {
+  PILOT_REPOSITORY,
+  PRIMARY_BRANCH,
+} from '../../shared/repository.ts';
+import { getReleaseByTag } from '../release-repository/releases.ts';
+import { getRepository } from '../release-repository/repository.ts';
+import {
   closePullRequest,
   createDraftReleasePr,
-  createRefUpdate,
-  getGitCommit,
-  getRef,
   getPullRequest,
-  getReleaseByTag,
-  getRepository,
-  listMatchingRefs,
   listPrereleasePulls,
   listReleasePulls,
-  PILOT_REPOSITORY,
-  resolveRefObject,
   updatePullRequestBody,
+} from '../release-repository/pull-requests.ts';
+import { getGitCommit } from '../release-repository/commits.ts';
+import {
+  createRefUpdate,
+  getRef,
+  listMatchingRefs,
+  resolveRefObject,
   updateRefs,
-} from '../release-repository/github.ts';
-import type { GitPullRequest, GitReference } from '../release-repository/github.ts';
+} from '../release-repository/refs.ts';
+import type { GitReference } from '../release-repository/refs.ts';
+import type { GitPullRequest } from '../release-repository/pull-requests.ts';
 import { repositoryRoot } from '../../shared/workspace/packages.ts';
 import { run } from '../../shared/process/run.ts';
 import type { RunOptions } from '../../shared/process/run.ts';
@@ -47,19 +53,15 @@ import {
   renderReleaseRecord,
 } from '../../shared/release-communication/records.ts';
 import type { ReleaseChange } from '../../shared/release-communication/records.ts';
+import { requireOption } from '../../shared/cli/options.ts';
+import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import {
   extractReleasePrIdentity,
-  renderReleasePrBody,
   selectLatestMatchingReleasePrBody,
   validateReleasePrBody,
 } from '../../shared/release-proposal/body.ts';
 import type { ValidatedPullRequest } from '../events.ts';
-import {
-  readJson,
-  requireGithubToken,
-  requireOption,
-  writeJson,
-} from '../controller-support.ts';
+import { requireControllerGitHubToken } from '../controller-inputs.ts';
 import {
   commitMessageAt,
   commitParents,
@@ -83,6 +85,12 @@ import {
   findReleaseCut,
   firstParentCommitFacts,
 } from '../release-history/history.ts';
+import {
+  parseCutTransition,
+  parseMaintenanceTransition,
+} from './transition-schema.ts';
+import type { CutTransition } from './transition-schema.ts';
+import { renderReleasePrBody } from './templates.ts';
 const ARTIFACT_PREFIX = 'refs/release-pilot/artifact/';
 
 type ProposalBodyAction = {
@@ -92,85 +100,6 @@ type ProposalBodyAction = {
   releaseOid: string;
   supersededPr?: number | undefined;
   version: string;
-};
-
-type CutTransition = {
-  changes: ReleaseChange[];
-  developmentBundleRef: string;
-  developmentOid: string;
-  developmentVersion: string;
-  expectedPrereleaseOid: string | null;
-  kind: 'cut';
-  line: string;
-  openPrereleasePr: number | undefined;
-  proposalBundleRef: string;
-  proposalOid: string;
-  releaseVersion: string;
-  repository: typeof PILOT_REPOSITORY;
-  schema: 1;
-  sourceOid: string;
-};
-
-type MaintenanceActionBase = {
-  expectedStagedOid: string | null;
-  line: string;
-  previousHighlightsBody: string | undefined;
-  releaseOid: string;
-  supersededPr: number | undefined;
-};
-
-type DormantAction = MaintenanceActionBase & {
-  changes: undefined;
-  kind: 'dormant';
-  openPr: number | undefined;
-};
-
-type OpenAction = MaintenanceActionBase & {
-  changes: unknown[];
-  kind: 'open';
-  openPr: undefined;
-  proposalOid: string;
-  version: string;
-};
-
-type SyncAction = MaintenanceActionBase & {
-  changes: unknown[];
-  kind: 'sync';
-  openPr: number;
-  proposalOid: string;
-  version: string;
-};
-
-type MaterializedAction = MaintenanceActionBase & {
-  bundleRef: string;
-  changes: unknown[];
-  kind: 'create' | 'recreate';
-  openPr: number | undefined;
-  proposalOid: string;
-  version: string;
-};
-
-type ReplacementAction = MaintenanceActionBase & {
-  bundleRef: string;
-  changes: unknown[];
-  kind: 'refresh' | 'replace';
-  openPr: number;
-  proposalOid: string;
-  version: string;
-};
-
-type MaintenanceAction =
-  | DormantAction
-  | MaterializedAction
-  | OpenAction
-  | ReplacementAction
-  | SyncAction;
-
-type MaintenanceTransition = {
-  actions: MaintenanceAction[];
-  kind: 'maintenance';
-  repository: typeof PILOT_REPOSITORY;
-  schema: 1;
 };
 
 type MaintenanceState = {
@@ -193,184 +122,8 @@ type MaintenanceState = {
   staged: (ReturnType<typeof parseProposalMessage> & { oid: string }) | null;
 };
 
-export type PrepareCutOptions = {
-  'github-token': string;
-  'next-development': string;
-  output: string;
-};
-
-export type ApplyCutOptions = {
-  bundle: string;
-  'github-token': string;
-  transition: string;
-};
-
-export type PrepareMaintenanceOptions = {
-  'github-token': string;
-  output: string;
-};
-
-export type ApplyMaintenanceOptions = {
-  bundle?: string;
-  'github-token': string;
-  transition: string;
-};
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
-
-const stringValue = (value: unknown, label: string): string => {
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`${label} must be a nonempty string.`);
-  }
-  return value;
-};
-
-const optionalString = (value: unknown, label: string): string | undefined => {
-  if (value === undefined) return undefined;
-  return stringValue(value, label);
-};
-
-const optionalPositiveInteger = (value: unknown, label: string): number | undefined => {
-  if (value === undefined) return undefined;
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
-    throw new Error(`${label} must be a positive integer.`);
-  }
-  return value;
-};
-
-const nullableOid = (value: unknown, label: string): string | null => {
-  if (value === null) return null;
-  validateFullOid(value, label);
-  return value;
-};
-
-const cutTransitionValue = (value: unknown): CutTransition => {
-  if (!isRecord(value)) throw new Error('Cut transition must be an object.');
-  if (
-    value['schema'] !== 1 ||
-    value['kind'] !== 'cut' ||
-    value['repository'] !== PILOT_REPOSITORY
-  ) {
-    throw new Error('Cut transition is outside the accepted schema.');
-  }
-  return {
-    changes: normalizeReleaseChanges(value['changes']),
-    developmentBundleRef: stringValue(
-      value['developmentBundleRef'],
-      'Cut development bundle ref',
-    ),
-    developmentOid: stringValue(value['developmentOid'], 'Cut development OID'),
-    developmentVersion: stringValue(
-      value['developmentVersion'],
-      'Cut development version',
-    ),
-    expectedPrereleaseOid: nullableOid(
-      value['expectedPrereleaseOid'],
-      'Cut prerelease ref expectation',
-    ),
-    kind: 'cut',
-    line: stringValue(value['line'], 'Cut release line'),
-    openPrereleasePr: optionalPositiveInteger(
-      value['openPrereleasePr'],
-      'Cut open Prerelease PR',
-    ),
-    proposalBundleRef: stringValue(value['proposalBundleRef'], 'Cut proposal bundle ref'),
-    proposalOid: stringValue(value['proposalOid'], 'Cut proposal OID'),
-    releaseVersion: stringValue(value['releaseVersion'], 'Cut release version'),
-    repository: PILOT_REPOSITORY,
-    schema: 1,
-    sourceOid: stringValue(value['sourceOid'], 'Cut source OID'),
-  };
-};
-
-const maintenanceActionValue = (value: unknown): MaintenanceAction => {
-  if (!isRecord(value)) throw new Error('Maintenance action must be an object.');
-  const kind = value['kind'];
-  if (
-    kind !== 'create' &&
-    kind !== 'dormant' &&
-    kind !== 'open' &&
-    kind !== 'recreate' &&
-    kind !== 'refresh' &&
-    kind !== 'replace' &&
-    kind !== 'sync'
-  ) {
-    throw new Error(`Unknown maintenance action: ${String(kind)}`);
-  }
-  const base: MaintenanceActionBase = {
-    expectedStagedOid: nullableOid(
-      value['expectedStagedOid'],
-      'Maintenance staged expectation',
-    ),
-    line: stringValue(value['line'], 'Maintenance release line'),
-    previousHighlightsBody: optionalString(
-      value['previousHighlightsBody'],
-      'Maintenance previous highlights',
-    ),
-    releaseOid: stringValue(value['releaseOid'], 'Maintenance release OID'),
-    supersededPr: optionalPositiveInteger(
-      value['supersededPr'],
-      'Maintenance superseded PR',
-    ),
-  };
-  const openPr = optionalPositiveInteger(value['openPr'], 'Maintenance open PR');
-  if (kind === 'dormant') return { ...base, changes: undefined, kind, openPr };
-
-  const changes = value['changes'];
-  if (!Array.isArray(changes)) {
-    throw new Error(`${kind} maintenance action requires a changes array.`);
-  }
-  const proposalOid = stringValue(value['proposalOid'], 'Maintenance proposal OID');
-  const version = stringValue(value['version'], 'Maintenance version');
-  if (kind === 'open') {
-    return { ...base, changes, kind, openPr: undefined, proposalOid, version };
-  }
-  if (kind === 'sync') {
-    if (openPr === undefined) throw new Error('Sync maintenance action requires an open PR.');
-    return { ...base, changes, kind, openPr, proposalOid, version };
-  }
-
-  const bundleRef = stringValue(value['bundleRef'], 'Maintenance bundle ref');
-  if (kind === 'refresh' || kind === 'replace') {
-    if (openPr === undefined) {
-      throw new Error(`${kind} maintenance action requires an open PR.`);
-    }
-    return { ...base, bundleRef, changes, kind, openPr, proposalOid, version };
-  }
-  return { ...base, bundleRef, changes, kind, openPr, proposalOid, version };
-};
-
-const maintenanceTransitionValue = (value: unknown): MaintenanceTransition => {
-  if (
-    !isRecord(value) ||
-    value['schema'] !== 1 ||
-    value['kind'] !== 'maintenance' ||
-    value['repository'] !== PILOT_REPOSITORY ||
-    !Array.isArray(value['actions'])
-  ) {
-    throw new Error('Maintenance transition is outside the accepted schema.');
-  }
-  return {
-    actions: value['actions'].map(maintenanceActionValue),
-    kind: 'maintenance',
-    repository: PILOT_REPOSITORY,
-    schema: 1,
-  };
-};
-
 const git = (args: string[], options: RunOptions = {}) =>
   run('git', args, { ...options, cwd: options.cwd ?? repositoryRoot });
-
-const releasePrTemplate = (version: string): Promise<string> => {
-  const { patch } = parseStableVersion(version);
-  const filename =
-    patch === 0 ? 'release-pr-initial.md' : 'release-pr-patch.md';
-  return readFile(
-    join(repositoryRoot, '.github/release-templates', filename),
-    'utf8'
-  );
-};
 
 const developmentLineChanges = async (
   token: string,
@@ -383,7 +136,7 @@ const developmentLineChanges = async (
   },
 ): Promise<ReleaseChange[]> => {
   const commits = (
-    await developmentCommitFacts(token, { boundaryOid, sourceOid })
+    await developmentCommitFacts(repositoryRoot, token, { boundaryOid, sourceOid })
   ).filter(({ mechanical }) => !mechanical);
   return derivePrereleaseChanges({ commits });
 };
@@ -413,7 +166,7 @@ const releaseChanges = async (
     releaseOid,
   }: { boundaryOid: string; line: string; releaseOid: string },
 ): Promise<ReleaseChange[]> => {
-  const commits = await firstParentCommitFacts(token, {
+  const commits = await firstParentCommitFacts(repositoryRoot, token, {
     boundaryOid,
     headOid: releaseOid,
     label: line,
@@ -421,6 +174,10 @@ const releaseChanges = async (
   return deriveReleaseChanges({ commits, line });
 };
 
+/**
+ * Combines development-line work before the cut with release-line work after
+ * it, preserving first occurrence when both histories identify the same change.
+ */
 export const initialReleaseChanges = async (
   token: string,
   {
@@ -431,9 +188,10 @@ export const initialReleaseChanges = async (
     releaseOid: string;
   },
 ): Promise<ReleaseChange[]> => {
-  const cut = await findReleaseCut(line);
+  const cut = await findReleaseCut(repositoryRoot, line);
   const bootstrap = await findDevelopmentBootstrap({
     line,
+    root: repositoryRoot,
     sourceOid: cut.sourceOid,
   });
   return combineReleaseChanges(
@@ -493,7 +251,7 @@ const renderProposalBody = async ({
   previousBody?: string;
   proposalOid: string;
 }): Promise<string> => {
-  const { packages } = await publicPackagesAt(contentOid);
+  const { packages } = await publicPackagesAt(repositoryRoot, contentOid);
   return renderReleasePrBody({
     changes: action.changes,
     line: action.line,
@@ -504,7 +262,6 @@ const renderProposalBody = async ({
     proposalOid,
     releaseOid: action.releaseOid,
     ...(action.supersededPr === undefined ? {} : { supersededPr: action.supersededPr }),
-    template: await releasePrTemplate(action.version),
     version: action.version,
   });
 };
@@ -528,12 +285,12 @@ const validateProposalCommit = async (
     version: string;
   },
 ): Promise<void> => {
-  assert.deepEqual(await commitParents(oid), [expected.sourceOid]);
-  const metadata = parseProposalMessage(await commitMessageAt(oid));
+  assert.deepEqual(await commitParents(repositoryRoot, oid), [expected.sourceOid]);
+  const metadata = parseProposalMessage(await commitMessageAt(repositoryRoot, oid));
   assert.equal(metadata.line, expected.line);
   assert.equal(metadata.sourceOid, expected.sourceOid);
   assert.equal(metadata.version, expected.version);
-  await validateVersionTree(oid, expected.version);
+  await validateVersionTree(repositoryRoot, oid, expected.version);
   const path = releaseRecordPath(expected.version);
   let record;
   try {
@@ -557,8 +314,8 @@ const validateDevelopmentCommit = async (
   oid: string,
   expected: { line: string; sourceOid: string; version: string },
 ): Promise<void> => {
-  assert.deepEqual(await commitParents(oid), [expected.sourceOid]);
-  const message = await commitMessageAt(oid);
+  assert.deepEqual(await commitParents(repositoryRoot, oid), [expected.sourceOid]);
+  const message = await commitMessageAt(repositoryRoot, oid);
   assert.deepEqual(
     parsePrereleaseBootstrapCommitMessageIfPresent(message),
     expected,
@@ -567,7 +324,7 @@ const validateDevelopmentCommit = async (
   assert.match(message, new RegExp(`Release-Cut-Line: ${expected.line.replace('.', '\\.')}`));
   assert.match(message, new RegExp(`Release-Cut-Source: ${expected.sourceOid}`));
   assert.match(message, new RegExp(`Development-Version: ${expected.version.replaceAll('.', '\\.')}`));
-  await validateVersionTree(oid, expected.version);
+  await validateVersionTree(repositoryRoot, oid, expected.version);
 };
 
 const validateCutTransition = async (transition: CutTransition): Promise<void> => {
@@ -576,7 +333,7 @@ const validateCutTransition = async (transition: CutTransition): Promise<void> =
   validateFullOid(transition.sourceOid, 'Cut source');
   validateFullOid(transition.proposalOid, 'Proposal');
   validateFullOid(transition.developmentOid, 'Development commit');
-  const sourceVersion = await rootVersionAt(transition.sourceOid);
+  const sourceVersion = await rootVersionAt(repositoryRoot, transition.sourceOid);
   const minor = deriveCutVersions(sourceVersion, 'minor');
   const major = deriveCutVersions(sourceVersion, 'major');
   const matches = [minor, major].some(
@@ -590,15 +347,27 @@ const validateCutTransition = async (transition: CutTransition): Promise<void> =
   }
 };
 
-export async function prepareCut(options: PrepareCutOptions): Promise<void> {
+/**
+ * Materializes and verifies the stable proposal and next development snapshot,
+ * then emits their inert object bundle and guarded transition artifact.
+ */
+export async function prepareCut(options: {
+  'github-token': string;
+  'next-development': string;
+  output: string;
+}): Promise<void> {
   await ensureCleanReleaseRepository();
   const nextDevelopment = requireOption(options, 'next-development');
   const output = await prepareOutput(requireOption(options, 'output'));
-  const token = requireGithubToken(options);
-  const sourceOid = (await git(['rev-parse', 'HEAD'])).stdout.trim();
-  const versions = deriveCutVersions(await rootVersionAt(sourceOid), nextDevelopment);
+  const token = requireControllerGitHubToken(options);
+  const sourceOid = await resolveHeadOid(repositoryRoot);
+  const versions = deriveCutVersions(
+    await rootVersionAt(repositoryRoot, sourceOid),
+    nextDevelopment,
+  );
   const bootstrap = await findDevelopmentBootstrap({
     line: versions.line,
+    root: repositoryRoot,
     sourceOid,
   });
   const changes = await developmentLineChanges(token, {
@@ -669,7 +438,7 @@ export async function prepareCut(options: PrepareCutOptions): Promise<void> {
     { name: developmentBundleRef, oid: developmentOid },
   ]);
 
-  await writeJson(join(output, 'transition.json'), {
+  await writeJsonFile(join(output, 'transition.json'), {
     changes,
     developmentBundleRef,
     developmentOid,
@@ -690,6 +459,7 @@ export async function prepareCut(options: PrepareCutOptions): Promise<void> {
   console.log(`Prepared ${versions.line} from ${sourceOid}.`);
 }
 
+/** Projects the applied development snapshot into alpha.0 bootstrap authority. */
 export function cutPrereleaseAuthority({
   developmentVersion,
   line,
@@ -714,6 +484,10 @@ export function cutPrereleaseAuthority({
   };
 }
 
+/**
+ * Constructs the atomic release-cut ref transition: open release/staged lines,
+ * advance main, and remove the superseded prerelease proposal when present.
+ */
 export function cutRefUpdates({
   developmentOid,
   expectedPrereleaseOid,
@@ -739,7 +513,7 @@ export function cutRefUpdates({
     createRefUpdate({
       afterOid: developmentOid,
       beforeOid: sourceOid,
-      name: 'refs/heads/main',
+      name: `refs/heads/${PRIMARY_BRANCH}`,
     }),
     ...(expectedPrereleaseOid === null
       ? []
@@ -754,15 +528,23 @@ export function cutRefUpdates({
   ];
 }
 
-export async function applyCut(options: ApplyCutOptions): Promise<void> {
+/**
+ * Imports and revalidates prepared objects, rechecks every live expectation,
+ * applies the atomic cut, opens its Release PR, and emits bootstrap authority.
+ */
+export async function applyCut(options: {
+  bundle: string;
+  'github-token': string;
+  transition: string;
+}): Promise<void> {
   await ensureCleanReleaseRepository();
   const transitionPath = resolve(requireOption(options, 'transition'));
   const bundlePath = resolve(requireOption(options, 'bundle'));
-  const transition = cutTransitionValue(await readJson(transitionPath));
-  const token = requireGithubToken(options);
+  const transition = parseCutTransition(await readJsonFile(transitionPath));
+  const token = requireControllerGitHubToken(options);
   if (
     process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
-    process.env['GITHUB_REF'] !== 'refs/heads/main'
+    process.env['GITHUB_REF'] !== `refs/heads/${PRIMARY_BRANCH}`
   ) {
     throw new Error('Cut transition is outside the trusted pilot context.');
   }
@@ -787,7 +569,7 @@ export async function applyCut(options: ApplyCutOptions): Promise<void> {
   const uploadedProposalOid = await uploadCommitObject(token, transition.proposalOid);
   const uploadedDevelopmentOid = await uploadCommitObject(token, transition.developmentOid);
 
-  const main = await getRef(token, 'heads/main');
+  const main = await getRef(token, `heads/${PRIMARY_BRANCH}`);
   if (main?.oid !== transition.sourceOid) {
     throw new Error('main advanced after cut preparation; no refs were changed.');
   }
@@ -848,7 +630,7 @@ export async function applyCut(options: ApplyCutOptions): Promise<void> {
   } else if (openPulls.length !== 1) {
     throw new Error(`${transition.line} has more than one open canonical release PR.`);
   }
-  await writeJson(
+  await writeJsonFile(
     join(dirname(transitionPath), 'authority.json'),
     cutPrereleaseAuthority({
       developmentVersion: transition.developmentVersion,
@@ -918,7 +700,7 @@ const loadMaintenanceStates = async (token: string): Promise<MaintenanceState[]>
       'origin',
       `+refs/heads/releases/${line}:refs/remotes/origin/releases/${line}`,
     ]);
-    const lineVersion = await rootVersionAt(releaseOid);
+    const lineVersion = await rootVersionAt(repositoryRoot, releaseOid);
     const stagedRef = await getRef(token, `heads/staged/${line}`);
     const pulls = await listReleasePulls(token, line);
     const openPulls = pulls.filter(({ state }) => state === 'open');
@@ -950,7 +732,9 @@ const loadMaintenanceStates = async (token: string): Promise<MaintenanceState[]>
     let staged: MaintenanceState['staged'] = null;
     if (stagedRef !== null) {
       await git(['fetch', '--no-tags', 'origin', `+refs/heads/staged/${line}:refs/remotes/origin/staged/${line}`]);
-      const metadata = parseProposalMessage(await commitMessageAt(stagedRef.oid));
+      const metadata = parseProposalMessage(
+        await commitMessageAt(repositoryRoot, stagedRef.oid),
+      );
       if (metadata.line !== line) {
         throw new Error(`staged/${line} contains proposal metadata for ${metadata.line}.`);
       }
@@ -1014,12 +798,16 @@ const loadMaintenanceStates = async (token: string): Promise<MaintenanceState[]>
   return states;
 };
 
+/**
+ * Observes every release line, plans maintenance, and emits verified proposal
+ * objects only for actions that need new commits. No GitHub writes occur here.
+ */
 export async function prepareMaintenance(
-  options: PrepareMaintenanceOptions,
+  options: { 'github-token': string; output: string },
 ): Promise<void> {
   await ensureCleanReleaseRepository();
   const output = await prepareOutput(requireOption(options, 'output'));
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   const states = await loadMaintenanceStates(token);
   const planned = planProposalMaintenance(states);
   const actions: unknown[] = [];
@@ -1119,7 +907,7 @@ export async function prepareMaintenance(
   if (bundleRefs.length > 0) {
     await writeBundle(join(output, 'objects.bundle'), bundleRefs);
   }
-  await writeJson(join(output, 'transition.json'), {
+  await writeJsonFile(join(output, 'transition.json'), {
     actions,
     kind: 'maintenance',
     repository: PILOT_REPOSITORY,
@@ -1128,17 +916,22 @@ export async function prepareMaintenance(
   console.log(`Prepared ${actions.length} release proposal maintenance actions.`);
 }
 
+/**
+ * Applies ordered stable-maintenance actions after rechecking their exact refs
+ * and PR state. Existing discussion is retained for refreshes; replacements are
+ * explicit close-and-recreate operations.
+ */
 export async function applyMaintenance(
-  options: ApplyMaintenanceOptions,
+  options: { bundle?: string; 'github-token': string; transition: string },
 ): Promise<void> {
   await ensureCleanReleaseRepository();
   const transitionPath = resolve(requireOption(options, 'transition'));
-  const transition = maintenanceTransitionValue(await readJson(transitionPath));
+  const transition = parseMaintenanceTransition(await readJsonFile(transitionPath));
   const bundle = options.bundle ? resolve(options.bundle) : null;
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   if (
     process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
-    process.env['GITHUB_REF'] !== 'refs/heads/main'
+    process.env['GITHUB_REF'] !== `refs/heads/${PRIMARY_BRANCH}`
   ) {
     throw new Error('Maintenance transition is outside the trusted pilot context.');
   }
@@ -1230,7 +1023,9 @@ export async function applyMaintenance(
         'origin',
         `+refs/heads/staged/${action.line}:refs/remotes/origin/staged/${action.line}`,
       ]);
-      const metadata = parseProposalMessage(await commitMessageAt(action.expectedStagedOid));
+      const metadata = parseProposalMessage(
+        await commitMessageAt(repositoryRoot, action.expectedStagedOid),
+      );
       if (
         metadata.line !== action.line ||
         metadata.sourceOid !== action.releaseOid ||
@@ -1314,6 +1109,10 @@ export async function applyMaintenance(
   console.log(`Applied ${transition.actions.length} release proposal maintenance actions.`);
 }
 
+/**
+ * Required-check proof that a canonical Release PR's proposal tree, ancestry,
+ * commit trailers, generated record, and body identity agree.
+ */
 export async function checkPullRequest(
   pull: Pick<ValidatedPullRequest, 'base' | 'body' | 'head'>,
 ): Promise<void> {
@@ -1330,7 +1129,9 @@ export async function checkPullRequest(
   parseReleaseLine(line);
   validateFullOid(pull.base.sha, 'Release PR base');
   validateFullOid(pull.head.sha, 'Release PR head');
-  const metadata = parseProposalMessage(await commitMessageAt(pull.head.sha));
+  const metadata = parseProposalMessage(
+    await commitMessageAt(repositoryRoot, pull.head.sha),
+  );
   await validateProposalCommit(pull.head.sha, {
     line,
     sourceOid: pull.base.sha,

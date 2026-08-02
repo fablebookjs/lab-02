@@ -1,22 +1,26 @@
 import {
   cleanReleaseTitle,
-  normalizeReleaseChanges,
 } from '../release-communication/records.ts';
-import type { ReleaseChange } from '../release-communication/records.ts';
 import { parseDevelopmentVersion } from '../release-proposal/core.ts';
+import { PILOT_REPOSITORY } from '../repository.ts';
+import { escapeRegExp } from '../text/regexp.ts';
 
-const REPOSITORY = 'fablebookjs/lab-02';
-const repositoryUrl = `https://github.com/${REPOSITORY}`;
+const repositoryUrl = `https://github.com/${PILOT_REPOSITORY}`;
+const repositoryUrlPattern = escapeRegExp(repositoryUrl);
 const fullOidPattern = /^[0-9a-f]{40}$/;
 const identityPattern =
   /<!-- fablebook:prerelease-proposal=([0-9a-f]{40}) source=([0-9a-f]{40}) boundary=([0-9a-f]{40}) version=([^ ]+) -->/g;
-const changePattern =
-  /^- \[([^\]\r\n]+)\]\((https:\/\/github\.com\/fablebookjs\/lab-02\/(?:pull\/[1-9]\d*|commit\/[0-9a-f]{40}))\)( — Not included in public release notes \(`release-note:skip`\)\.)? <!-- fablebook:prerelease-change=(pr:[1-9]\d*|commit:[0-9a-f]{40}) release-note=(include|skip) -->\s*$/gm;
+export const PRERELEASE_RELEASE_NOTE_SKIP_LABEL = '`release-note:skip`';
+const changePattern = new RegExp(
+  String.raw`^- \[([^\]\r\n]+)\]\((${repositoryUrlPattern}/(?:pull/[1-9]\d*|commit/[0-9a-f]{40}))\)( — Not included in public release notes \(${PRERELEASE_RELEASE_NOTE_SKIP_LABEL}\)\.)? <!-- fablebook:prerelease-change=(pr:[1-9]\d*|commit:[0-9a-f]{40}) release-note=(include|skip) -->\s*$`,
+  'gm',
+);
 const taskPattern = /^- \[[ xX]\]/m;
 
 export const PRERELEASE_PR_TEMPLATE_MARKER =
   '<!-- fablebook:prerelease-pr=v1 -->';
 
+/** Hidden binding between a generated Prerelease PR and its immutable Git facts. */
 export type PrereleasePrIdentity = {
   boundaryOid: string;
   proposalOid: string;
@@ -24,6 +28,7 @@ export type PrereleasePrIdentity = {
   version: string;
 };
 
+/** One ordered, human-facing prerelease change with publication classification. */
 export type PrereleasePrChange = {
   key: string;
   releaseNoteSkip: boolean;
@@ -61,6 +66,10 @@ const validateIdentity = (
   return identity;
 };
 
+/**
+ * Reads exactly one identity from a current generated Prerelease PR. Bodies
+ * outside the template return null; malformed current metadata fails.
+ */
 export function extractPrereleasePrIdentity(
   body: unknown,
 ): PrereleasePrIdentity | null {
@@ -86,6 +95,7 @@ export function extractPrereleasePrIdentity(
   });
 }
 
+/** Parses ordered prerelease change links and proves visible and hidden metadata agree. */
 export function extractPrereleasePrChanges(
   body: unknown,
 ): PrereleasePrChange[] {
@@ -123,6 +133,10 @@ export function extractPrereleasePrChanges(
   return changes;
 }
 
+/**
+ * Validates that a generated Prerelease PR is bound to the expected immutable
+ * proposal facts and contains no QA task surface.
+ */
 export function validatePrereleasePrBody(
   body: unknown,
   expected: PrereleasePrIdentity,
@@ -144,45 +158,4 @@ export function validatePrereleasePrBody(
     throw new Error('Prerelease PR body must not contain QA checkboxes.');
   }
   return extractPrereleasePrChanges(body);
-}
-
-const renderChange = (change: ReleaseChange): string => {
-  const annotation = change.releaseNoteSkip
-    ? ' — Not included in public release notes (`release-note:skip`).'
-    : '';
-  const releaseNote = change.releaseNoteSkip ? 'skip' : 'include';
-  return `- [${change.title}](${change.url})${annotation} <!-- fablebook:prerelease-change=${change.key} release-note=${releaseNote} -->`;
-};
-
-export function renderPrereleasePrBody({
-  boundaryOid,
-  changes,
-  proposalOid,
-  sourceOid,
-  version,
-}: PrereleasePrIdentity & { changes: unknown }): string {
-  const identity = validateIdentity({
-    boundaryOid,
-    proposalOid,
-    sourceOid,
-    version,
-  });
-  const normalized = normalizeReleaseChanges(changes);
-  const renderedChanges =
-    normalized.length === 0
-      ? '_No product changes are included in this prerelease scope._'
-      : normalized.map(renderChange).join('\n');
-  return [
-    PRERELEASE_PR_TEMPLATE_MARKER,
-    `<!-- fablebook:prerelease-proposal=${identity.proposalOid} source=${identity.sourceOid} boundary=${identity.boundaryOid} version=${identity.version} -->`,
-    '',
-    `# Prerelease ${identity.version}`,
-    '',
-    '## All changes in this prerelease scope',
-    '',
-    renderedChanges,
-    '',
-    '_No QA checklist. Merging authorizes this exact snapshot._',
-    '',
-  ].join('\n');
 }

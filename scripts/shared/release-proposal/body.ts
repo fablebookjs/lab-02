@@ -1,24 +1,22 @@
-import { parseReleaseLine, parseStableVersion } from './core.ts';
+import { parseStableVersion } from './core.ts';
 import {
   cleanReleaseTitle,
   deriveReleaseChanges,
-  migrationRecordDirectory,
-  normalizeReleaseChanges,
 } from '../release-communication/records.ts';
-import type { ReleaseChange } from '../release-communication/records.ts';
-import { renderMarkdownTemplate } from './template.ts';
+import { PILOT_REPOSITORY } from '../repository.ts';
+import { escapeRegExp } from '../text/regexp.ts';
 
-const REPOSITORY = 'fablebookjs/lab-02';
-const repositoryUrl = `https://github.com/${REPOSITORY}`;
-const fullOidPattern = /^[0-9a-f]{40}$/;
-const packageNamePattern = /^@fablebook\/[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const repositoryUrl = `https://github.com/${PILOT_REPOSITORY}`;
+const repositoryUrlPattern = escapeRegExp(repositoryUrl);
 const checkTaskPattern =
   /^- \[([ xX])\].*<!-- fablebook:check=([a-z0-9:.-]+) -->\s*$/gm;
 const proposalIdentityPattern =
   /<!-- fablebook:proposal=([0-9a-f]{40}) source=([0-9a-f]{40}) version=([^ ]+) -->/g;
 const releaseKindPattern = /<!-- fablebook:release-kind=(initial|patch) -->/g;
-const changeTaskPattern =
-  /^- \[([ xX])\] \[([^\]\r\n]+)\]\((https:\/\/github\.com\/fablebookjs\/lab-02\/(?:pull\/[1-9]\d*|commit\/[0-9a-f]{40}))\) — (.+) <!-- fablebook:change=(pr:[1-9]\d*|commit:[0-9a-f]{40}) release-note=(include|skip) qa=(required|skip) -->\s*$/gm;
+const changeTaskPattern = new RegExp(
+  String.raw`^- \[([ xX])\] \[([^\]\r\n]+)\]\((${repositoryUrlPattern}/(?:pull/[1-9]\d*|commit/[0-9a-f]{40}))\) — (.+) <!-- fablebook:change=(pr:[1-9]\d*|commit:[0-9a-f]{40}) release-note=(include|skip) qa=(required|skip) -->\s*$`,
+  'gm',
+);
 
 type ParsedReleasePrChange = {
   checked: boolean;
@@ -35,15 +33,6 @@ type ReleasePrIdentity = {
   version: string;
 };
 
-type PredecessorPull = {
-  body: unknown;
-  number: number;
-  state: string;
-};
-
-type RenderedChange = ReleaseChange & {
-  checkmark: string;
-};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -55,20 +44,6 @@ export const RELEASE_HIGHLIGHTS_EMPTY_MARKER =
   '<!-- fablebook:release-highlights=empty -->';
 export const EMPTY_RELEASE_HIGHLIGHTS =
   `- [ ] Replace this placeholder with the user-facing release highlights. ${RELEASE_HIGHLIGHTS_EMPTY_MARKER}`;
-
-const fullOid = (value: unknown, label: string): string => {
-  if (typeof value !== 'string' || !fullOidPattern.test(value)) {
-    throw new Error(`${label} is not a full commit OID.`);
-  }
-  return value;
-};
-
-const positiveInteger = (value: unknown, label: string): number => {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
-    throw new Error(`${label} is not one positive integer.`);
-  }
-  return value;
-};
 
 const canonicalChangeUrl = (key: string): string =>
   key.startsWith('pr:')
@@ -116,6 +91,10 @@ const extractReleaseKind = (body: unknown): 'initial' | 'patch' => {
   return kind;
 };
 
+/**
+ * Reads the generated Release PR identity. Bodies outside the current template
+ * return null, while duplicate or malformed current metadata fails.
+ */
 export function extractReleasePrIdentity(body: unknown): ReleasePrIdentity | null {
   if (!String(body ?? '').includes(RELEASE_PR_TEMPLATE_MARKER)) {
     return null;
@@ -123,6 +102,7 @@ export function extractReleasePrIdentity(body: unknown): ReleasePrIdentity | nul
   return extractProposalIdentity(body);
 }
 
+/** Extracts exactly one marked Release highlights block without judging completeness. */
 export function extractReleaseHighlights(body: unknown): string {
   const source = String(body ?? '');
   const starts = source.split(RELEASE_HIGHLIGHTS_START).length - 1;
@@ -142,7 +122,7 @@ export function extractReleaseHighlights(body: unknown): string {
   return highlights;
 }
 
-export function validateReleaseHighlights(highlights: unknown): string {
+function validateReleaseHighlights(highlights: unknown): string {
   if (typeof highlights !== 'string' || highlights.trim() !== highlights) {
     throw new Error('Release highlights must be trimmed Markdown text.');
   }
@@ -158,10 +138,15 @@ export function validateReleaseHighlights(highlights: unknown): string {
   return highlights;
 }
 
+/** Requires non-placeholder, visibly nonempty highlights from a generated body. */
 export function requireReleaseHighlights(body: unknown): string {
   return validateReleaseHighlights(extractReleaseHighlights(body));
 }
 
+/**
+ * Preserves valid maintainer-authored highlights during regeneration and falls
+ * back to the blocking placeholder when previous content cannot be trusted.
+ */
 export function recoverReleaseHighlights(body: unknown): string {
   try {
     return requireReleaseHighlights(body);
@@ -170,6 +155,7 @@ export function recoverReleaseHighlights(body: unknown): string {
   }
 }
 
+/** Selects the newest closed predecessor body for the exact proposed version. */
 export function selectLatestMatchingReleasePrBody({
   pulls,
   version,
@@ -183,7 +169,8 @@ export function selectLatestMatchingReleasePrBody({
   }
   return String(
     [...pulls]
-      .filter((pull): pull is PredecessorPull => {
+      .filter(
+        (pull): pull is { body: unknown; number: number; state: string } => {
         if (!isRecord(pull)) return false;
         return (
           typeof pull['number'] === 'number' &&
@@ -191,7 +178,8 @@ export function selectLatestMatchingReleasePrBody({
           pull['number'] > 0 &&
           pull['state'] === 'closed'
         );
-      })
+        },
+      )
       .sort((left, right) => right.number - left.number)
       .find((pull) => {
         try {
@@ -203,6 +191,10 @@ export function selectLatestMatchingReleasePrBody({
   );
 }
 
+/**
+ * Parses generated change tasks and proves their visible links, classifications,
+ * and hidden identities agree. Source order is preserved.
+ */
 export function extractReleasePrChanges(body: unknown): ParsedReleasePrChange[] {
   const source = String(body ?? '');
   const changes: ParsedReleasePrChange[] = [];
@@ -246,6 +238,7 @@ export function extractReleasePrChanges(body: unknown): ParsedReleasePrChange[] 
   return changes;
 }
 
+/** Captures generated checkbox state by durable identity for safe PR refreshes. */
 export function extractReleasePrCheckboxes(body: unknown): Map<string, boolean> {
   const states = new Map<string, boolean>();
   for (const match of String(body ?? '').matchAll(checkTaskPattern)) {
@@ -267,86 +260,13 @@ export function extractReleasePrCheckboxes(body: unknown): Map<string, boolean> 
   return states;
 }
 
-const validateChanges = (changes: unknown, previousBody: unknown): RenderedChange[] => {
-  const previous = new Map(
-    extractReleasePrChanges(previousBody).map((change) => [change.key, change])
-  );
-  return normalizeReleaseChanges(changes).map((change) => {
-    const prior = previous.get(change.key);
-    return {
-      ...change,
-      checkmark:
-        change.qaSkip || (prior?.checked === true && prior.qaSkip === false)
-          ? 'x'
-          : ' ',
-    };
-  });
-};
-
 export const deriveReleasePrChanges = deriveReleaseChanges;
 
-const smokeCommands = (packageNames: string[], channel: string): string => {
-  const installs = packageNames.map((name) => `${name}@${channel}`).join(' ');
-  const packages = packageNames.join(' ');
-  return [
-    'pilot_dir="$(mktemp -d)"',
-    'cd "$pilot_dir"',
-    'npm init -y',
-    `npm install ${installs}`,
-    `npm ls --depth=0 ${packages}`,
-    `node --input-type=module -e "await Promise.all(process.argv.slice(1).map((name) => import(name)))" ${packages}`,
-  ].join('\n');
-};
-
-const renderChanges = (changes: RenderedChange[]): string =>
-  changes.length === 0
-    ? '_No release-line changes have been added since this release boundary._'
-    : changes
-        .map((change) => {
-          const descriptions = [
-            change.qaSkip
-              ? 'No manual QA required (`qa:skip`).'
-              : 'Perform the relevant manual QA.',
-          ];
-          if (change.releaseNoteSkip) {
-            descriptions.push(
-              'Not included in public release notes (`release-note:skip`).'
-            );
-          }
-          const releaseNote = change.releaseNoteSkip ? 'skip' : 'include';
-          const qa = change.qaSkip ? 'skip' : 'required';
-          return `- [${change.checkmark}] [${change.title}](${change.url}) — ${descriptions.join(' ')} <!-- fablebook:change=${change.key} release-note=${releaseNote} qa=${qa} -->`;
-        })
-        .join('\n');
-
-const renderMigrationSection = (
-  records: Array<{ filename: string; title: string }>,
-  line: string,
-  releaseOid: string,
-): string => {
-  if (!Array.isArray(records)) {
-    throw new Error('Release PR migration records must be an array.');
-  }
-  if (records.length === 0) {
-    return '';
-  }
-  const directory = migrationRecordDirectory(line);
-  const filenames = new Set();
-  const links = records.map((record) => {
-    if (
-      !/^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/.test(record?.filename ?? '') ||
-      filenames.has(record.filename) ||
-      cleanReleaseTitle(record?.title, '') !== record.title
-    ) {
-      throw new Error(`Release PR migration record is invalid: ${record?.filename}`);
-    }
-    filenames.add(record.filename);
-    const path = `${directory}/${record.filename}`;
-    return `- [${record.title}](${repositoryUrl}/blob/${releaseOid}/${path}) (\`${path}\`)`;
-  });
-  return `## Migrations\n\n${links.join('\n')}`;
-};
-
+/**
+ * Validates the generated stable PR protocol for one version. Publication may
+ * require maintainer attestations; maintenance can validate the same shape
+ * without requiring those boxes to be complete.
+ */
 export function validateReleasePrBody({
   body,
   requireAttestations = false,
@@ -395,112 +315,4 @@ export function validateReleasePrBody({
     kind,
     releaseHighlights,
   };
-}
-
-type RenderReleasePrBodyOptions = {
-  changes: unknown[];
-  line: string;
-  migrationRecords?: Array<{ filename: string; title: string }>;
-  packageNames: string[];
-  previousBody?: string;
-  previousHighlightsBody?: string;
-  proposalOid: string;
-  releaseOid: string;
-  supersededPr?: number;
-  template: string;
-  version: string;
-};
-
-export function renderReleasePrBody({
-  changes,
-  line,
-  migrationRecords = [],
-  packageNames,
-  previousBody = '',
-  previousHighlightsBody = previousBody,
-  proposalOid,
-  releaseOid,
-  supersededPr,
-  template,
-  version,
-}: RenderReleasePrBodyOptions) {
-  const parsedLine = parseReleaseLine(line);
-  const parsedVersion = parseStableVersion(version);
-  if (parsedLine.major !== parsedVersion.major || parsedLine.minor !== parsedVersion.minor) {
-    throw new Error(`${version} does not belong to release line ${line}.`);
-  }
-  fullOid(releaseOid, 'Release PR source');
-  fullOid(proposalOid, 'Release PR proposal');
-  const kind = parsedVersion.patch === 0 ? 'initial' : 'patch';
-  if (
-    typeof template !== 'string' ||
-    !template.includes(RELEASE_PR_TEMPLATE_MARKER) ||
-    !template.includes(`<!-- fablebook:release-kind=${kind} -->`)
-  ) {
-    throw new Error(`Release PR ${kind} template is missing its canonical markers.`);
-  }
-  if (!Array.isArray(packageNames) || packageNames.length === 0) {
-    throw new Error('Release PR requires at least one public package.');
-  }
-  const uniquePackages = [...new Set(packageNames)];
-  if (
-    uniquePackages.length !== packageNames.length ||
-    uniquePackages.some((name) => !packageNamePattern.test(name))
-  ) {
-    throw new Error('Release PR package names are invalid or duplicated.');
-  }
-  if (supersededPr !== undefined) {
-    positiveInteger(supersededPr, 'Superseded pull request');
-  }
-
-  const states = extractReleasePrCheckboxes(previousBody);
-  const channel = `v-${line.slice(1)}`;
-  const npmVersionsUrl =
-    `https://www.npmjs.com/package/${uniquePackages[0]}?activeTab=versions`;
-  const view: Record<string, string | number> = {
-    changes: renderChanges(validateChanges(changes, previousBody)),
-    discussions_checkmark: states.get('check:discussions-resolved') ? 'x' : ' ',
-    github_release_url: `${repositoryUrl}/releases/tag/v${version}`,
-    line,
-    migration_section: renderMigrationSection(migrationRecords, line, releaseOid),
-    npm_channel: channel,
-    npm_versions_url: npmVersionsUrl,
-    package_count: uniquePackages.length,
-    patchback_log_url:
-      `${repositoryUrl}/actions/workflows/maintain-patchback.yml`,
-    promote_latest_url:
-      `${repositoryUrl}/actions/workflows/promote-latest.yml`,
-    proposal_branch_url: `${repositoryUrl}/tree/staged/${line}`,
-    proposal_commit_url: `${repositoryUrl}/commit/${proposalOid}`,
-    proposal_oid: proposalOid,
-    proposal_short_oid: proposalOid.slice(0, 7),
-    publish_log_url:
-      `${repositoryUrl}/actions/workflows/publish-stable-release.yml`,
-    release_branch_url: `${repositoryUrl}/tree/releases/${line}`,
-    release_commit_url: `${repositoryUrl}/commit/${releaseOid}`,
-    release_oid: releaseOid,
-    release_short_oid: releaseOid.slice(0, 7),
-    smoke_test_commands: smokeCommands(uniquePackages, channel),
-    superseded_notice:
-      supersededPr === undefined
-        ? ''
-        : [
-            '---',
-            '',
-            `This clean proposal supersedes [#${supersededPr}](${repositoryUrl}/pull/${supersededPr}).`,
-          ].join('\n'),
-    version,
-  };
-  if (kind === 'initial') {
-    view['release_highlights'] = [
-      RELEASE_HIGHLIGHTS_START,
-      recoverReleaseHighlights(previousHighlightsBody),
-      RELEASE_HIGHLIGHTS_END,
-    ].join('\n');
-  }
-  return renderMarkdownTemplate({
-    label: `Release PR ${kind} template`,
-    template,
-    view,
-  });
 }

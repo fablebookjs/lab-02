@@ -4,20 +4,22 @@ import test from 'node:test';
 import {
   derivePatchbackItems,
   parsePatchbackCommitMessage,
-  PATCHBACK_BODY_MARKER,
-  PATCHBACK_BODY_SCHEMA_VERSION,
   PATCHBACK_FULL_OID_PATTERN_SOURCE,
-  PATCHBACK_REPOSITORY,
   patchbackCommitMessage,
-  patchbackExamplesComment,
   patchbackIdentity,
   patchbackMigrationRecords,
   patchbackReleaseRecord,
   previousReleaseVersion,
   releaseMergerAssignee,
-  renderPatchbackBody,
 } from '../scripts/shared/patchback/core.ts';
+import {
+  PATCHBACK_BODY_MARKER,
+  PATCHBACK_BODY_SCHEMA_VERSION,
+  PATCHBACK_EXAMPLES_COMMENT,
+  renderPatchbackPrBody,
+} from '../scripts/github/patchback/templates.ts';
 import { renderReleaseRecord } from '../scripts/shared/release-communication/records.ts';
+import { PILOT_REPOSITORY } from '../scripts/shared/repository.ts';
 
 const containsUncheckedMarkdownTask = (body: unknown): boolean =>
   /^\s*[-*+]\s+\[ \](?:\s|$)/m.test(String(body ?? ''));
@@ -46,7 +48,7 @@ Use the new API.
 `;
 
 test('patchback protocol constants describe one shared generated surface', () => {
-  assert.equal(PATCHBACK_REPOSITORY, 'fablebookjs/lab-02');
+  assert.equal(PILOT_REPOSITORY, 'fablebookjs/lab-02');
   assert.equal(
     PATCHBACK_BODY_MARKER,
     `<!-- fablebook-patchback-coordination:v${PATCHBACK_BODY_SCHEMA_VERSION} -->`
@@ -145,13 +147,11 @@ test('scope preserves first-parent order and accounts for every product entry sh
       {
         associatedPulls: [
           {
-            base: {
-              ref: 'releases/v10.4',
-              repo: { full_name: 'fablebookjs/lab-02' },
-            },
-            head: { repo: { full_name: 'fablebookjs/lab-02' } },
-            merge_commit_sha: squashOid,
-            merged_at: '2026-07-21T10:00:00Z',
+            baseBranch: 'releases/v10.4',
+            canonicalRepository: true,
+            labels: [],
+            mergeCommitOid: squashOid,
+            merged: true,
             number: 73,
             title: 'fix: PR-backed release correction',
           },
@@ -163,13 +163,11 @@ test('scope preserves first-parent order and accounts for every product entry sh
       {
         associatedPulls: [
           {
-            base: {
-              ref: 'releases/v10.4',
-              repo: { full_name: 'fablebookjs/lab-02' },
-            },
-            head: { repo: { full_name: 'outside/contributor-fork' } },
-            merge_commit_sha: pullMergeOid,
-            merged_at: '2026-07-21T11:00:00Z',
+            baseBranch: 'releases/v10.4',
+            canonicalRepository: true,
+            labels: [],
+            mergeCommitOid: pullMergeOid,
+            merged: true,
             number: 74,
             title: 'fix: merged PR correction',
           },
@@ -228,10 +226,11 @@ test('scope preserves first-parent order and accounts for every product entry sh
 
 test('ambiguous PR metadata never drops a commit from scope', () => {
   const pull = (number: number) => ({
-    base: { ref: 'releases/v10.4', repo: { full_name: 'fablebookjs/lab-02' } },
-    head: { repo: { full_name: 'fablebookjs/lab-02' } },
-    merge_commit_sha: directOid,
-    merged_at: '2026-07-21T10:00:00Z',
+    baseBranch: 'releases/v10.4',
+    canonicalRepository: true,
+    labels: [],
+    mergeCommitOid: directOid,
+    merged: true,
     number,
     title: `PR ${number}`,
   });
@@ -268,7 +267,7 @@ test('the generated queue is unchecked while the examples and empty path are mer
     snapshotOid,
   });
   assert.ok(item);
-  const body = renderPatchbackBody({
+  const body = renderPatchbackPrBody({
     boundaryLabel: 'completed v10.4.0 snapshot',
     boundaryOid,
     items: [item],
@@ -290,9 +289,9 @@ test('the generated queue is unchecked while the examples and empty path are mer
   assert.match(body, /releases\/v10\.4\.1\.md/);
   assert.match(body, /migration-notes\/v10\.4\/adopt-new-api\.md/);
   assert.equal(containsUncheckedMarkdownTask(body.replace('- [ ]', '- [x]')), false);
-  assert.equal(containsUncheckedMarkdownTask(patchbackExamplesComment()), false);
+  assert.equal(containsUncheckedMarkdownTask(PATCHBACK_EXAMPLES_COMMENT), false);
 
-  const empty = renderPatchbackBody({
+  const empty = renderPatchbackPrBody({
     boundaryLabel: 'release cut for v10.4',
     boundaryOid,
     items: [],

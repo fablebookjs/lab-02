@@ -3,11 +3,12 @@ import {
   parseReleaseLine,
   parseStableVersion,
 } from '../release-proposal/core.ts';
+import type { ReleaseCommitView } from '../release-proposal/core.ts';
 import {
   cleanReleaseTitle,
-  migrationRecordDirectory,
-  parseReleaseRecordChanges,
 } from '../release-communication/records.ts';
+import type { ReleaseChange } from '../release-communication/records.ts';
+import { PILOT_REPOSITORY } from '../repository.ts';
 import {
   extractReleasePrIdentity,
   requireReleaseHighlights,
@@ -15,8 +16,7 @@ import {
   RELEASE_HIGHLIGHTS_START,
   validateReleasePrBody,
 } from '../release-proposal/body.ts';
-export const PILOT_REPOSITORY = 'fablebookjs/lab-02';
-
+/** Exact reviewed stable snapshot authorized by a canonical merged Release PR. */
 export type ReleaseAuthority = {
   channel: string;
   line: string;
@@ -27,28 +27,16 @@ export type ReleaseAuthority = {
   version: string;
 };
 
-export type CommunicationChange = {
-  key: string;
-  qaSkip: boolean;
-  releaseNoteSkip: boolean;
-  title: string;
-  url: string;
-};
+export type CommunicationChange = Omit<ReleaseChange, 'oid'>;
 
+/** Validated human-facing stable release content derived from the reviewed PR. */
 export type ReleaseCommunication = {
   changes: CommunicationChange[];
   kind: 'initial' | 'maintenance' | 'patch';
   releaseHighlights: string | null;
 };
 
-type GitCommit = {
-  message?: string;
-  parents?: Array<{ sha: string }>;
-  sha: string;
-  tree?: { sha: string };
-};
-
-type ReleasePull = {
+type ReleaseAuthorityPull = {
   base: { ref: string; repo: { full_name: string }; sha: string };
   head: { ref: string; repo: { full_name: string }; sha: string };
   merge_commit_sha: string | null;
@@ -76,19 +64,25 @@ const stableVersionOnLine = (version: string, line: string) => {
   return parsedVersion;
 };
 
+/** Derives the stable line-scoped npm channel from a canonical release line. */
 export function lineChannel(line: string): string {
   const { major, minor } = parseReleaseLine(line);
   return `v-${major}.${minor}`;
 }
 
+/**
+ * Proves that GitHub PR and commit observations identify the exact two-parent
+ * merge of a reviewed proposal. The result is provider-neutral authority for
+ * later credentialless preparation.
+ */
 export function deriveReleaseAuthority({
   headCommit,
   mergeCommit,
   pull,
 }: {
-  headCommit: GitCommit;
-  mergeCommit: GitCommit;
-  pull: ReleasePull;
+  headCommit: ReleaseCommitView;
+  mergeCommit: ReleaseCommitView;
+  pull: ReleaseAuthorityPull;
 }): ReleaseAuthority {
   if (!Number.isSafeInteger(pull?.number) || pull.number <= 0) {
     throw new Error('Release authority requires a positive pull request number.');
@@ -145,25 +139,6 @@ export function deriveReleaseAuthority({
   };
 }
 
-export function deriveReleaseHighlights({
-  authority,
-  body,
-}: {
-  authority: ReleaseAuthority;
-  body: unknown;
-}): string {
-  const identity = extractReleasePrIdentity(body);
-  if (
-    identity === null ||
-    identity.proposalOid !== authority.proposalOid ||
-    identity.releaseOid !== authority.sourceOid ||
-    identity.version !== authority.version
-  ) {
-    throw new Error('Release highlights are not bound to the authorized proposal.');
-  }
-  return requireReleaseHighlights(body);
-}
-
 const normalizeCommunicationChanges = (changes: unknown): CommunicationChange[] => {
   if (!Array.isArray(changes)) {
     throw new Error('Release communication changes must be an array.');
@@ -206,6 +181,10 @@ const normalizeCommunicationChanges = (changes: unknown): CommunicationChange[] 
   });
 };
 
+/**
+ * Narrows serialized release communication and enforces the version-derived
+ * initial, patch, or maintenance shape.
+ */
 export function validateReleaseCommunication(
   communication: unknown,
   version: string,
@@ -248,6 +227,10 @@ export function validateReleaseCommunication(
   return { changes, kind: expectedKind, releaseHighlights };
 }
 
+/**
+ * Derives stable communication only when the generated, attested PR body is
+ * bound to the authorized proposal, source, and version.
+ */
 export function deriveReleaseCommunication({
   authority,
   body,
@@ -293,80 +276,4 @@ export function deriveReleaseCommunication({
     },
     authority.version
   );
-}
-
-const renderMigrationSection = (
-  records: Array<{ filename: string; title: string }>,
-  version: string,
-): string => {
-  const { major, minor } = parseStableVersion(version);
-  if (!Array.isArray(records)) {
-    throw new Error('GitHub Release migration records must be an array.');
-  }
-  const filenames = new Set();
-  const directory = migrationRecordDirectory(`v${major}.${minor}`);
-  const links = records.map((record) => {
-    if (
-      !/^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/.test(record?.filename ?? '') ||
-      typeof record?.title !== 'string' ||
-      cleanReleaseTitle(record.title, record.filename.replace(/\.md$/, '')) !== record.title ||
-      filenames.has(record.filename)
-    ) {
-      throw new Error(`Invalid GitHub Release migration record: ${record?.filename}`);
-    }
-    filenames.add(record.filename);
-    const url = `https://github.com/${PILOT_REPOSITORY}/blob/v${version}/${directory}/${record.filename}`;
-    return `- [${record.title}](${url})`;
-  });
-  return links.length === 0
-    ? ''
-    : `\n\n## Migrations\n\n${links.join('\n')}`;
-};
-
-type ComposeGitHubReleaseBodyOptions = {
-  communication: unknown;
-  migrationRecords?: Array<{ filename: string; title: string }>;
-  releaseRecord: string;
-  version: string;
-};
-
-export function composeGitHubReleaseBody({
-  communication,
-  migrationRecords = [],
-  releaseRecord,
-  version,
-}: ComposeGitHubReleaseBodyOptions) {
-  const normalized = validateReleaseCommunication(communication, version);
-  const recordChanges = parseReleaseRecordChanges({
-    source: releaseRecord,
-    version,
-  });
-  const publicChanges = normalized.changes.filter(
-    ({ releaseNoteSkip }) => !releaseNoteSkip
-  );
-  if (
-    JSON.stringify(
-      publicChanges.map(({ title, url }) => ({ title, url }))
-    ) !== JSON.stringify(recordChanges)
-  ) {
-    throw new Error(
-      `Generated v${version} release record contradicts its authorized communication.`
-    );
-  }
-  const renderedChanges = publicChanges
-    .map(({ title, url }) => `- [${title}](${url})`)
-    .join('\n');
-  const migrationSection = renderMigrationSection(migrationRecords, version);
-  const title = `# Lab-02 ${version}`;
-  if (normalized.kind === 'initial') {
-    const noteworthyChanges =
-      renderedChanges.length === 0
-        ? ''
-        : `\n\n## Noteworthy changes\n\n${renderedChanges}`;
-    return `${title}\n\n## Release highlights\n\n${normalized.releaseHighlights}${noteworthyChanges}${migrationSection}\n`;
-  }
-  if (normalized.kind === 'patch') {
-    return `${title}\n\n## What's changed\n\n${renderedChanges}${migrationSection}\n`;
-  }
-  return `${title}\n\nThis maintenance release contains no user-facing changes worth mentioning.${migrationSection}\n`;
 }

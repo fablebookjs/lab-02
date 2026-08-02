@@ -2,13 +2,16 @@ import { readdir, readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 
 import { parseReleaseLine, parseStableVersion } from '../release-proposal/core.ts';
+import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../repository.ts';
+import { escapeRegExp } from '../text/regexp.ts';
 
-const REPOSITORY = 'fablebookjs/lab-02';
-const repositoryUrl = `https://github.com/${REPOSITORY}`;
+const repositoryUrl = `https://github.com/${PILOT_REPOSITORY}`;
+const repositoryUrlPattern = escapeRegExp(repositoryUrl);
 const fullOidPattern = /^[0-9a-f]{40}$/;
 const changeKeyPattern = /^(?:pr:[1-9]\d*|commit:[0-9a-f]{40})$/;
-const releaseRecordChangePattern =
-  /^- \[([^\]\r\n]+)\]\((https:\/\/github\.com\/fablebookjs\/lab-02\/(?:pull\/[1-9]\d*|commit\/[0-9a-f]{40}))\)$/;
+const releaseRecordChangePattern = new RegExp(
+  String.raw`^- \[([^\]\r\n]+)\]\((${repositoryUrlPattern}/(?:pull/[1-9]\d*|commit/[0-9a-f]{40}))\)$`,
+);
 const migrationFilenamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/;
 const metadataKeyPattern = /^[a-z][a-z0-9-]*$/;
 const priorityOrder = new Intl.Collator('en', {
@@ -16,6 +19,7 @@ const priorityOrder = new Intl.Collator('en', {
   sensitivity: 'base',
 });
 
+/** One first-parent release-history entry with its normalized public identity. */
 export type ReleaseChange = {
   key: string;
   oid: string;
@@ -25,21 +29,12 @@ export type ReleaseChange = {
   url: string;
 };
 
+/** Validated authored migration guidance with ordering metadata kept out of its body. */
 export type MigrationRecord = {
   body: string;
   filename: string;
   priority: string;
   title: string;
-};
-
-type MigrationRecordSource = {
-  filename: string;
-  source: unknown;
-};
-
-type ParsedReleaseRecordChange = {
-  title: string;
-  url: string;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -59,6 +54,10 @@ const positiveInteger = (value: unknown, label: string): number => {
   return value;
 };
 
+/**
+ * Normalizes an untrusted subject for one-line Markdown presentation without
+ * allowing control characters or link/HTML punctuation to alter its structure.
+ */
 export const cleanReleaseTitle = (value: unknown, fallback: string): string => {
   const title = (String(value ?? '').split(/\r?\n/, 1)[0] ?? '')
     .replace(/[\u0000-\u001f\u007f]/g, ' ')
@@ -68,57 +67,45 @@ export const cleanReleaseTitle = (value: unknown, fallback: string): string => {
   return (title || fallback).slice(0, 180);
 };
 
-type CanonicalReleasePull = {
-  labels: unknown;
-  merged_at: unknown;
+/** Provider-neutral merged-PR evidence used to classify one history commit. */
+export type ReleaseHistoryPull = Readonly<{
+  baseBranch: string;
+  canonicalRepository: boolean;
+  labels: readonly string[];
+  mergeCommitOid: string | null;
+  merged: boolean;
   number: number;
-  title: unknown;
-};
+  title: string;
+}>;
+
+/** Normalized first-parent commit observation consumed by communication planners. */
+export type ReleaseHistoryCommit = Readonly<{
+  associatedPulls: readonly ReleaseHistoryPull[];
+  oid: string;
+  subject: string;
+}>;
 
 const canonicalBranchPull = (
-  pull: unknown,
+  pull: ReleaseHistoryPull,
   branch: string,
   oid: string,
-): pull is CanonicalReleasePull => {
-  if (!isRecord(pull) || !Number.isSafeInteger(pull['number'])) return false;
-  const number = pull['number'];
-  const base = pull['base'];
-  return (
-    typeof number === 'number' &&
-    number > 0 &&
-    pull['merged_at'] !== null &&
-    isRecord(base) &&
-    base['ref'] === branch &&
-    isRecord(base['repo']) &&
-    base['repo']['full_name'] === REPOSITORY &&
-    pull['merge_commit_sha'] === oid
-  );
-};
+): boolean =>
+  pull.canonicalRepository &&
+  pull.baseBranch === branch &&
+  pull.merged &&
+  pull.mergeCommitOid === oid;
 
 const pullClassification = (
-  pull: CanonicalReleasePull,
+  pull: ReleaseHistoryPull,
 ): { qaSkip: boolean; releaseNoteSkip: boolean } => {
   if (
-    typeof pull.title !== 'string' ||
     cleanReleaseTitle(pull.title, '').length === 0 ||
     !Array.isArray(pull.labels) ||
-    pull.labels.some(
-      (label) =>
-        !isRecord(label) ||
-        typeof label['name'] !== 'string' ||
-        label['name'].length === 0
-    )
+    pull.labels.some((label) => typeof label !== 'string' || label.length === 0)
   ) {
     throw new Error(`Pull request ${pull.number} has malformed release metadata.`);
   }
-  const labels = new Set(
-    pull.labels.map((label) => {
-      if (!isRecord(label) || typeof label['name'] !== 'string') {
-        throw new Error(`Pull request ${pull.number} has malformed release labels.`);
-      }
-      return label['name'];
-    }),
-  );
+  const labels = new Set(pull.labels);
   return {
     qaSkip: labels.has('qa:skip'),
     releaseNoteSkip: labels.has('release-note:skip'),
@@ -130,25 +117,18 @@ const deriveBranchChanges = ({
   commits,
 }: {
   branch: string;
-  commits: unknown;
+  commits: readonly ReleaseHistoryCommit[];
 }): ReleaseChange[] => {
-  if (branch !== 'main' && !/^releases\/v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(branch)) {
+  if (
+    branch !== PRIMARY_BRANCH &&
+    !/^releases\/v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(branch)
+  ) {
     throw new Error(`Unsupported change-history branch: ${branch}`);
   }
-  if (!Array.isArray(commits)) {
-    throw new Error('Release commits must be an array.');
-  }
   return commits.map((commit) => {
-    if (!isRecord(commit)) {
-      throw new Error('Every release commit must be an object.');
-    }
-    const oid = fullOid(commit['oid'], 'Release change');
-    const associatedPulls = commit['associatedPulls'];
-    if (associatedPulls !== undefined && !Array.isArray(associatedPulls)) {
-      throw new Error(`Release change ${oid} has malformed pull request metadata.`);
-    }
-    const associated = (associatedPulls ?? []).filter((pull): pull is CanonicalReleasePull =>
-      canonicalBranchPull(pull, branch, oid)
+    const oid = fullOid(commit.oid, 'Release change');
+    const associated = commit.associatedPulls.filter((pull) =>
+      canonicalBranchPull(pull, branch, oid),
     );
     if (associated.length > 1) {
       throw new Error(`Release change ${oid} has ambiguous pull request metadata.`);
@@ -168,31 +148,40 @@ const deriveBranchChanges = ({
       oid,
       qaSkip: false,
       releaseNoteSkip: false,
-      title: cleanReleaseTitle(commit['subject'], `Commit ${oid.slice(0, 12)}`),
+      title: cleanReleaseTitle(commit.subject, `Commit ${oid.slice(0, 12)}`),
       url: `${repositoryUrl}/commit/${oid}`,
     };
   });
 };
 
+/**
+ * Classifies stable first-parent history in its existing order. Ambiguous PR
+ * associations fail rather than dropping or guessing at a change.
+ */
 export function deriveReleaseChanges({
   commits,
   line,
 }: {
-  commits: unknown;
+  commits: readonly ReleaseHistoryCommit[];
   line: string;
 }): ReleaseChange[] {
   parseReleaseLine(line);
   return deriveBranchChanges({ branch: `releases/${line}`, commits });
 }
 
+/** Classifies `main` first-parent history using the same conservative change rules. */
 export function derivePrereleaseChanges({
   commits,
 }: {
-  commits: unknown;
+  commits: readonly ReleaseHistoryCommit[];
 }): ReleaseChange[] {
-  return deriveBranchChanges({ branch: 'main', commits });
+  return deriveBranchChanges({ branch: PRIMARY_BRANCH, commits });
 }
 
+/**
+ * Narrows serialized release changes, enforcing unique canonical identities,
+ * URLs, and the rule that direct commits cannot inherit PR-only exemptions.
+ */
 export function normalizeReleaseChanges(changes: unknown): ReleaseChange[] {
   if (!Array.isArray(changes)) {
     throw new Error('Release changes must be an array.');
@@ -247,6 +236,10 @@ export function releaseRecordPath(version: string): string {
   return `releases/v${version}.md`;
 }
 
+/**
+ * Renders the deterministic per-version record of public changes. The record is
+ * generated history, not the curated Release highlights surface.
+ */
 export function renderReleaseRecord({
   changes,
   version,
@@ -270,6 +263,10 @@ export function renderReleaseRecord({
   ].join('\n');
 }
 
+/**
+ * Extracts the change section from current and accepted historical generated
+ * record formats without silently accepting arbitrary Markdown.
+ */
 export function extractReleaseRecordChanges({
   source,
   version,
@@ -309,13 +306,14 @@ export function extractReleaseRecordChanges({
   return changes;
 }
 
+/** Parses a generated record into ordered, unique canonical release links. */
 export function parseReleaseRecordChanges({
   source,
   version,
 }: {
   source: unknown;
   version: string;
-}): ParsedReleaseRecordChange[] {
+}): Array<{ title: string; url: string }> {
   const changes = extractReleaseRecordChanges({ source, version });
   if (changes === 'No changes were recorded for this release.') {
     return [];
@@ -398,10 +396,17 @@ const nonemptySection = (lines: string[], headingIndex: number): boolean => {
     .some((line) => line.trim().length > 0 && !line.trim().startsWith('<!--'));
 };
 
+/**
+ * Validates one authored migration file. Ordering priority remains metadata;
+ * the returned body contains only the Markdown shown to maintainers.
+ */
 export function parseMigrationRecord({
   filename,
   source,
-}: MigrationRecordSource): MigrationRecord {
+}: {
+  filename: string;
+  source: unknown;
+}): MigrationRecord {
   const name = basename(filename);
   if (name !== filename || !migrationFilenamePattern.test(name)) {
     throw new Error(
@@ -457,7 +462,7 @@ export function parseMigrationRecord({
   };
 }
 
-export function orderMigrationRecords(records: unknown): MigrationRecord[] {
+function orderMigrationRecords(records: unknown): MigrationRecord[] {
   if (!Array.isArray(records)) {
     throw new Error('Migration records must be an array.');
   }
@@ -507,6 +512,10 @@ export function orderMigrationRecords(records: unknown): MigrationRecord[] {
   );
 }
 
+/**
+ * Validates and deterministically orders migration records by natural,
+ * case-insensitive priority and then filename, omitting priority from output.
+ */
 export function composeMigrationRecords(
   records: unknown,
 ): Array<{ body: string; filename: string; title: string }> {
@@ -517,6 +526,10 @@ export function composeMigrationRecords(
   }));
 }
 
+/**
+ * Loads a release line's migration records in composition order. A missing
+ * line directory is the supported empty result; malformed records still fail.
+ */
 export async function loadMigrationRecords(
   root: string,
   line: string,

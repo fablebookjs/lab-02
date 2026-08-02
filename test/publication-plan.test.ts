@@ -10,7 +10,7 @@ import {
 import {
   type PublicationManifest,
   validatePublicationManifest,
-} from '../scripts/shared/release-publication/publication.ts';
+} from '../scripts/shared/release-publication/manifest-schema.ts';
 
 const snapshotOid = '3'.repeat(40);
 const integrityA = `sha512-${Buffer.alloc(64, 7).toString('base64')}`;

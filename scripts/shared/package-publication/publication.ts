@@ -1,12 +1,14 @@
 import { lstat } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 
+/** Immutable tarball identity passed from credentialless preparation to publication. */
 export type PublicationPackage = Readonly<{
   filename: string;
   integrity: string;
   name: string;
 }>;
 
+/** Injectable registry effects used by the query-first publication procedure. */
 export type PublicationAdapter = Readonly<{
   observeIntegrity: (
     pkg: PublicationPackage,
@@ -20,9 +22,17 @@ export type PublicationAdapter = Readonly<{
   wait: (milliseconds: number) => Promise<void>;
 }>;
 
+/** Complete ordered package publication intent for one exact version and channel. */
 export type PublicationPlan = Readonly<{
   channel: string;
   packages: readonly PublicationPackage[];
+  version: string;
+}>;
+
+/** Trusted invocation facts that a serialized publication artifact must match. */
+export type PublicationBinding = Readonly<{
+  repository: string;
+  snapshotOid: string;
   version: string;
 }>;
 
@@ -99,6 +109,10 @@ const packageValue = (value: unknown): PublicationPackage => {
   };
 };
 
+/**
+ * Narrows serialized package entries and proves every uniquely named tarball is
+ * a regular file directly inside the artifact root.
+ */
 export async function validatePublicationPackages(
   input: unknown,
   artifactRoot: string,
@@ -134,6 +148,11 @@ export async function validatePublicationPackages(
 const errorValue = (error: unknown): Error =>
   error instanceof Error ? error : new Error(String(error));
 
+/**
+ * Publishes an ordered package set query-first. Matching integrity is an
+ * idempotent success, conflicting integrity is permanent, and ambiguous
+ * failures receive three attempts before all package failures are aggregated.
+ */
 export async function reconcilePublicationPlan(
   manifest: PublicationPlan,
   adapter: PublicationAdapter,

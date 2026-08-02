@@ -21,6 +21,11 @@ const commandDiagnostic = (error: unknown): string =>
         .join('\n')
     : '';
 
+/**
+ * Runs a subprocess without a shell and turns process failures into one
+ * caller-facing diagnostic containing captured output. Use this for generic
+ * commands; domain-specific interpretation of stdout stays with the caller.
+ */
 export async function run(
   command: string,
   args: string[],

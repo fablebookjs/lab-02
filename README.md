@@ -15,6 +15,16 @@ Both packages compile TypeScript into the `dist/` files that npm packs. Package
 operations discover the public workspace set from the current Git tree rather
 than from an operator-maintained list.
 
+## Terminology
+
+| Term | Meaning in this repository |
+| --- | --- |
+| Release proposal | A versioned stable candidate on a staged branch, reviewed through its canonical draft Release PR before it can become a release. |
+| Release snapshot | The immutable merge commit produced from an approved stable proposal and used as the exact source for publication and patchback work. |
+| Prerelease snapshot | An immutable commit on `main` that establishes a managed prerelease boundary through a release-cut `alpha.0` bootstrap, a merged prerelease proposal, or manual phase entry. |
+| Publication authority | Validated evidence from an approved workflow path that identifies the exact snapshot allowed to publish; it is not a credential. |
+| Query-first publication | A retry-safe procedure that observes npm, Git tags, and GitHub Releases before writing, then performs only the mutations needed to reach the expected state. |
+
 ## Local check
 
 ```sh
@@ -79,11 +89,10 @@ source S ── proposal P (stable X.Y.0) ──▶ staged/vX.Y
 
 Every newly created or recreated release PR starts as a draft. Refreshing an
 open proposal updates its existing staged branch, so the PR and its discussion
-remain in place. Its body is rendered from the plain Markdown files in
-[`.github/release-templates`](.github/release-templates), which use
-dependency-free named placeholders and keep the maintainer procedure
-reviewable without embedding prose in controller code. Initial `X.Y.0`
-proposals include required **Release highlights**; patch proposals omit them.
+remain in place. Its body is rendered by a feature-local TypeScript template,
+keeping the maintainer procedure beside the controller that supplies its data.
+Initial `X.Y.0` proposals include required **Release highlights**; patch
+proposals omit them.
 
 The generated change checklist links each release-line merge or direct commit.
 For a canonical merged PR, `release-note:skip` excludes the change from public

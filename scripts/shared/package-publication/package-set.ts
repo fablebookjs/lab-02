@@ -11,13 +11,14 @@ const supportedWorkspacePackageApiPaths: readonly string[] = [
   'scripts/api/v1/workspace-packages.ts',
 ];
 
+/** Provider-neutral public package identity projected from a release snapshot. */
 export type ReleasePackage = Readonly<{
   location: string;
   name: string;
   version: string;
 }>;
 
-type WorkspacePackage = ReleasePackage &
+type WorkspaceCatalogEntry = ReleasePackage &
   Readonly<{
     private: boolean;
   }>;
@@ -91,7 +92,7 @@ const projectWorkspaceCatalog = (
     throw new Error('Workspace package catalog must be an array.');
   }
 
-  const catalog: WorkspacePackage[] = value.map((entry) => {
+  const catalog: WorkspaceCatalogEntry[] = value.map((entry) => {
     const pkg = asRecord(entry, 'Workspace package');
     if (typeof pkg['private'] !== 'boolean') {
       throw new Error('Workspace package private must be a boolean.');
@@ -224,6 +225,12 @@ const loadLegacyPackageSet = async (
   return normalizeLegacyPackageSet(JSON.parse(stdout), expectedVersion);
 };
 
+/**
+ * Loads the public package set from an immutable snapshot, preferring the
+ * newest supported tagged API and falling back only when that API is absent.
+ * A present but invalid native API fails closed rather than invoking legacy
+ * code. Legacy execution receives a credentialless environment.
+ */
 export async function loadReleasePackageSet(
   snapshotRoot: string,
   expectedVersion: string,

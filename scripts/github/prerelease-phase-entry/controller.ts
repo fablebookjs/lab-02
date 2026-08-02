@@ -4,10 +4,7 @@ import { join, resolve } from 'node:path';
 import {
   extractPrereleasePrIdentity,
 } from '../../shared/prerelease-proposal/body.ts';
-import {
-  nextPrereleaseVersion,
-  parsePrereleaseProposalMessage,
-} from '../../shared/prerelease-proposal/core.ts';
+import { nextPrereleaseVersion } from '../../shared/prerelease-proposal/core.ts';
 import {
   parseManualPrereleasePhase,
   parsePhaseEntryCommitMessageIfPresent,
@@ -21,6 +18,9 @@ import type {
 } from '../../shared/prerelease-phase-entry/core.ts';
 import type { ReleaseChange } from '../../shared/release-communication/records.ts';
 import { derivePrereleaseChanges } from '../../shared/release-communication/records.ts';
+import { requireOption } from '../../shared/cli/options.ts';
+import { resolveHeadOid } from '../../shared/git/repository.ts';
+import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import {
   parseDevelopmentVersion,
   ZERO_OID,
@@ -29,11 +29,10 @@ import { repositoryRoot } from '../../shared/workspace/packages.ts';
 import { run } from '../../shared/process/run.ts';
 import type { RunOptions } from '../../shared/process/run.ts';
 import {
-  readJson,
-  requireGithubToken,
-  requireOption,
-  writeJson,
-} from '../controller-support.ts';
+  PILOT_REPOSITORY,
+  PRIMARY_BRANCH,
+} from '../../shared/repository.ts';
+import { requireControllerGitHubToken } from '../controller-inputs.ts';
 import {
   commitMessageAt,
   commitParents,
@@ -53,61 +52,27 @@ import {
   firstParentCommitFacts,
 } from '../release-history/history.ts';
 import {
-  closePullRequest,
-  createRefUpdate,
-  getRef,
   getRepository,
+} from '../release-repository/repository.ts';
+import {
+  closePullRequest,
   listPrereleasePulls,
-  PILOT_REPOSITORY,
-  updateRefs,
-} from '../release-repository/github.ts';
-
-const PHASE_ENTRY_BUNDLE_REF =
-  'refs/release-pilot/artifact/prerelease-phase-entry';
-
-type CanonicalPrereleaseState = {
-  expectedStagedOid: string | null;
-  openPr: number | undefined;
-};
-
-type PhaseEntryActionBase = CanonicalPrereleaseState & {
-  boundaryOid: string;
-  changes: ReleaseChange[];
-  currentMainOid: string;
-  phase: ManualPrereleasePhase;
-  snapshotOid: string;
-  sourceOid: string;
-  version: string;
-};
-
-type PhaseEntryAction =
-  | (PhaseEntryActionBase & {
-      bundleRef: typeof PHASE_ENTRY_BUNDLE_REF;
-      kind: 'establish';
-    })
-  | (PhaseEntryActionBase & {
-      kind: 'reconcile';
-    });
-
-type PhaseEntryTransition = {
-  action: PhaseEntryAction;
-  kind: 'prerelease-phase-entry';
-  repository: typeof PILOT_REPOSITORY;
-  schema: 1;
-};
-
-export type PreparePhaseEntryOptions = {
-  'github-token': string;
-  output: string;
-  target: string;
-};
-
-export type ApplyPhaseEntryOptions = {
-  bundle?: string;
-  'github-token': string;
-  output: string;
-  transition: string;
-};
+} from '../release-repository/pull-requests.ts';
+import { createRefUpdate, updateRefs } from '../release-repository/refs.ts';
+import {
+  observeStagedPrereleaseProposal,
+  parseStagedPrereleaseProposal,
+  validateStagedPrereleaseProposal,
+} from '../staged-prerelease-proposal/observation.ts';
+import {
+  parsePhaseEntryTransition,
+  PHASE_ENTRY_BUNDLE_REF,
+} from './transition-schema.ts';
+import type {
+  CanonicalPrereleaseState,
+  PhaseEntryAction,
+  PhaseEntryActionBase,
+} from './transition-schema.ts';
 
 export type PhaseEntryApplication = {
   established: boolean;
@@ -115,6 +80,10 @@ export type PhaseEntryApplication = {
   version: string;
 };
 
+/**
+ * Constructs the atomic transition that advances main and, when present,
+ * deletes the superseded prerelease proposal ref at its expected old OID.
+ */
 export function phaseEntryRefUpdates({
   currentMainOid,
   expectedStagedOid,
@@ -128,7 +97,7 @@ export function phaseEntryRefUpdates({
     createRefUpdate({
       afterOid: snapshotOid,
       beforeOid: currentMainOid,
-      name: 'refs/heads/main',
+      name: `refs/heads/${PRIMARY_BRANCH}`,
     }),
     ...(expectedStagedOid === null
       ? []
@@ -143,127 +112,11 @@ export function phaseEntryRefUpdates({
   ];
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
-
-const stringValue = (value: unknown, label: string): string => {
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`${label} must be a nonempty string.`);
-  }
-  return value;
-};
-
 const oidValue = (value: unknown, label: string): string => {
   if (typeof value !== 'string' || !/^[0-9a-f]{40}$/.test(value)) {
     throw new Error(`${label} must be a full commit OID.`);
   }
   return value;
-};
-
-const optionalPositiveInteger = (
-  value: unknown,
-  label: string,
-): number | undefined => {
-  if (value === undefined) return undefined;
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
-    throw new Error(`${label} must be one positive integer.`);
-  }
-  return value;
-};
-
-const changesValue = (value: unknown): ReleaseChange[] => {
-  if (!Array.isArray(value)) {
-    throw new Error('Phase-entry changes must be an array.');
-  }
-  return value.map((change) => {
-    if (!isRecord(change)) {
-      throw new Error('Phase-entry change must be an object.');
-    }
-    return {
-      key: stringValue(change['key'], 'Phase-entry change key'),
-      oid: oidValue(change['oid'], 'Phase-entry change OID'),
-      qaSkip: change['qaSkip'] === true,
-      releaseNoteSkip: change['releaseNoteSkip'] === true,
-      title: stringValue(change['title'], 'Phase-entry change title'),
-      url: stringValue(change['url'], 'Phase-entry change URL'),
-    };
-  });
-};
-
-const actionValue = (value: unknown): PhaseEntryAction => {
-  if (!isRecord(value)) {
-    throw new Error('Phase-entry action must be an object.');
-  }
-  const kind = value['kind'];
-  if (kind !== 'establish' && kind !== 'reconcile') {
-    throw new Error(`Unknown phase-entry action: ${String(kind)}`);
-  }
-  const phase = parseManualPrereleasePhase(
-    stringValue(value['phase'], 'Phase-entry target'),
-  );
-  const base: PhaseEntryActionBase = {
-    boundaryOid: oidValue(value['boundaryOid'], 'Phase-entry boundary'),
-    changes: changesValue(value['changes']),
-    currentMainOid: oidValue(value['currentMainOid'], 'Phase-entry main'),
-    expectedStagedOid:
-      value['expectedStagedOid'] === null
-        ? null
-        : oidValue(value['expectedStagedOid'], 'Expected prerelease ref'),
-    openPr: optionalPositiveInteger(
-      value['openPr'],
-      'Expected Prerelease PR',
-    ),
-    phase,
-    snapshotOid: oidValue(value['snapshotOid'], 'Phase-entry snapshot'),
-    sourceOid: oidValue(value['sourceOid'], 'Phase-entry source'),
-    version: stringValue(value['version'], 'Phase-entry version'),
-  };
-  if (kind === 'reconcile') {
-    planPhaseEntry({
-      currentVersion: base.version,
-      entry: {
-        boundaryOid: base.boundaryOid,
-        phase,
-        snapshotOid: base.snapshotOid,
-        sourceOid: base.sourceOid,
-        version: base.version,
-      },
-      target: phase,
-    });
-    return { ...base, kind };
-  }
-  const version = parseDevelopmentVersion(base.version);
-  if (version.prerelease !== phase || version.prereleaseNumber !== 0) {
-    throw new Error('Phase-entry action version contradicts its target.');
-  }
-  if (base.currentMainOid !== base.sourceOid) {
-    throw new Error('A new phase entry must directly advance prepared main.');
-  }
-  if (value['bundleRef'] !== PHASE_ENTRY_BUNDLE_REF) {
-    throw new Error('Phase-entry action has an unexpected bundle ref.');
-  }
-  return {
-    ...base,
-    bundleRef: PHASE_ENTRY_BUNDLE_REF,
-    kind,
-  };
-};
-
-const transitionValue = (value: unknown): PhaseEntryTransition => {
-  if (
-    !isRecord(value) ||
-    value['schema'] !== 1 ||
-    value['kind'] !== 'prerelease-phase-entry' ||
-    value['repository'] !== PILOT_REPOSITORY
-  ) {
-    throw new Error('Phase-entry transition is outside the accepted schema.');
-  }
-  return {
-    action: actionValue(value['action']),
-    kind: 'prerelease-phase-entry',
-    repository: PILOT_REPOSITORY,
-    schema: 1,
-  };
 };
 
 const git = (args: string[], options: RunOptions = {}) =>
@@ -283,7 +136,7 @@ const ensureRepository = async (): Promise<void> => {
 
 const currentOid = async (): Promise<string> =>
   oidValue(
-    (await git(['rev-parse', 'HEAD'])).stdout.trim(),
+    await resolveHeadOid(repositoryRoot),
     'Current repository commit',
   );
 
@@ -292,7 +145,7 @@ const prereleaseChanges = async (
   range: { boundaryOid: string; sourceOid: string },
 ): Promise<ReleaseChange[]> =>
   derivePrereleaseChanges({
-    commits: await firstParentCommitFacts(token, {
+    commits: await firstParentCommitFacts(repositoryRoot, token, {
       boundaryOid: range.boundaryOid,
       headOid: range.sourceOid,
       label: 'main prerelease',
@@ -302,7 +155,7 @@ const prereleaseChanges = async (
 const validatePhaseEntrySnapshot = async (
   snapshot: PhaseEntrySnapshot,
 ): Promise<void> => {
-  const message = await commitMessageAt(snapshot.snapshotOid);
+  const message = await commitMessageAt(repositoryRoot, snapshot.snapshotOid);
   const parsed = parsePhaseEntryCommitMessageIfPresent(message);
   if (parsed === null) {
     throw new Error(`${snapshot.snapshotOid} has no phase-entry metadata.`);
@@ -314,10 +167,10 @@ const validatePhaseEntrySnapshot = async (
     version: snapshot.version,
   });
   assert.deepEqual(
-    await commitParents(snapshot.snapshotOid),
+    await commitParents(repositoryRoot, snapshot.snapshotOid),
     [snapshot.sourceOid],
   );
-  await validateVersionTree(snapshot.snapshotOid, snapshot.version);
+  await validateVersionTree(repositoryRoot, snapshot.snapshotOid, snapshot.version);
 };
 
 const findPhaseEntrySnapshot = async (
@@ -333,7 +186,7 @@ const findPhaseEntrySnapshot = async (
     .filter(Boolean);
   for (const snapshotOid of history) {
     const entry = parsePhaseEntryCommitMessageIfPresent(
-      await commitMessageAt(snapshotOid),
+      await commitMessageAt(repositoryRoot, snapshotOid),
     );
     if (entry === null) continue;
     const parsed = planPhaseEntry({
@@ -354,28 +207,6 @@ const findPhaseEntrySnapshot = async (
   return null;
 };
 
-const loadStagedProposal = async (
-  token: string,
-): Promise<
-  | (ReturnType<typeof parsePrereleaseProposalMessage> & { oid: string })
-  | null
-> => {
-  const ref = await getRef(token, 'heads/prerelease');
-  if (ref === null) return null;
-  await git([
-    'fetch',
-    '--no-tags',
-    'origin',
-    '+refs/heads/prerelease:refs/remotes/origin/prerelease',
-  ]);
-  const proposal = parsePrereleaseProposalMessage(
-    await commitMessageAt(ref.oid),
-  );
-  assert.deepEqual(await commitParents(ref.oid), [proposal.sourceOid]);
-  await validateVersionTree(ref.oid, proposal.version);
-  return { ...proposal, oid: ref.oid };
-};
-
 const canonicalPrereleaseState = async (
   token: string,
   {
@@ -388,18 +219,14 @@ const canonicalPrereleaseState = async (
     mainOid: string;
   },
 ): Promise<CanonicalPrereleaseState> => {
-  const pulls = (await listPrereleasePulls(token)).filter(
-    ({ state }) => state === 'open',
-  );
-  if (pulls.length > 1) {
-    throw new Error('More than one canonical Prerelease PR is open.');
-  }
-  const pull = pulls[0];
-  const staged = await loadStagedProposal(token);
+  const observation = await observeStagedPrereleaseProposal(token);
+  const pull = observation.openPull ?? undefined;
+  const staged = await parseStagedPrereleaseProposal(observation.stagedOid);
   if (pull !== undefined && staged === null) {
     throw new Error('The open Prerelease PR has no canonical proposal ref.');
   }
   if (staged !== null) {
+    await validateStagedPrereleaseProposal(staged);
     if (
       staged.boundaryOid !== boundaryOid ||
       staged.version !== nextPrereleaseVersion(currentVersion)
@@ -440,6 +267,7 @@ const canonicalPrereleaseState = async (
   };
 };
 
+/** Creates and locally verifies the single-parent `.0` snapshot for a forward phase. */
 export async function materializePhaseEntryCommit({
   boundaryOid,
   sourceOid,
@@ -449,7 +277,7 @@ export async function materializePhaseEntryCommit({
   sourceOid: string;
   target: string;
 }): Promise<PhaseEntrySnapshot> {
-  const sourceVersion = await rootVersionAt(sourceOid);
+  const sourceVersion = await rootVersionAt(repositoryRoot, sourceOid);
   const phase = parseManualPrereleasePhase(target);
   const plan = planPhaseEntry({
     currentVersion: sourceVersion,
@@ -475,8 +303,12 @@ export async function materializePhaseEntryCommit({
   return snapshot;
 }
 
+/**
+ * Observes the current managed phase and canonical proposal state, then emits
+ * either a new inert snapshot bundle or an idempotent reconcile artifact.
+ */
 export async function preparePhaseEntry(
-  options: PreparePhaseEntryOptions,
+  options: { 'github-token': string; output: string; target: string },
 ): Promise<void> {
   await ensureRepository();
   const output = await prepareOutput(
@@ -485,11 +317,11 @@ export async function preparePhaseEntry(
   const phase = parseManualPrereleasePhase(
     requireOption(options, 'target'),
   );
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   const mainOid = await currentOid();
-  const currentVersion = await rootVersionAt(mainOid);
+  const currentVersion = await rootVersionAt(repositoryRoot, mainOid);
   const current = parseDevelopmentVersion(currentVersion);
-  const boundary = await findManagedPrereleaseBoundary(mainOid);
+  const boundary = await findManagedPrereleaseBoundary(repositoryRoot, mainOid);
   if (boundary === null || boundary.version !== currentVersion) {
     throw new Error(
       'Phase entry requires a current managed prerelease snapshot.',
@@ -551,7 +383,7 @@ export async function preparePhaseEntry(
     };
   }
 
-  await writeJson(join(output, 'transition.json'), {
+  await writeJsonFile(join(output, 'transition.json'), {
     action,
     kind: 'prerelease-phase-entry',
     repository: PILOT_REPOSITORY,
@@ -563,7 +395,7 @@ export async function preparePhaseEntry(
 const ensureTrustedMain = (): void => {
   if (
     process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
-    process.env['GITHUB_REF'] !== 'refs/heads/main'
+    process.env['GITHUB_REF'] !== `refs/heads/${PRIMARY_BRANCH}`
   ) {
     throw new Error('Phase entry is restricted to trusted main.');
   }
@@ -589,6 +421,7 @@ const assertCanonicalPrereleaseState = async (
   }
 };
 
+/** Projects an applied phase-entry action into the sealed prerelease authority protocol. */
 export function phaseEntryPrereleaseAuthority(
   action: Pick<
     PhaseEntryActionBase,
@@ -614,29 +447,39 @@ const writeAuthority = async (
   action: PhaseEntryAction,
   snapshotOid: string,
 ): Promise<void> => {
-  await writeJson(
+  await writeJsonFile(
     join(output, 'authority.json'),
     phaseEntryPrereleaseAuthority(action, snapshotOid),
   );
 };
 
+/**
+ * Revalidates main and proposal expectations, uploads a prepared snapshot when
+ * needed, applies the guarded atomic ref transition, and emits publication
+ * authority. Same-phase retries reconcile without creating another commit.
+ */
 export async function applyPhaseEntry(
-  options: ApplyPhaseEntryOptions,
+  options: {
+    bundle?: string;
+    'github-token': string;
+    output: string;
+    transition: string;
+  },
 ): Promise<PhaseEntryApplication> {
   await ensureRepository();
   ensureTrustedMain();
-  const transition = transitionValue(
-    await readJson(resolve(requireOption(options, 'transition'))),
+  const transition = parsePhaseEntryTransition(
+    await readJsonFile(resolve(requireOption(options, 'transition'))),
   );
   const output = await prepareOutput(
     requireOption(options, 'output'),
   );
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   const action = transition.action;
   await getRepository(token);
   await assertExpectedRef(
     token,
-    'heads/main',
+    `heads/${PRIMARY_BRANCH}`,
     action.currentMainOid,
   );
   await assertCanonicalPrereleaseState(token, action);
@@ -652,7 +495,7 @@ export async function applyPhaseEntry(
     ]);
     await validatePhaseEntrySnapshot(action);
     const planned = planPhaseEntry({
-      currentVersion: await rootVersionAt(action.sourceOid),
+      currentVersion: await rootVersionAt(repositoryRoot, action.sourceOid),
       entry: null,
       target: action.phase,
     });
@@ -666,7 +509,7 @@ export async function applyPhaseEntry(
     );
     await assertExpectedRef(
       token,
-      'heads/main',
+      `heads/${PRIMARY_BRANCH}`,
       action.currentMainOid,
     );
     await assertCanonicalPrereleaseState(token, action);

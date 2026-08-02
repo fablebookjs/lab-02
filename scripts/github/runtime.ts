@@ -3,22 +3,22 @@ import type { getOctokit } from '@actions/github';
 
 export type GitHubClient = ReturnType<typeof getOctokit>;
 
-export type GitHubContext = {
-  eventName: string;
-  payload: unknown;
-  repo: {
-    owner: string;
-    repo: string;
-  };
-};
-
+/** Capabilities and untrusted event/environment data injected by github-script. */
 export type GitHubHandlerRuntime = {
   core: typeof core;
-  context: GitHubContext;
+  context: {
+    eventName: string;
+    payload: unknown;
+    repo: {
+      owner: string;
+      repo: string;
+    };
+  };
   env: Readonly<NodeJS.ProcessEnv>;
   github: GitHubClient;
 };
 
+/** Resolves one required environment value at a handler's trust boundary. */
 export function requireEnvironment(
   env: Readonly<NodeJS.ProcessEnv>,
   name: string,
@@ -30,6 +30,10 @@ export function requireEnvironment(
   return value;
 }
 
+/**
+ * Extracts the token backing the injected client for lower-level typed
+ * capabilities. It rejects non-token authentication instead of guessing.
+ */
 export async function authenticatedToken(github: GitHubClient): Promise<string> {
   const authentication: unknown = await github.auth();
   if (
@@ -44,6 +48,7 @@ export async function authenticatedToken(github: GitHubClient): Promise<string> 
   return authentication.token;
 }
 
+/** Publishes a controller result as independently addressable Actions outputs. */
 export function setNamedOutputs(
   output: typeof core,
   values: Readonly<Record<string, boolean | number | string>>,

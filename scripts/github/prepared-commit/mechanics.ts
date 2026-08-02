@@ -7,34 +7,27 @@ import {
   commitParents,
   validateFullOid,
 } from '../../shared/prepared-commit/inspection.ts';
+import { resolveHeadOid } from '../../shared/git/repository.ts';
 import { ZERO_OID } from '../../shared/release-proposal/core.ts';
 import { materializeVersion } from '../../shared/version/materialize.ts';
 import { repositoryRoot } from '../../shared/workspace/packages.ts';
 import { run } from '../../shared/process/run.ts';
 import type { RunOptions } from '../../shared/process/run.ts';
 import {
-  getRef,
-  githubRequest,
-  PILOT_REPOSITORY,
-  validatedGitCommitResponse,
-} from '../release-repository/github.ts';
-import type { GitCommit } from '../release-repository/github.ts';
+  createGitCommit,
+  createGitTree,
+} from '../release-repository/commits.ts';
+import type { ValidatedGitCommit } from '../release-repository/commits.ts';
+import { getRef } from '../release-repository/refs.ts';
 
 const ARTIFACT_PREFIX = 'refs/release-pilot/artifact/';
 const IMPORT_PREFIX = 'refs/release-pilot/imported/';
 
-export type PreparedFile = Readonly<{
-  content: string;
-  path: string;
-}>;
-
+/** One exact inert artifact ref and the local commit it must advertise. */
 export type BundleRef = Readonly<{
   name: string;
   oid: string;
 }>;
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const stringValue = (value: unknown, label: string): string => {
   if (typeof value !== 'string' || value.length === 0) {
@@ -46,8 +39,12 @@ const stringValue = (value: unknown, label: string): string => {
 const git = (args: string[], options: RunOptions = {}) =>
   run('git', args, { ...options, cwd: options.cwd ?? repositoryRoot });
 
+/**
+ * Recreates a locally prepared single-parent commit through GitHub's Git API and
+ * verifies tree, parent, message, author, and committer preservation before use.
+ */
 export const uploadCommitObject = async (token: string, oid: string): Promise<string> => {
-  const sourceOid = (await commitParents(oid))[0];
+  const sourceOid = (await commitParents(repositoryRoot, oid))[0];
   validateFullOid(sourceOid, 'Uploaded commit parent');
   const changedPaths = (
     await git(['diff-tree', '--no-commit-id', '--name-only', '-r', sourceOid, oid])
@@ -83,15 +80,10 @@ export const uploadCommitObject = async (token: string, oid: string): Promise<st
 
   const sourceTree = (await git(['show', '-s', '--format=%T', sourceOid])).stdout.trim();
   const expectedTree = (await git(['show', '-s', '--format=%T', oid])).stdout.trim();
-  const remoteTreeResponse = await githubRequest(`/repos/${PILOT_REPOSITORY}/git/trees`, {
-    body: { base_tree: sourceTree, tree },
-    method: 'POST',
-    token,
+  const remoteTreeSha = await createGitTree(token, {
+    baseTreeOid: sourceTree,
+    entries: tree,
   });
-  if (!isRecord(remoteTreeResponse)) {
-    throw new Error('GitHub created-tree response must be an object.');
-  }
-  const remoteTreeSha = stringValue(remoteTreeResponse['sha'], 'GitHub created tree SHA');
   if (remoteTreeSha !== expectedTree) {
     throw new Error(`GitHub created tree ${remoteTreeSha}, expected ${expectedTree}.`);
   }
@@ -108,27 +100,21 @@ export const uploadCommitObject = async (token: string, oid: string): Promise<st
   const committerName = stringValue(identity[3], 'Prepared committer name');
   const committerEmail = stringValue(identity[4], 'Prepared committer email');
   const committerDate = stringValue(identity[5], 'Prepared committer date');
-  const message = await commitMessageAt(oid);
-  const remoteCommit = validatedGitCommitResponse(
-    await githubRequest(`/repos/${PILOT_REPOSITORY}/git/commits`, {
-      body: {
-        author: { date: authorDate, email: authorEmail, name: authorName },
-        committer: {
-          date: committerDate,
-          email: committerEmail,
-          name: committerName,
-        },
-        message,
-        parents: [sourceOid],
-        tree: remoteTreeSha,
-      },
-      method: 'POST',
-      token,
-    }),
-  );
+  const message = await commitMessageAt(repositoryRoot, oid);
+  const remoteCommit = await createGitCommit(token, {
+    author: { date: authorDate, email: authorEmail, name: authorName },
+    committer: {
+      date: committerDate,
+      email: committerEmail,
+      name: committerName,
+    },
+    message,
+    parents: [sourceOid],
+    treeOid: remoteTreeSha,
+  });
   validateFullOid(remoteCommit.sha, 'Uploaded GitHub commit');
   const sameIdentity = (
-    remote: GitCommit['author'],
+    remote: ValidatedGitCommit['author'],
     name: string,
     email: string,
     date: string,
@@ -169,13 +155,17 @@ const preparedPath = (path: string): string => {
   return path;
 };
 
+/**
+ * Creates an inert versioned commit in a disposable worktree. Only lockstep
+ * version files and explicitly supplied safe paths may differ from the source.
+ */
 export const materializeCommit = async ({
   files = [],
   message,
   sourceOid,
   version,
 }: {
-  files?: readonly PreparedFile[];
+  files?: readonly Readonly<{ content: string; path: string }>[];
   message: string;
   sourceOid: string;
   version: string;
@@ -229,7 +219,7 @@ export const materializeCommit = async ({
       GIT_COMMITTER_NAME: 'fablebook-release-app[bot]',
     };
     await git(['commit', '--no-gpg-sign', '-m', message], { cwd: worktree, env: identity });
-    return (await git(['rev-parse', 'HEAD'], { cwd: worktree })).stdout.trim();
+    return resolveHeadOid(worktree);
   } finally {
     if (added) {
       await git(['worktree', 'remove', '--force', worktree]).catch(() => undefined);
@@ -238,6 +228,7 @@ export const materializeCommit = async ({
   }
 };
 
+/** Writes an object bundle with only temporary, explicitly named artifact refs. */
 export async function writeBundle(path: string, refs: readonly BundleRef[]): Promise<void> {
   for (const { name, oid } of refs) {
     await git(['update-ref', name, oid, ZERO_OID]);
@@ -249,6 +240,10 @@ export async function writeBundle(path: string, refs: readonly BundleRef[]): Pro
   }
 }
 
+/**
+ * Imports a prepared bundle only when its advertised ref/OID set exactly matches
+ * the transition. Extra heads and unexpected namespaces are rejected.
+ */
 export const importBundle = async (
   path: string,
   expectedRefs: readonly BundleRef[],
@@ -302,6 +297,7 @@ export const prepareOutput = async (output: string): Promise<string> => {
   return directory;
 };
 
+/** Fails a guarded application when a live ref changed after preparation. */
 export const assertExpectedRef = async (
   token: string,
   ref: string,

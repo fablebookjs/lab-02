@@ -1,18 +1,18 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
+import { readJsonFile } from '../shared/io/json.ts';
 import { listPublicPackages, repositoryRoot } from '../shared/workspace/packages.ts';
 
 const execute = promisify(execFile);
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const node = process.execPath;
 
-type PackedFile = { path: string };
-type PackedArtifact = { filename: string; files: PackedFile[] };
+type PackedArtifact = { filename: string; files: Array<{ path: string }> };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -108,11 +108,8 @@ try {
   );
 
   for (const pkg of packages) {
-    const installedManifest: unknown = JSON.parse(
-      await readFile(
-        join(consumerDirectory, 'node_modules', ...pkg.name.split('/'), 'package.json'),
-        'utf8',
-      )
+    const installedManifest = await readJsonFile(
+      join(consumerDirectory, 'node_modules', ...pkg.name.split('/'), 'package.json'),
     );
     assert.ok(
       installedManifest !== null &&

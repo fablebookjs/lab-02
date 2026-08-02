@@ -2,28 +2,19 @@ import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 import {
-  composePrereleaseGitHubReleaseBody,
   derivePrereleaseAuthority,
   derivePrereleaseCommunication,
-  PILOT_REPOSITORY,
   PRERELEASE_CHANNEL,
   registryNextVersion,
-  validatePrereleaseCommunication,
 } from '../../shared/prerelease-publication/core.ts';
-import type {
-  PrereleaseAuthority,
-  PrereleaseAuthorityBase,
-} from '../../shared/prerelease-publication/core.ts';
-import {
-  parseManualPrereleasePhase,
-} from '../../shared/prerelease-phase-entry/core.ts';
+import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../../shared/repository.ts';
 import {
   reconcileNextPackageSet,
   validatePrereleasePublicationManifest,
-} from '../../shared/prerelease-publication/publication.ts';
+} from '../../shared/prerelease-publication/manifest-schema.ts';
 import type {
   PrereleasePublicationManifest,
-} from '../../shared/prerelease-publication/publication.ts';
+} from '../../shared/prerelease-publication/manifest-schema.ts';
 import {
   assertOidcPublishEnvironment,
   NPM_REGISTRY,
@@ -35,197 +26,50 @@ import {
 import type {
   PublicationPackage,
 } from '../../shared/package-publication/publication.ts';
-import {
-  parseDevelopmentVersion,
-  parseReleaseLine,
-} from '../../shared/release-proposal/core.ts';
+import { requireOption } from '../../shared/cli/options.ts';
+import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import {
   isPrereleaseAuthorityKind,
-} from '../../shared/publication-routing/core.ts';
+} from '../publication-routing/core.ts';
 import type {
   PublicationAuthorityKind,
-} from '../../shared/publication-routing/core.ts';
+  PublicationResolution,
+} from '../publication-routing/core.ts';
 import { run } from '../../shared/process/run.ts';
+import { requireControllerGitHubToken } from '../controller-inputs.ts';
 import {
-  readJson,
-  requireGithubToken,
-  requireOption,
-  writeJson,
-} from '../controller-support.ts';
-import {
-  assertTagTarget,
-  ensureAnnotatedTag,
-  ensureGitHubRelease,
   packPublicationPackageSet,
-  readAnnotatedTag,
+  observeGitHubReleaseCompletion,
   readRegistryDocument,
   validatePublicationSnapshot,
 } from '../package-publication/mechanics.ts';
+import type {
+  AuthenticatedPublicationArtifactOptions,
+  PublicationArtifactOptions,
+} from '../package-publication/mechanics.ts';
 import {
-  getGitCommit,
+  ensureAnnotatedTag,
+  ensureGitHubRelease,
+} from '../release-repository/releases.ts';
+import { getGitCommit } from '../release-repository/commits.ts';
+import {
   getPullRequest,
-  getReleaseByTag,
   isCanonicalPrereleasePull,
-} from '../release-repository/github.ts';
+} from '../release-repository/pull-requests.ts';
+import { parsePrereleaseAuthorityDocument } from './authority-schema.ts';
+import type { PrereleaseAuthorityDocument } from './authority-schema.ts';
+import { renderPrereleaseGitHubReleaseBody } from './templates.ts';
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
-type PrereleaseAuthorityDocument = PrereleaseAuthority & {
-  changes: ReturnType<typeof derivePrereleaseCommunication>;
-};
-
-export type ResolvePrereleasePublicationOptions = {
-  'authority-kind': string;
-  'github-token': string;
-  output: string;
-  signal: string;
-};
-
-export type PrereleasePublicationResolution =
-  | { publish: false }
-  | {
-      publish: true;
-      snapshot: string;
-      version: string;
-    };
-
-export type PreparePrereleasePublicationOptions = {
-  authority: string;
-  output: string;
-  snapshot: string;
-};
-
-export type InspectPrereleaseAuthorityOptions = {
-  'authority-kind': string;
-  authority: string;
-};
-
-export type PublishPrereleasePackagesOptions = {
-  'expected-snapshot': string;
-  'expected-version': string;
-  manifest: string;
-  tarballs: string;
-};
-
-export type ReconcilePrereleaseNextOptions =
-  PublishPrereleasePackagesOptions;
-
-export type FinalizePrereleaseOptions = PublishPrereleasePackagesOptions & {
-  'github-token': string;
-};
-
-export type CheckPrereleaseCompletionOptions =
-  PublishPrereleasePackagesOptions & {
-    'github-token': string;
-  };
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
-
-const stringValue = (value: unknown, label: string): string => {
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`${label} must be a nonempty string.`);
-  }
-  return value;
-};
 
 const positiveInteger = (value: unknown, label: string): number => {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
     throw new Error(`${label} must be one positive integer.`);
   }
   return value;
-};
-
-const oidValue = (value: unknown, label: string): string => {
-  if (typeof value !== 'string' || !/^[0-9a-f]{40}$/.test(value)) {
-    throw new Error(`${label} must be a full commit OID.`);
-  }
-  return value;
-};
-
-const authorityValue = (input: unknown): PrereleaseAuthorityDocument => {
-  if (
-    !isRecord(input) ||
-    input['schema'] !== 1 ||
-    input['repository'] !== PILOT_REPOSITORY ||
-    input['channel'] !== PRERELEASE_CHANNEL ||
-    !Array.isArray(input['changes'])
-  ) {
-    throw new Error(
-      'Prerelease authority document is outside the accepted schema.',
-    );
-  }
-  const version = stringValue(input['version'], 'Prerelease authority version');
-  const parsedVersion = parseDevelopmentVersion(version);
-  const common: PrereleaseAuthorityBase = {
-    boundaryOid: oidValue(
-      input['boundaryOid'],
-      'Prerelease authority boundary',
-    ),
-    channel: PRERELEASE_CHANNEL,
-    snapshotOid: oidValue(
-      input['snapshotOid'],
-      'Prerelease authority snapshot',
-    ),
-    sourceOid: oidValue(
-      input['sourceOid'],
-      'Prerelease authority source',
-    ),
-    version,
-  };
-  let authority: PrereleaseAuthority;
-  if (input['cutLine'] !== undefined) {
-    const cutLine = stringValue(
-      input['cutLine'],
-      'Prerelease bootstrap cut line',
-    );
-    parseReleaseLine(cutLine);
-    if (
-      common.boundaryOid !== common.snapshotOid ||
-      parsedVersion.prerelease !== 'alpha' ||
-      parsedVersion.prereleaseNumber !== 0
-    ) {
-      throw new Error(
-        'Prerelease bootstrap authority does not identify its alpha.0 boundary.',
-      );
-    }
-    authority = { ...common, cutLine };
-  } else if (input['phase'] !== undefined) {
-    const phase = parseManualPrereleasePhase(
-      stringValue(input['phase'], 'Prerelease authority phase'),
-    );
-    if (
-      parsedVersion.prerelease !== phase ||
-      parsedVersion.prereleaseNumber !== 0
-    ) {
-      throw new Error(
-        'Phase-entry authority does not identify its target .0 version.',
-      );
-    }
-    authority = { ...common, phase };
-  } else {
-    authority = {
-      ...common,
-      proposalOid: oidValue(
-        input['proposalOid'],
-        'Prerelease authority proposal',
-      ),
-      pullRequest: positiveInteger(
-        input['pullRequest'],
-        'Prerelease authority pull request',
-      ),
-    };
-  }
-  const changes = validatePrereleaseCommunication(input['changes']);
-  if ('cutLine' in authority && changes.length !== 0) {
-    throw new Error(
-      'Prerelease bootstrap authority cannot carry prior-line changes.',
-    );
-  }
-  return {
-    ...authority,
-    changes,
-  };
 };
 
 const prereleaseAuthorityKind = (value: unknown): Exclude<
@@ -288,7 +132,7 @@ const readLivePrerelease = async (
 const ensureTrustedMain = (): void => {
   if (
     process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
-    process.env['GITHUB_REF'] !== 'refs/heads/main'
+    process.env['GITHUB_REF'] !== `refs/heads/${PRIMARY_BRANCH}`
   ) {
     throw new Error(
       'Prerelease publication authority is restricted to trusted main.',
@@ -296,9 +140,18 @@ const ensureTrustedMain = (): void => {
   }
 };
 
+/**
+ * Converts a merged canonical Prerelease PR signal into sealed ordinary
+ * authority. Non-authorizing PRs return the visible publish-false result.
+ */
 export async function resolvePrereleasePublication(
-  options: ResolvePrereleasePublicationOptions,
-): Promise<PrereleasePublicationResolution> {
+  options: {
+    'authority-kind': string;
+    'github-token': string;
+    output: string;
+    signal: string;
+  },
+): Promise<PublicationResolution> {
   ensureTrustedMain();
   const authorityKind = prereleaseAuthorityKind(
     requireOption(options, 'authority-kind'),
@@ -308,7 +161,7 @@ export async function resolvePrereleasePublication(
       `Ordinary prerelease resolver cannot consume ${authorityKind}.`,
     );
   }
-  const signal = await readJson(resolve(requireOption(options, 'signal')));
+  const signal = await readJsonFile(resolve(requireOption(options, 'signal')));
   if (!isRecord(signal)) {
     throw new Error(
       'Prerelease signal does not contain one pull request number.',
@@ -318,7 +171,7 @@ export async function resolvePrereleasePublication(
     signal['pullRequest'],
     'Prerelease signal pull request',
   );
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   const pull = await getPullRequest(token, pullRequest);
   if (!isCanonicalPrereleasePull(pull) || pull.merged_at === null) {
     console.log(
@@ -331,7 +184,7 @@ export async function resolvePrereleasePublication(
   validateAuthorityKind(authority, authorityKind);
   const output = resolve(requireOption(options, 'output'));
   await mkdir(output, { recursive: true });
-  await writeJson(join(output, 'authority.json'), {
+  await writeJsonFile(join(output, 'authority.json'), {
     ...authority,
     repository: PILOT_REPOSITORY,
     schema: 1,
@@ -346,8 +199,9 @@ export async function resolvePrereleasePublication(
   };
 }
 
+/** Validates cut or phase-entry authority already emitted by its trusted writer job. */
 export async function inspectPrereleaseAuthority(
-  options: InspectPrereleaseAuthorityOptions,
+  options: { 'authority-kind': string; authority: string },
 ): Promise<{
   publish: true;
   snapshot: string;
@@ -357,8 +211,8 @@ export async function inspectPrereleaseAuthority(
   const authorityKind = prereleaseAuthorityKind(
     requireOption(options, 'authority-kind'),
   );
-  const authority = authorityValue(
-    await readJson(resolve(requireOption(options, 'authority'))),
+  const authority = parsePrereleaseAuthorityDocument(
+    await readJsonFile(resolve(requireOption(options, 'authority'))),
   );
   validateAuthorityKind(authority, authorityKind);
   console.log(
@@ -371,11 +225,12 @@ export async function inspectPrereleaseAuthority(
   };
 }
 
+/** Packs and seals the authorized prerelease snapshot for later privileged jobs. */
 export async function preparePrereleasePublication(
-  options: PreparePrereleasePublicationOptions,
+  options: { authority: string; output: string; snapshot: string },
 ): Promise<void> {
-  const authority = authorityValue(
-    await readJson(resolve(requireOption(options, 'authority'))),
+  const authority = parsePrereleaseAuthorityDocument(
+    await readJsonFile(resolve(requireOption(options, 'authority'))),
   );
   const snapshot = resolve(requireOption(options, 'snapshot'));
   const output = resolve(requireOption(options, 'output'));
@@ -386,7 +241,7 @@ export async function preparePrereleasePublication(
     authority.version,
   );
   const { changes, ...releaseAuthority } = authority;
-  const releaseBody = composePrereleaseGitHubReleaseBody({
+  const releaseBody = renderPrereleaseGitHubReleaseBody({
     changes,
     version: authority.version,
   });
@@ -405,17 +260,17 @@ export async function preparePrereleasePublication(
       version: authority.version,
     },
   );
-  await writeJson(join(output, 'publication.json'), manifest);
+  await writeJsonFile(join(output, 'publication.json'), manifest);
   console.log(
     `Prepared ${manifest.packages.length} packages for ${manifest.version}.`,
   );
 }
 
 const loadManifest = async (
-  options: PublishPrereleasePackagesOptions,
+  options: PublicationArtifactOptions,
 ): Promise<PrereleasePublicationManifest> =>
   validatePrereleasePublicationManifest(
-    await readJson(resolve(requireOption(options, 'manifest'))),
+    await readJsonFile(resolve(requireOption(options, 'manifest'))),
     resolve(requireOption(options, 'tarballs')),
     {
       repository: PILOT_REPOSITORY,
@@ -424,8 +279,9 @@ const loadManifest = async (
     },
   );
 
+/** Publishes or verifies every sealed package through OIDC-only reconciliation. */
 export async function publishPrereleasePackages(
-  options: PublishPrereleasePackagesOptions,
+  options: PublicationArtifactOptions,
 ): Promise<void> {
   ensureTrustedMain();
   assertOidcPublishEnvironment({
@@ -462,8 +318,9 @@ export async function publishPrereleasePackages(
   );
 }
 
+/** Uses the package-scoped credential to reconcile and read back the sealed `next` set. */
 export async function reconcilePrereleaseNext(
-  options: ReconcilePrereleaseNextOptions,
+  options: PublicationArtifactOptions,
 ): Promise<void> {
   ensureTrustedMain();
   if (!process.env['NODE_AUTH_TOKEN']) {
@@ -501,35 +358,31 @@ const prereleaseCompletionState = async (
   manifest: PrereleasePublicationManifest,
 ): Promise<boolean> => {
   const tag = `v${manifest.version}`;
-  const tagObject = await readAnnotatedTag(token, tag);
-  const release = await getReleaseByTag(token, tag);
-  if (tagObject === null) {
-    if (release !== null) {
+  const observation = await observeGitHubReleaseCompletion(token, {
+    body: manifest.releaseBody,
+    prerelease: true,
+    snapshotOid: manifest.snapshotOid,
+    tag,
+  });
+  if (observation.kind === 'contradiction') {
+    if (observation.reason === 'release-without-tag') {
       throw new Error(`GitHub prerelease ${tag} exists without its tag.`);
     }
-    return false;
-  }
-  assertTagTarget(tagObject, tag, manifest.snapshotOid);
-  if (release === null) {
-    return false;
-  }
-  if (
-    release.tag_name !== tag ||
-    release.draft !== false ||
-    release.prerelease !== true ||
-    release.body !== manifest.releaseBody
-  ) {
     throw new Error(`GitHub prerelease ${tag} contradicts its snapshot.`);
   }
-  return true;
+  return observation.kind === 'complete';
 };
 
+/**
+ * Observes package integrity, `next`, annotated tag, and GitHub Release state.
+ * Incomplete state is a visible result; contradictory state throws.
+ */
 export async function checkPrereleaseCompletion(
-  options: CheckPrereleaseCompletionOptions,
+  options: AuthenticatedPublicationArtifactOptions,
 ): Promise<{ complete: boolean }> {
   ensureTrustedMain();
   const manifest = await loadManifest(options);
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   for (const pkg of manifest.packages) {
     const document = await readRegistryDocument(pkg.name);
     const publishedIntegrity = registryIntegrity({
@@ -569,12 +422,13 @@ export async function checkPrereleaseCompletion(
   return { complete };
 }
 
+/** Query-first creates or verifies the exact annotated tag and GitHub prerelease. */
 export async function finalizePrerelease(
-  options: FinalizePrereleaseOptions,
+  options: AuthenticatedPublicationArtifactOptions,
 ): Promise<void> {
   ensureTrustedMain();
   const manifest = await loadManifest(options);
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   const tag = `v${manifest.version}`;
   if (!(await prereleaseCompletionState(token, manifest))) {
     await ensureAnnotatedTag(token, manifest);

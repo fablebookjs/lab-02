@@ -5,7 +5,7 @@ import {
   createPromotionManifest,
   promoteSealedPackageSet,
   validatePromotionManifest,
-} from '../scripts/shared/release-publication/promotion.ts';
+} from '../scripts/shared/release-publication/promotion-schema.ts';
 
 const snapshotOid = '1'.repeat(40);
 const binding = {

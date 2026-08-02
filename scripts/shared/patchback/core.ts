@@ -5,16 +5,13 @@ import {
   migrationRecordDirectory,
   releaseRecordPath,
 } from '../release-communication/records.ts';
+import type { ReleaseHistoryPull } from '../release-communication/records.ts';
 
-export const PATCHBACK_REPOSITORY = 'fablebookjs/lab-02';
-export const PATCHBACK_BODY_SCHEMA_VERSION = 3;
 export const PATCHBACK_FULL_OID_PATTERN_SOURCE = '[0-9a-f]{40}';
-export const PATCHBACK_COMMENT_MARKER = '<!-- fablebook-patchback-outcome-examples -->';
-export const PATCHBACK_BODY_MARKER =
-  `<!-- fablebook-patchback-coordination:v${PATCHBACK_BODY_SCHEMA_VERSION} -->`;
 
 const fullOidPattern = new RegExp(`^${PATCHBACK_FULL_OID_PATTERN_SOURCE}$`);
 
+/** One immutable product-history item for maintainer disposition in a patchback. */
 export type PatchbackItem = {
   command: string;
   kind: 'direct-commit' | 'direct-merge' | 'pull-request';
@@ -23,15 +20,7 @@ export type PatchbackItem = {
   subject: string;
 };
 
-type PatchbackMigrationRecord = {
-  path: string;
-  title: string;
-};
-
-type CanonicalPull = {
-  number: number;
-  title: unknown;
-};
+type CanonicalPull = ReleaseHistoryPull;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -52,6 +41,7 @@ const cleanText = (value: unknown, fallback: string): string => {
   return (text || fallback).slice(0, 160);
 };
 
+/** Derives the canonical branch, line, and PR title for one stable version. */
 export function patchbackIdentity(version: string): {
   branch: string;
   line: string;
@@ -73,6 +63,7 @@ export function previousReleaseVersion(version: string): string | null {
   return `${parsed.major}.${parsed.minor}.${parsed.patch - 1}`;
 }
 
+/** Validates and projects the exact generated release record into patchback content. */
 export function patchbackReleaseRecord({
   source,
   version,
@@ -88,6 +79,10 @@ export function patchbackReleaseRecord({
   return { content: source, path };
 }
 
+/**
+ * Validates migration records through the shared composition rules while
+ * preserving their exact source text for synchronization.
+ */
 export function patchbackMigrationRecords({
   line,
   records,
@@ -117,6 +112,7 @@ export function patchbackMigrationRecords({
   }));
 }
 
+/** Returns a syntactically safe merger login for best-effort assignment. */
 export function releaseMergerAssignee(pull: unknown): string | null {
   const mergedBy = isRecord(pull) ? pull['merged_by'] : undefined;
   const login = isRecord(mergedBy) ? mergedBy['login'] : undefined;
@@ -127,7 +123,14 @@ export function releaseMergerAssignee(pull: unknown): string | null {
     : null;
 }
 
-const migrationRecordPaths = (paths: unknown, line: string): string[] => {
+/**
+ * Narrows unique migration paths to one release-line directory; paths are
+ * serialized into the coordination commit and must remain repository-relative.
+ */
+export const validatePatchbackMigrationRecordPaths = (
+  paths: unknown,
+  line: string,
+): string[] => {
   const directory = `${migrationRecordDirectory(line)}/`;
   if (!Array.isArray(paths)) {
     throw new Error('Patchback migration record paths must be an array.');
@@ -147,6 +150,10 @@ const migrationRecordPaths = (paths: unknown, line: string): string[] => {
   return paths.filter((path): path is string => typeof path === 'string');
 };
 
+/**
+ * Encodes the immutable patchback coordination boundary and synchronized file
+ * set as commit trailers. Product-change outcomes intentionally live elsewhere.
+ */
 export function patchbackCommitMessage({
   baseMainOid,
   boundaryOid,
@@ -175,7 +182,7 @@ export function patchbackCommitMessage({
   if (recordPath !== releaseRecordPath(version)) {
     throw new Error(`Patchback release record must be ${releaseRecordPath(version)}.`);
   }
-  migrationRecordPaths(paths, line);
+  validatePatchbackMigrationRecordPaths(paths, line);
   return [
     `patchback: coordinate v${version}`,
     '',
@@ -189,6 +196,7 @@ export function patchbackCommitMessage({
   ].join('\n');
 }
 
+/** Parses and revalidates the complete patchback coordination trailer protocol. */
 export function parsePatchbackCommitMessage(message: unknown) {
   const trailers = Object.fromEntries(
     String(message ?? '')
@@ -245,19 +253,21 @@ const canonicalPull = (
   oid: string,
 ): pull is CanonicalPull => {
   if (!isRecord(pull) || typeof pull['number'] !== 'number') return false;
-  const base = pull['base'];
   return (
     Number.isSafeInteger(pull['number']) &&
     pull['number'] > 0 &&
-    pull['merged_at'] !== null &&
-    isRecord(base) &&
-    base['ref'] === `releases/${line}` &&
-    isRecord(base['repo']) &&
-    base['repo']['full_name'] === PATCHBACK_REPOSITORY &&
-    pull['merge_commit_sha'] === oid
+    pull['merged'] === true &&
+    pull['baseBranch'] === `releases/${line}` &&
+    pull['canonicalRepository'] === true &&
+    pull['mergeCommitOid'] === oid
   );
 };
 
+/**
+ * Accounts for every first-parent entry before the authorized snapshot in
+ * source order. Ambiguous PR metadata degrades to commit identity instead of
+ * dropping work; merge commits receive an explicit mainline cherry-pick form.
+ */
 export function derivePatchbackItems({
   commits,
   line,
@@ -312,113 +322,4 @@ export function derivePatchbackItems({
       subject,
     };
   });
-}
-
-const itemHeading = (item: PatchbackItem): string => {
-  if (item.kind === 'pull-request') {
-    return `[PR #${item.pullRequest}](https://github.com/${PATCHBACK_REPOSITORY}/pull/${item.pullRequest}) — ${item.subject}`;
-  }
-  const label = item.kind === 'direct-merge' ? 'Direct merge' : 'Direct commit';
-  return `${label} — ${item.subject}`;
-};
-
-export function renderPatchbackBody({
-  boundaryLabel,
-  boundaryOid,
-  items,
-  line,
-  migrationRecords,
-  recordPath,
-  snapshotOid,
-  version,
-}: {
-  boundaryLabel: string;
-  boundaryOid: string;
-  items: PatchbackItem[];
-  line: string;
-  migrationRecords: PatchbackMigrationRecord[];
-  recordPath: string;
-  snapshotOid: string;
-  version: string;
-}): string {
-  const identity = patchbackIdentity(version);
-  if (identity.line !== line) {
-    throw new Error(`${version} does not belong to patchback line ${line}.`);
-  }
-  if (recordPath !== releaseRecordPath(version)) {
-    throw new Error(`Patchback release record must be ${releaseRecordPath(version)}.`);
-  }
-  fullOid(boundaryOid, 'Patchback boundary');
-  fullOid(snapshotOid, 'Patchback snapshot');
-  if (!Array.isArray(items)) {
-    throw new Error('Patchback items must be an array.');
-  }
-  if (!Array.isArray(migrationRecords)) {
-    throw new Error('Patchback migration records must be an array.');
-  }
-  migrationRecordPaths(
-    migrationRecords.map(({ path }) => path),
-    line
-  );
-  for (const record of migrationRecords) {
-    if (typeof record.title !== 'string' || record.title.length === 0) {
-      throw new Error(`Patchback migration record has no title: ${record.path}`);
-    }
-  }
-
-  const header = [
-    PATCHBACK_BODY_MARKER,
-    `# Patchback for v${version}`,
-    '',
-    `Authorized snapshot: [\`${snapshotOid}\`](https://github.com/${PATCHBACK_REPOSITORY}/commit/${snapshotOid})`,
-    `Scope starts after ${boundaryLabel}: [\`${boundaryOid}\`](https://github.com/${PATCHBACK_REPOSITORY}/commit/${boundaryOid})`,
-    '',
-    '## Mechanically synchronized release communication',
-    '',
-    `- Generated release record: [\`${recordPath}\`](https://github.com/${PATCHBACK_REPOSITORY}/blob/${snapshotOid}/${recordPath})`,
-    ...(migrationRecords.length === 0
-      ? ['- Migration records: _None target this release line._']
-      : [
-          '- Migration records:',
-          ...migrationRecords.map(
-            ({ path, title }) =>
-              `  - [${title}](https://github.com/${PATCHBACK_REPOSITORY}/blob/${snapshotOid}/${path}) (\`${path}\`)`
-          ),
-        ]),
-    '',
-    'This ordered product-change queue is fixed to the authorized snapshot. Automation never cherry-picks or removes its items. Mechanically synchronized communication may make an item already present; for every item, apply it, record that it is already present, or explain why it is not applicable, then check its box.',
-  ];
-
-  if (items.length === 0) {
-    return [
-      ...header,
-      '',
-      '_No release-line product changes are in this snapshot scope. The synchronized release communication above is the complete patchback._',
-    ].join('\n');
-  }
-
-  const queue = items.flatMap((item) => [
-    '',
-    `- [ ] **${itemHeading(item)}**`,
-    `  - Release commit: [\`${item.oid}\`](https://github.com/${PATCHBACK_REPOSITORY}/commit/${item.oid})`,
-    `  - Apply: \`${item.command}\``,
-    '  - Outcome: _record `applied`, `already-present`, or `not-applicable` before checking this item_',
-  ]);
-  return [...header, '', '## Ordered work queue', ...queue].join('\n');
-}
-
-export function patchbackExamplesComment(): string {
-  return [
-    PATCHBACK_COMMENT_MARKER,
-    '## Copy-paste outcome examples',
-    '',
-    'Replace an item’s `Outcome` line with one of these, add the useful commit, PR, or reason, and only then check its box:',
-    '',
-    '- `Outcome: applied — cherry-picked as <main commit> in #<PR>`',
-    '- `Outcome: applied — manually reimplemented in <main commit> because <reason>`',
-    '- `Outcome: already-present — covered by <main commit or PR>`',
-    '- `Outcome: not-applicable — <concise reason>`',
-    '',
-    'A conflict is unresolved work: leave the item unchecked until one of the outcomes is true.',
-  ].join('\n');
 }

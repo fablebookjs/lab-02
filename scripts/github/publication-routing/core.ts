@@ -1,3 +1,5 @@
+import { PRIMARY_BRANCH } from '../../shared/repository.ts';
+
 export type PublicationAuthorityKind =
   | 'ordinary-prerelease-pr'
   | 'phase-entry'
@@ -12,6 +14,7 @@ export type PublicationRouteInput = Readonly<{
   runId: number;
 }>;
 
+/** Visible publish or skip decision for one completed trusted workflow run. */
 export type PublicationRouteDecision =
   | Readonly<{
       authorityKind: PublicationAuthorityKind;
@@ -23,14 +26,20 @@ export type PublicationRouteDecision =
       reason: string;
     }>;
 
-type PublicationSource = Readonly<{
+export type PublicationResolution =
+  | { publish: false }
+  | {
+      publish: true;
+      snapshot: string;
+      version: string;
+    };
+
+const PUBLICATION_SOURCES: readonly Readonly<{
   authorityKind: PublicationAuthorityKind;
-  branch?: 'main';
+  branch?: typeof PRIMARY_BRANCH;
   event: 'pull_request_target' | 'workflow_dispatch';
   path: string;
-}>;
-
-const PUBLICATION_SOURCES: readonly PublicationSource[] = [
+}>[] = [
   {
     authorityKind: 'stable-pr',
     event: 'pull_request_target',
@@ -43,18 +52,23 @@ const PUBLICATION_SOURCES: readonly PublicationSource[] = [
   },
   {
     authorityKind: 'phase-entry',
-    branch: 'main',
+    branch: PRIMARY_BRANCH,
     event: 'workflow_dispatch',
     path: '.github/workflows/enter-prerelease-phase.yml',
   },
   {
     authorityKind: 'release-cut-bootstrap',
-    branch: 'main',
+    branch: PRIMARY_BRANCH,
     event: 'workflow_dispatch',
     path: '.github/workflows/cut-release-line.yml',
   },
 ];
 
+/**
+ * Maps the finite path, event, conclusion, and branch combinations to one
+ * explicit authority kind. Unknown or maintenance-only completions are visible
+ * skips and never inherit publication authority.
+ */
 export function classifyPublicationRoute(
   input: PublicationRouteInput,
 ): PublicationRouteDecision {

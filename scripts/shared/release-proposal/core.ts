@@ -23,6 +23,14 @@ export type ReleaseLine = {
   minor: number;
 };
 
+/** Provider-neutral commit evidence used to prove release ancestry and tree identity. */
+export type ReleaseCommitView = {
+  message?: string;
+  parents?: Array<{ sha: string }>;
+  sha: string;
+  tree?: { sha: string };
+};
+
 type ProposalCommit = {
   attempt: string;
   line: string;
@@ -30,6 +38,7 @@ type ProposalCommit = {
   version: string;
 };
 
+/** Durable release-cut boundary recovered from the development commit trailers. */
 export type DevelopmentCommit = {
   line: string;
   sourceOid: string;
@@ -43,6 +52,10 @@ const developmentTrailerNames: readonly string[] = [
 ];
 const prereleaseBootstrapTrailer = 'Prerelease-Bootstrap';
 
+/**
+ * Complete observed state for one stable release line. The maintenance planner
+ * treats this as a snapshot and never performs repository I/O itself.
+ */
 export type ProposalState = {
   accountingOid: string | null;
   latestClosedPr: {
@@ -66,6 +79,10 @@ export type ProposalState = {
   } | null;
 };
 
+/**
+ * Selects the newest trusted completion already present on first-parent release
+ * history. Any candidate outside that history is a contradiction, not absence.
+ */
 export function deriveProposalAccountingBoundary({
   completedOid,
   mergedProposalOids,
@@ -106,6 +123,7 @@ const capture = (match: RegExpExecArray, index: number): string => {
   return value;
 };
 
+/** Parses the restricted development SemVer forms understood by release automation. */
 export function parseDevelopmentVersion(version: string): DevelopmentVersion {
   const match = developmentPattern.exec(version);
   if (!match) {
@@ -125,6 +143,7 @@ export function parseDevelopmentVersion(version: string): DevelopmentVersion {
   };
 }
 
+/** Parses stable SemVer without accepting build metadata or prerelease syntax. */
 export function parseStableVersion(version: string): StableVersion {
   const match = stablePattern.exec(version);
   if (!match) {
@@ -137,6 +156,7 @@ export function parseStableVersion(version: string): StableVersion {
   };
 }
 
+/** Parses the canonical `vX.Y` release-line identity. */
 export function parseReleaseLine(line: string): ReleaseLine {
   const match = linePattern.exec(line);
   if (!match) {
@@ -145,12 +165,17 @@ export function parseReleaseLine(line: string): ReleaseLine {
   return { major: integer(match, 1), minor: integer(match, 2) };
 }
 
+/** Orders canonical release lines numerically rather than lexicographically. */
 export function compareReleaseLines(left: string, right: string): number {
   const a = parseReleaseLine(left);
   const b = parseReleaseLine(right);
   return a.major - b.major || a.minor - b.minor;
 }
 
+/**
+ * Derives both sides of a release cut: the stable line being opened and the
+ * next alpha.0 development line. It does not inspect or mutate repository state.
+ */
 export function deriveCutVersions(
   developmentVersion: string,
   nextDevelopment: string,
@@ -170,6 +195,10 @@ export function deriveCutVersions(
   return { developmentVersion: development, line, releaseVersion };
 }
 
+/**
+ * Selects the initial stable version or next patch for a release line, rejecting
+ * version evidence that belongs to a different line.
+ */
 export function nextReleaseVersion(line: string, lineVersion: string): string {
   const parsedLine = parseReleaseLine(line);
   if (developmentPattern.test(lineVersion)) {
@@ -190,6 +219,10 @@ export function nextReleaseVersion(line: string, lineVersion: string): string {
   return `${current.major}.${current.minor}.${current.patch + 1}`;
 }
 
+/**
+ * Encodes stable proposal authority as commit trailers. The paired parser is
+ * the protocol boundary; changing trailer meaning requires coordinated readers.
+ */
 export function proposalCommitMessage({
   attempt,
   line,
@@ -206,6 +239,10 @@ export function proposalCommitMessage({
   ].join('\n');
 }
 
+/**
+ * Encodes the durable release-cut boundary and alpha.0 bootstrap authority in
+ * the development commit created by a managed cut.
+ */
 export function developmentCommitMessage({
   line,
   sourceOid,
@@ -257,10 +294,15 @@ const developmentCommitFrom = (
   return metadata;
 };
 
+/** Requires and validates a complete managed release-cut trailer set. */
 export function parseDevelopmentCommitMessage(message: string): DevelopmentCommit {
   return developmentCommitFrom(trailersFrom(message));
 }
 
+/**
+ * Returns `null` only when every release-cut trailer is absent; partial or
+ * malformed metadata fails so history is never silently misclassified.
+ */
 export function parseDevelopmentCommitMessageIfPresent(
   message: string,
 ): DevelopmentCommit | null {
@@ -271,6 +313,10 @@ export function parseDevelopmentCommitMessageIfPresent(
   return developmentCommitFrom(trailers);
 }
 
+/**
+ * Recognizes managed alpha.0 bootstrap authority. Presence of its marker makes
+ * malformed or contradictory release-cut metadata a caller-visible failure.
+ */
 export function parsePrereleaseBootstrapCommitMessageIfPresent(
   message: string,
 ): DevelopmentCommit | null {
@@ -293,6 +339,7 @@ export function parsePrereleaseBootstrapCommitMessageIfPresent(
   return metadata;
 }
 
+/** Parses and validates the stable proposal commit-trailer protocol. */
 export function parseProposalMessage(message: string): ProposalCommit {
   const trailers = trailersFrom(message);
   const metadata = {
@@ -313,6 +360,10 @@ export function parseProposalMessage(message: string): ProposalCommit {
   return metadata;
 }
 
+/**
+ * Plans stable proposal maintenance from an immutable observation of every
+ * line. Results describe intent only; controllers retain sequencing and writes.
+ */
 export function planProposalMaintenance(lines: readonly ProposalState[]) {
   if (!Array.isArray(lines) || lines.length === 0) {
     return [];

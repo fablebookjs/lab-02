@@ -1,11 +1,9 @@
-import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { readJsonFile, writeJsonFile } from '../io/json.ts';
 import { listPublicPackages } from '../workspace/packages.ts';
 
-type JsonObject = Record<string, unknown>;
-
-type PackageManifest = JsonObject & {
+type MutablePackageManifest = Record<string, unknown> & {
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
   name?: string;
@@ -14,8 +12,8 @@ type PackageManifest = JsonObject & {
   version?: string;
 };
 
-type PackageLock = JsonObject & {
-  packages?: Record<string, PackageManifest>;
+type MutablePackageLock = Record<string, unknown> & {
+  packages?: Record<string, MutablePackageManifest>;
 };
 
 const supportedVersion =
@@ -26,7 +24,7 @@ const dependencyFields = [
   'optionalDependencies',
   'peerDependencies',
 ] satisfies Array<keyof Pick<
-  PackageManifest,
+  MutablePackageManifest,
   'dependencies' | 'devDependencies' | 'optionalDependencies' | 'peerDependencies'
 >>;
 
@@ -46,7 +44,7 @@ const stringMap = (value: unknown, label: string): Record<string, string> | unde
   );
 };
 
-const packageManifest = (value: unknown, label: string): PackageManifest => {
+const packageManifest = (value: unknown, label: string): MutablePackageManifest => {
   if (!isRecord(value)) throw new Error(`${label} must contain one JSON object.`);
   const dependencies = stringMap(value['dependencies'], `${label}.dependencies`);
   const devDependencies = stringMap(value['devDependencies'], `${label}.devDependencies`);
@@ -69,7 +67,7 @@ const packageManifest = (value: unknown, label: string): PackageManifest => {
   };
 };
 
-const packageLock = (value: unknown, label: string): PackageLock => {
+const packageLock = (value: unknown, label: string): MutablePackageLock => {
   if (!isRecord(value)) throw new Error(`${label} must contain one JSON object.`);
   const packages = value['packages'];
   if (packages !== undefined && !isRecord(packages)) {
@@ -90,16 +88,8 @@ const packageLock = (value: unknown, label: string): PackageLock => {
   };
 };
 
-const readJson = async (path: string): Promise<unknown> => {
-  const value: unknown = JSON.parse(await readFile(path, 'utf8'));
-  return value;
-};
-
-const writeJson = async (path: string, value: unknown): Promise<void> =>
-  writeFile(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-
 function updateInternalDependencies(
-  manifest: PackageManifest,
+  manifest: MutablePackageManifest,
   publicNames: ReadonlySet<string>,
   version: string,
 ): void {
@@ -112,6 +102,7 @@ function updateInternalDependencies(
   }
 }
 
+/** Narrows versions to the stable and managed prerelease forms this pilot materializes. */
 export function validateMaterializedVersion(version: unknown): string {
   if (typeof version !== 'string' || !supportedVersion.test(version)) {
     throw new Error('Version must be X.Y.Z or X.Y.Z-alpha.N, -beta.N, or -rc.N.');
@@ -119,6 +110,11 @@ export function validateMaterializedVersion(version: unknown): string {
   return version;
 }
 
+/**
+ * Rewrites the root, every public workspace, internal public dependencies, and
+ * matching lockfile entries to one exact version. Validation completes before
+ * files are written, but callers still own repository transaction boundaries.
+ */
 export async function materializeVersion(
   root: string,
   requestedVersion: unknown,
@@ -132,8 +128,8 @@ export async function materializeVersion(
   const publicNames = new Set(packages.map(({ name }) => name));
   const rootManifestPath = join(root, 'package.json');
   const lockfilePath = join(root, 'package-lock.json');
-  const rootManifest = packageManifest(await readJson(rootManifestPath), rootManifestPath);
-  const lockfile = packageLock(await readJson(lockfilePath), lockfilePath);
+  const rootManifest = packageManifest(await readJsonFile(rootManifestPath), rootManifestPath);
+  const lockfile = packageLock(await readJsonFile(lockfilePath), lockfilePath);
   if (lockfile.packages === undefined || lockfile.packages[''] === undefined) {
     throw new Error('package-lock.json has no root package entry.');
   }
@@ -141,7 +137,7 @@ export async function materializeVersion(
   rootManifest.version = version;
   lockfile.packages[''].version = version;
 
-  const manifests = new Map<string, PackageManifest>();
+  const manifests = new Map<string, MutablePackageManifest>();
   for (const pkg of packages) {
     const manifest = packageManifest(pkg.manifest, pkg.manifestPath);
     manifest.version = version;
@@ -157,10 +153,10 @@ export async function materializeVersion(
   }
 
   await Promise.all([
-    writeJson(rootManifestPath, rootManifest),
-    writeJson(lockfilePath, lockfile),
+    writeJsonFile(rootManifestPath, rootManifest),
+    writeJsonFile(lockfilePath, lockfile),
     ...[...manifests].map(([manifestPath, manifest]) =>
-      writeJson(manifestPath, manifest),
+      writeJsonFile(manifestPath, manifest),
     ),
   ]);
 

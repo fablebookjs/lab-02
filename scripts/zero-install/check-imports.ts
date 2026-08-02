@@ -13,7 +13,7 @@ export type ImportBoundaryDiagnostic = {
 };
 
 type Zone = 'api' | 'github' | 'shared';
-type Source = { canonical: string; logical: string; zone: Zone };
+type AnalyzedSource = { canonical: string; logical: string; zone: Zone };
 
 const executableExtensions = new Set(['.cjs', '.cts', '.js', '.jsx', '.mjs', '.mts', '.tsx']);
 const alternateLoaders = new Set(['createRequire', 'register', 'registerHooks']);
@@ -32,7 +32,7 @@ const isWithin = (parent: string, child: string): boolean => {
 function enumerate(
   directory: string,
   zone: Zone,
-  sources: Source[],
+  sources: AnalyzedSource[],
   unsupported: Array<{ logical: string; zone: Zone }>,
 ): void {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -184,7 +184,7 @@ const loopDerivesSelectedEntrypoint = (loop: ts.ForOfStatement): boolean => {
 
 const isAllowedReleasePackageSetImport = (
   scriptsRoot: string,
-  source: Source,
+  source: AnalyzedSource,
   sourceFile: ts.SourceFile,
   node: ts.CallExpression,
 ): boolean => {
@@ -251,7 +251,7 @@ export function checkZeroInstallImports(
     github: realpathSync(roots.github),
     shared: realpathSync(roots.shared),
   };
-  const sources: Source[] = [];
+  const sources: AnalyzedSource[] = [];
   const unsupported: Array<{ logical: string; zone: Zone }> = [];
   for (const zone of zones) enumerate(roots[zone], zone, sources, unsupported);
   const knownTargets = new Set(sources.map(({ canonical }) => canonical));
@@ -259,7 +259,7 @@ export function checkZeroInstallImports(
   const seen = new Set<string>();
 
   const add = (
-    source: Source,
+    source: AnalyzedSource,
     sourceFile: ts.SourceFile | undefined,
     node: ts.Node | undefined,
     code: string,
@@ -292,7 +292,7 @@ export function checkZeroInstallImports(
   }
 
   const inspectSpecifier = (
-    source: Source,
+    source: AnalyzedSource,
     sourceFile: ts.SourceFile,
     node: ts.Node,
     specifier: string,
@@ -561,7 +561,7 @@ export function checkZeroInstallImports(
   );
 }
 
-export function formatImportBoundaryDiagnostic(
+function formatImportBoundaryDiagnostic(
   diagnostic: ImportBoundaryDiagnostic,
 ): string {
   const specifier =

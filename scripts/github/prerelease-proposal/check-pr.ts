@@ -4,13 +4,17 @@ import {
   authenticatedToken,
 } from '../runtime.ts';
 import type { GitHubHandlerRuntime } from '../runtime.ts';
-import { getRef } from '../release-repository/github.ts';
+import { getRef } from '../release-repository/refs.ts';
+import { PRIMARY_BRANCH } from '../../shared/repository.ts';
 
 export default async function handler({
   context,
   github,
 }: GitHubHandlerRuntime): Promise<void> {
-  const main = await getRef(await authenticatedToken(github), 'heads/main');
+  const main = await getRef(
+    await authenticatedToken(github),
+    `heads/${PRIMARY_BRANCH}`,
+  );
   if (main === null) {
     throw new Error('The canonical main ref does not exist.');
   }

@@ -12,7 +12,7 @@ import {
 } from '../scripts/github/release-publication/controller.ts';
 import {
   classifyPublicationRoute,
-} from '../scripts/shared/publication-routing/core.ts';
+} from '../scripts/github/publication-routing/core.ts';
 import {
   validatedWorkflowRunCompletion,
 } from '../scripts/github/events.ts';

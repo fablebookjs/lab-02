@@ -7,13 +7,10 @@ import {
   registryIntegrity,
 } from '../../shared/package-publication/core.ts';
 import {
-  composeGitHubReleaseBody,
   deriveReleaseAuthority,
   deriveReleaseCommunication,
-  lineChannel,
-  PILOT_REPOSITORY,
-  validateReleaseCommunication,
 } from '../../shared/release-publication/core.ts';
+import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../../shared/repository.ts';
 import type {
   ReleaseAuthority,
   ReleaseCommunication,
@@ -24,81 +21,42 @@ import {
 import {
   type PublicationManifest,
   validatePublicationManifest,
-} from '../../shared/release-publication/publication.ts';
+} from '../../shared/release-publication/manifest-schema.ts';
 import {
   loadMigrationRecords,
   releaseRecordPath,
 } from '../../shared/release-communication/records.ts';
+import { requireOption } from '../../shared/cli/options.ts';
 import { parseStableVersion } from '../../shared/release-proposal/core.ts';
+import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import { run } from '../../shared/process/run.ts';
+import { getReleaseByTag } from '../release-repository/releases.ts';
+import { getGitCommit } from '../release-repository/commits.ts';
 import {
-  getGitCommit,
   getPullRequest,
-  getReleaseByTag,
-  githubRequest,
   isCanonicalReleasePull,
-} from '../release-repository/github.ts';
+} from '../release-repository/pull-requests.ts';
+import { requireControllerGitHubToken } from '../controller-inputs.ts';
+import type { PublicationResolution } from '../publication-routing/core.ts';
 import {
-  readJson,
-  requireGithubToken,
-  requireOption,
-  writeJson,
-} from '../controller-support.ts';
+  packPublicationPackageSet,
+  observeGitHubReleaseCompletion,
+  readRegistryDocument,
+  validatePublicationSnapshot,
+} from '../package-publication/mechanics.ts';
+import type {
+  AuthenticatedPublicationArtifactOptions,
+  PublicationArtifactOptions,
+} from '../package-publication/mechanics.ts';
 import {
   assertTagTarget,
   ensureAnnotatedTag,
   ensureGitHubRelease,
-  packPublicationPackageSet,
   readAnnotatedTag,
-  readRegistryDocument,
-  validatePublicationSnapshot,
-} from '../package-publication/mechanics.ts';
+} from '../release-repository/releases.ts';
+import { parseReleaseAuthorityDocument } from './authority-schema.ts';
+import { renderStableGitHubReleaseBody } from './templates.ts';
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-
-type ReleaseAuthorityDocument = ReleaseAuthority & {
-  releaseCommunication: ReleaseCommunication;
-};
-
-export type ResolvePublicationOptions = {
-  'authority-kind': string;
-  'github-token': string;
-  output: string;
-  signal: string;
-};
-
-export type PublicationResolution =
-  | { publish: false }
-  | {
-      publish: true;
-      snapshot: string;
-      version: string;
-    };
-
-export type PreparePublicationOptions = {
-  authority: string;
-  output: string;
-  snapshot: string;
-};
-
-export type PublishPackagesOptions = {
-  'expected-snapshot': string;
-  'expected-version': string;
-  manifest: string;
-  tarballs: string;
-};
-
-export type FinalizeReleaseOptions = {
-  'expected-snapshot': string;
-  'expected-version': string;
-  'github-token': string;
-  manifest: string;
-  tarballs: string;
-};
-
-export type ResolvePromotionOptions = {
-  'github-token': string;
-  version: string;
-};
 
 export type PromotionResolution = {
   snapshot: string;
@@ -106,13 +64,6 @@ export type PromotionResolution = {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
-
-const stringValue = (value: unknown, label: string): string => {
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`${label} must be a nonempty string.`);
-  }
-  return value;
-};
 
 const positiveInteger = (value: unknown, label: string): number => {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
@@ -131,50 +82,10 @@ const validateOid = (oid: unknown, label: string): string => {
 const ensureTrustedMain = (): void => {
   if (
     process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
-    process.env['GITHUB_REF'] !== 'refs/heads/main'
+    process.env['GITHUB_REF'] !== `refs/heads/${PRIMARY_BRANCH}`
   ) {
     throw new Error('Publication authority is restricted to trusted main in the pilot repository.');
   }
-};
-
-const authorityValue = (
-  input: Record<string, unknown>,
-  label: string,
-): ReleaseAuthority => {
-  const line = stringValue(input['line'], `${label} line`);
-  const version = stringValue(input['version'], `${label} version`);
-  parseStableVersion(version);
-  const channel = stringValue(input['channel'], `${label} channel`);
-  if (channel !== lineChannel(line)) {
-    throw new Error(`${label} channel does not match its release line.`);
-  }
-  return {
-    channel,
-    line,
-    proposalOid: validateOid(input['proposalOid'], `${label} proposal`),
-    pullRequest: positiveInteger(input['pullRequest'], `${label} pull request`),
-    snapshotOid: validateOid(input['snapshotOid'], `${label} snapshot`),
-    sourceOid: validateOid(input['sourceOid'], `${label} source`),
-    version,
-  };
-};
-
-const authorityDocumentValue = (input: unknown): ReleaseAuthorityDocument => {
-  if (
-    !isRecord(input) ||
-    input['schema'] !== 2 ||
-    input['repository'] !== PILOT_REPOSITORY
-  ) {
-    throw new Error('Release authority document is outside the pilot schema.');
-  }
-  const authority = authorityValue(input, 'Release authority');
-  return {
-    ...authority,
-    releaseCommunication: validateReleaseCommunication(
-      input['releaseCommunication'],
-      authority.version,
-    ),
-  };
 };
 
 const readLiveRelease = async (
@@ -203,8 +114,17 @@ const readLiveRelease = async (
   };
 };
 
+/**
+ * Converts a merged canonical Release PR signal into sealed stable authority.
+ * Non-authorizing PRs return the visible publish-false result.
+ */
 export async function resolvePublication(
-  options: ResolvePublicationOptions,
+  options: {
+    'authority-kind': string;
+    'github-token': string;
+    output: string;
+    signal: string;
+  },
 ): Promise<PublicationResolution> {
   ensureTrustedMain();
   const authorityKind = requireOption(options, 'authority-kind');
@@ -213,14 +133,14 @@ export async function resolvePublication(
       `Stable publication resolver cannot consume ${authorityKind}.`,
     );
   }
-  const signal = await readJson(resolve(requireOption(options, 'signal')));
+  const signal = await readJsonFile(resolve(requireOption(options, 'signal')));
   const output = resolve(requireOption(options, 'output'));
   if (!isRecord(signal)) {
     throw new Error('Release signal does not contain one positive pull request number.');
   }
   const pullRequest = positiveInteger(signal['pullRequest'], 'Release signal pull request');
 
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   const pull = await getPullRequest(token, pullRequest);
   if (!isCanonicalReleasePull(pull) || pull.merged_at === null) {
     const outputs: PublicationResolution = { publish: false };
@@ -230,7 +150,7 @@ export async function resolvePublication(
 
   const { authority, releaseCommunication } = await readLiveRelease(token, pullRequest);
   await mkdir(output, { recursive: true });
-  await writeJson(join(output, 'authority.json'), {
+  await writeJsonFile(join(output, 'authority.json'), {
     ...authority,
     releaseCommunication,
     repository: PILOT_REPOSITORY,
@@ -245,11 +165,15 @@ export async function resolvePublication(
   return outputs;
 }
 
+/**
+ * Packs the authorized snapshot and seals its tarballs and human-facing release
+ * body into the schema-3 artifact consumed by privileged jobs.
+ */
 export async function preparePublication(
-  options: PreparePublicationOptions,
+  options: { authority: string; output: string; snapshot: string },
 ): Promise<void> {
-  const authority = authorityDocumentValue(
-    await readJson(resolve(requireOption(options, 'authority'))),
+  const authority = parseReleaseAuthorityDocument(
+    await readJsonFile(resolve(requireOption(options, 'authority'))),
   );
   const snapshot = resolve(requireOption(options, 'snapshot'));
   const output = resolve(requireOption(options, 'output'));
@@ -266,7 +190,7 @@ export async function preparePublication(
   );
   const migrationRecords = await loadMigrationRecords(snapshot, authority.line);
   const { releaseCommunication, ...releaseAuthority } = authority;
-  const releaseBody = composeGitHubReleaseBody({
+  const releaseBody = renderStableGitHubReleaseBody({
     communication: releaseCommunication,
     migrationRecords,
     releaseRecord,
@@ -287,20 +211,15 @@ export async function preparePublication(
       version: authority.version,
     },
   );
-  await writeJson(join(output, 'publication.json'), manifest);
+  await writeJsonFile(join(output, 'publication.json'), manifest);
   console.log(`Prepared ${manifest.packages.length} packages for ${manifest.version}.`);
 }
 
 const loadPublication = async (
-  options: {
-    'expected-snapshot': string;
-    'expected-version': string;
-    manifest: string;
-    tarballs: string;
-  },
+  options: PublicationArtifactOptions,
 ): Promise<PublicationManifest> =>
   validatePublicationManifest(
-    await readJson(resolve(requireOption(options, 'manifest'))),
+    await readJsonFile(resolve(requireOption(options, 'manifest'))),
     resolve(requireOption(options, 'tarballs')),
     {
       repository: PILOT_REPOSITORY,
@@ -309,7 +228,10 @@ const loadPublication = async (
     },
   );
 
-export async function publishPackages(options: PublishPackagesOptions): Promise<void> {
+/** Publishes or verifies every sealed package through OIDC-only query-first reconciliation. */
+export async function publishPackages(
+  options: PublicationArtifactOptions,
+): Promise<void> {
   ensureTrustedMain();
   assertOidcPublishEnvironment({
     nodeAuthToken: process.env['NODE_AUTH_TOKEN'],
@@ -352,32 +274,30 @@ const releaseCompletionState = async (
   manifest: PublicationManifest,
 ): Promise<boolean> => {
   const tag = `v${manifest.version}`;
-  const tagObject = await readAnnotatedTag(token, tag);
-  const release = await getReleaseByTag(token, tag);
-  if (tagObject === null) {
-    if (release !== null) {
+  const observation = await observeGitHubReleaseCompletion(token, {
+    prerelease: false,
+    snapshotOid: manifest.snapshotOid,
+    tag,
+  });
+  if (observation.kind === 'contradiction') {
+    if (observation.reason === 'release-without-tag') {
       throw new Error(`GitHub Release ${tag} exists without its annotated tag.`);
     }
-    return false;
-  }
-  assertTagTarget(tagObject, tag, manifest.snapshotOid);
-  if (release === null) {
-    return false;
-  }
-  if (
-    release.tag_name !== tag ||
-    release.draft !== false ||
-    release.prerelease !== false
-  ) {
     throw new Error(`GitHub Release ${tag} contradicts the completed stable release.`);
   }
-  return true;
+  return observation.kind === 'complete';
 };
 
-export async function finalizeRelease(options: FinalizeReleaseOptions): Promise<void> {
+/**
+ * Query-first creates or verifies the annotated tag and exact non-draft GitHub
+ * Release after package publication has completed.
+ */
+export async function finalizeRelease(
+  options: AuthenticatedPublicationArtifactOptions,
+): Promise<void> {
   ensureTrustedMain();
   const manifest = await loadPublication(options);
-  const token = requireGithubToken(options);
+  const token = requireControllerGitHubToken(options);
   if (await releaseCompletionState(token, manifest)) {
     await ensureGitHubRelease(
       token,
@@ -416,13 +336,14 @@ const validateCompletedRelease = async (
   return tagObject.object.sha;
 };
 
+/** Proves a requested stable version has a completed tag and GitHub Release. */
 export async function resolvePromotion(
-  options: ResolvePromotionOptions,
+  options: { 'github-token': string; version: string },
 ): Promise<PromotionResolution> {
   ensureTrustedMain();
   const version = requireOption(options, 'version');
   parseStableVersion(version);
-  const snapshotOid = await validateCompletedRelease(requireGithubToken(options), version);
+  const snapshotOid = await validateCompletedRelease(requireControllerGitHubToken(options), version);
   const outputs: PromotionResolution = { snapshot: snapshotOid };
   console.log(`Resolved completed v${version} at ${snapshotOid}.`);
   return outputs;

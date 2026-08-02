@@ -2,61 +2,47 @@ import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 
 import { loadReleasePackageSet } from '../../shared/package-publication/package-set.ts';
+import { resolveHeadOid } from '../../shared/git/repository.ts';
 import {
   createPromotionManifest,
   promoteSealedPackageSet,
   validatePromotionManifest,
-} from '../../shared/release-publication/promotion.ts';
-import {
-  PILOT_REPOSITORY,
-} from '../../shared/release-publication/core.ts';
+} from '../../shared/release-publication/promotion-schema.ts';
+import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../../shared/repository.ts';
+import { requireOption } from '../../shared/cli/options.ts';
 import { NPM_REGISTRY } from '../../shared/package-publication/core.ts';
+import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import { parseStableVersion } from '../../shared/release-proposal/core.ts';
 import { run } from '../../shared/process/run.ts';
-import {
-  readJson,
-  requireOption,
-  writeJson,
-} from '../controller-support.ts';
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-
-export type PreparePromotionOptions = {
-  manifest: string;
-  snapshot: string;
-  'snapshot-oid': string;
-  version: string;
-};
-
-export type PromoteLatestOptions = {
-  'expected-snapshot': string;
-  'expected-version': string;
-  manifest: string;
-};
 
 const ensureTrustedMain = (): void => {
   if (
     process.env['GITHUB_REPOSITORY'] !== PILOT_REPOSITORY ||
-    process.env['GITHUB_REF'] !== 'refs/heads/main'
+    process.env['GITHUB_REF'] !== `refs/heads/${PRIMARY_BRANCH}`
   ) {
     throw new Error('Promotion authority is restricted to trusted main in the pilot repository.');
   }
 };
 
-const gitHead = async (root: string): Promise<string> =>
-  (await run('git', ['rev-parse', 'HEAD'], { cwd: root })).stdout.trim();
-
 const validateSnapshot = async (root: string, expectedOid: string): Promise<void> => {
   if (!/^[0-9a-f]{40}$/.test(expectedOid)) {
     throw new Error('Expected promotion snapshot is not a full commit OID.');
   }
-  if ((await gitHead(root)) !== expectedOid) {
+  if ((await resolveHeadOid(root)) !== expectedOid) {
     throw new Error('The checked-out snapshot does not match promotion authority.');
   }
 };
 
+/** Derives and seals the historical snapshot's complete package set for promotion. */
 export async function preparePromotion(
-  options: PreparePromotionOptions,
+  options: {
+    manifest: string;
+    snapshot: string;
+    'snapshot-oid': string;
+    version: string;
+  },
 ): Promise<void> {
   ensureTrustedMain();
   const version = requireOption(options, 'version');
@@ -72,17 +58,22 @@ export async function preparePromotion(
   });
   const manifestPath = resolve(requireOption(options, 'manifest'));
   await mkdir(dirname(manifestPath), { recursive: true });
-  await writeJson(manifestPath, manifest);
+  await writeJsonFile(manifestPath, manifest);
   console.log(`Prepared ${manifest.packages.length} packages for latest promotion.`);
 }
 
-export async function promoteLatest(options: PromoteLatestOptions): Promise<void> {
+/** Applies the package-scoped `latest` credential only to the sealed promotion set. */
+export async function promoteLatest(options: {
+  'expected-snapshot': string;
+  'expected-version': string;
+  manifest: string;
+}): Promise<void> {
   ensureTrustedMain();
   if (!process.env['NODE_AUTH_TOKEN']) {
     throw new Error('Promotion requires the package-scoped npm promotion credential.');
   }
   const manifest = validatePromotionManifest(
-    await readJson(resolve(requireOption(options, 'manifest'))),
+    await readJsonFile(resolve(requireOption(options, 'manifest'))),
     {
       repository: PILOT_REPOSITORY,
       snapshotOid: requireOption(options, 'expected-snapshot'),

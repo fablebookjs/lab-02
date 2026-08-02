@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import test from 'node:test';
 
-import { repositoryRoot } from '../scripts/shared/workspace/packages.ts';
 import {
   deriveReleasePrChanges,
   EMPTY_RELEASE_HIGHLIGHTS,
@@ -14,16 +11,10 @@ import {
   recoverReleaseHighlights,
   RELEASE_HIGHLIGHTS_EMPTY_MARKER,
   requireReleaseHighlights,
-  renderReleasePrBody,
   selectLatestMatchingReleasePrBody,
   validateReleasePrBody,
 } from '../scripts/shared/release-proposal/body.ts';
-
-const templateDirectory = join(repositoryRoot, '.github', 'release-templates');
-const templates = {
-  initial: await readFile(join(templateDirectory, 'release-pr-initial.md'), 'utf8'),
-  patch: await readFile(join(templateDirectory, 'release-pr-patch.md'), 'utf8'),
-};
+import { renderReleasePrBody } from '../scripts/github/release-proposal/templates.ts';
 const releaseOid = 'a'.repeat(40);
 const proposalOid = 'b'.repeat(40);
 const initialChanges = [
@@ -73,14 +64,12 @@ const render = (
   overrides: Partial<Parameters<typeof renderReleasePrBody>[0]> = {},
 ) => {
   const version = overrides.version ?? '1.0.0';
-  const kind = version.endsWith('.0') ? 'initial' : 'patch';
   return renderReleasePrBody({
     changes: initialChanges,
     line: 'v1.0',
     packageNames: ['@fablebook/lab-02-core', '@fablebook/lab-02-addon'],
     proposalOid,
     releaseOid,
-    template: templates[kind],
     version,
     ...overrides,
   });
@@ -305,25 +294,7 @@ test('failed release-highlight extraction falls back to the blocking placeholder
   }
 });
 
-test('template and generated metadata failures are detected before mutation', () => {
-  assert.throws(
-    () => render({ template: `${templates.initial}\n{{unknown_value}}\n` }),
-    /unknown placeholder/
-  );
-  assert.throws(
-    () =>
-      render({
-        template: templates.initial.replaceAll(
-          '{{npm_channel}}',
-          'stable channel'
-        ),
-      }),
-    /omits placeholders: npm_channel/
-  );
-  assert.throws(
-    () => render({ template: templates.patch }),
-    /initial template is missing its canonical markers/
-  );
+test('generated metadata failures are detected before mutation', () => {
   const malformed = render({ version: '1.0.1' }).replace(
     'release-note=include qa=required',
     'release-note=include qa=skip'
@@ -368,13 +339,11 @@ test('release history requires unambiguous source metadata and defaults direct c
       {
         associatedPulls: [
           {
-            base: {
-              ref: 'releases/v1.0',
-              repo: { full_name: 'fablebookjs/lab-02' },
-            },
-            labels: [{ name: 'qa:skip' }],
-            merge_commit_sha: pullOid,
-            merged_at: '2026-07-22T12:00:00Z',
+            baseBranch: 'releases/v1.0',
+            canonicalRepository: true,
+            labels: ['qa:skip'],
+            mergeCommitOid: pullOid,
+            merged: true,
             number: 17,
             title: 'Fix QA finding',
           },

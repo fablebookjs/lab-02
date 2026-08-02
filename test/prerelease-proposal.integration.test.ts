@@ -6,7 +6,7 @@ import { join, relative, sep } from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
-import { renderPrereleasePrBody } from '../scripts/shared/prerelease-proposal/body.ts';
+import { renderPrereleasePrBody } from '../scripts/github/prerelease-proposal/templates.ts';
 import { prereleaseProposalCommitMessage } from '../scripts/shared/prerelease-proposal/core.ts';
 import { repositoryRoot } from '../scripts/shared/workspace/packages.ts';
 

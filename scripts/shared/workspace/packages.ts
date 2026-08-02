@@ -1,10 +1,12 @@
-import { readFile, readdir } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { readJsonFile } from '../io/json.ts';
+
 export const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
-type PackageManifest = {
+type WorkspaceManifest = {
   name?: string;
   private?: boolean;
   repository?: {
@@ -15,28 +17,30 @@ type PackageManifest = {
   workspaces?: string[] | { packages?: string[] };
 } & Record<string, unknown>;
 
-export type PublicPackage = {
+/** A validated public workspace with both release metadata and local file paths. */
+export type PublicWorkspacePackage = {
   directory: string;
   location: string;
-  manifest: PackageManifest;
+  manifest: WorkspaceManifest;
   manifestPath: string;
   name: string;
   version: string;
 };
 
-export type WorkspacePackage = PublicPackage & {
+/** A validated workspace catalog entry before private packages are projected out. */
+export type DiscoveredWorkspacePackage = PublicWorkspacePackage & {
   private: boolean;
 };
 
-const readJson = async (path: string): Promise<PackageManifest> => {
-  const value: unknown = JSON.parse(await readFile(path, 'utf8'));
+const readJson = async (path: string): Promise<WorkspaceManifest> => {
+  const value = await readJsonFile(path);
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${path} must contain one JSON object.`);
   }
   return { ...value };
 };
 
-const workspacePatterns = (rootManifest: PackageManifest): string[] => {
+const workspacePatterns = (rootManifest: WorkspaceManifest): string[] => {
   const value = rootManifest.workspaces;
   const patterns = Array.isArray(value) ? value : value?.packages;
 
@@ -76,10 +80,19 @@ const expandSingleLevelPattern = async (root: string, pattern: string): Promise<
     .map((entry) => join(parent, entry.name));
 };
 
-const compareLocation = (left: WorkspacePackage, right: WorkspacePackage): number =>
+const compareLocation = (
+  left: DiscoveredWorkspacePackage,
+  right: DiscoveredWorkspacePackage,
+): number =>
   left.location < right.location ? -1 : left.location > right.location ? 1 : 0;
 
-export async function listWorkspacePackages(root = repositoryRoot): Promise<WorkspacePackage[]> {
+/**
+ * Discovers every single-level workspace from the root manifest, rejects
+ * ambiguous names or locations, and returns stable repository-location order.
+ */
+export async function listWorkspacePackages(
+  root = repositoryRoot,
+): Promise<DiscoveredWorkspacePackage[]> {
   const rootManifest = await readJson(join(root, 'package.json'));
   const directories = (
     await Promise.all(
@@ -87,7 +100,7 @@ export async function listWorkspacePackages(root = repositoryRoot): Promise<Work
     )
   ).flat();
 
-  const packages: WorkspacePackage[] = [];
+  const packages: DiscoveredWorkspacePackage[] = [];
   const locations = new Set<string>();
   const names = new Set<string>();
   for (const directory of directories) {
@@ -134,7 +147,13 @@ export async function listWorkspacePackages(root = repositoryRoot): Promise<Work
   return packages.sort(compareLocation);
 }
 
-export async function listPublicPackages(root = repositoryRoot): Promise<PublicPackage[]> {
+/**
+ * Returns the releaseable Lab-02 workspace set in stable package-name order.
+ * Private workspaces and unexpected public package namespaces are rejected.
+ */
+export async function listPublicPackages(
+  root = repositoryRoot,
+): Promise<PublicWorkspacePackage[]> {
   const packages = (await listWorkspacePackages(root)).filter((pkg) => !pkg.private);
   for (const pkg of packages) {
     if (!pkg.name.startsWith('@fablebook/lab-02-')) {

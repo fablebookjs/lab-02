@@ -8,11 +8,13 @@ import {
 } from '../prerelease-proposal/core.ts';
 import { cleanReleaseTitle } from '../release-communication/records.ts';
 import { parseDevelopmentVersion } from '../release-proposal/core.ts';
+import type { ReleaseCommitView } from '../release-proposal/core.ts';
 import type { ManualPrereleasePhase } from '../prerelease-phase-entry/core.ts';
+import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../repository.ts';
 
-export const PILOT_REPOSITORY = 'fablebookjs/lab-02';
 export const PRERELEASE_CHANNEL = 'next';
 
+/** Facts common to every managed path that can authorize a prerelease snapshot. */
 export type PrereleaseAuthorityBase = {
   boundaryOid: string;
   channel: typeof PRERELEASE_CHANNEL;
@@ -21,32 +23,22 @@ export type PrereleaseAuthorityBase = {
   version: string;
 };
 
+/** Authority proved by merging the canonical reviewed Prerelease PR. */
 export type OrdinaryPrereleaseAuthority = PrereleaseAuthorityBase & {
   proposalOid: string;
   pullRequest: number;
 };
 
-export type PhaseEntryPrereleaseAuthority = PrereleaseAuthorityBase & {
-  phase: ManualPrereleasePhase;
-};
-
-export type BootstrapPrereleaseAuthority = PrereleaseAuthorityBase & {
-  cutLine: string;
-};
-
+/**
+ * Provider-neutral authority discriminated by ordinary proposal, release cut,
+ * or manual phase-entry evidence.
+ */
 export type PrereleaseAuthority =
-  | BootstrapPrereleaseAuthority
+  | (PrereleaseAuthorityBase & { cutLine: string })
   | OrdinaryPrereleaseAuthority
-  | PhaseEntryPrereleaseAuthority;
+  | (PrereleaseAuthorityBase & { phase: ManualPrereleasePhase });
 
-type GitCommit = {
-  message?: string;
-  parents?: Array<{ sha: string }>;
-  sha: string;
-  tree?: { sha: string };
-};
-
-type PrereleasePull = {
+type PrereleaseAuthorityPull = {
   base: { ref: string; repo: { full_name: string }; sha: string };
   body: unknown;
   head: { ref: string; repo: { full_name: string }; sha: string };
@@ -66,14 +58,18 @@ const fullOid = (value: unknown, label: string): string => {
   return value;
 };
 
+/**
+ * Proves that a canonical Prerelease PR produced the exact reviewed two-parent
+ * snapshot and returns authority independent of the GitHub response shape.
+ */
 export function derivePrereleaseAuthority({
   headCommit,
   mergeCommit,
   pull,
 }: {
-  headCommit: GitCommit;
-  mergeCommit: GitCommit;
-  pull: PrereleasePull;
+  headCommit: ReleaseCommitView;
+  mergeCommit: ReleaseCommitView;
+  pull: PrereleaseAuthorityPull;
 }): OrdinaryPrereleaseAuthority {
   if (!Number.isSafeInteger(pull.number) || pull.number <= 0) {
     throw new Error('Prerelease authority requires a positive pull request number.');
@@ -83,7 +79,7 @@ export function derivePrereleaseAuthority({
     pull.merged_at === null ||
     pull.base.repo.full_name !== PILOT_REPOSITORY ||
     pull.head.repo.full_name !== PILOT_REPOSITORY ||
-    pull.base.ref !== 'main' ||
+    pull.base.ref !== PRIMARY_BRANCH ||
     pull.head.ref !== 'prerelease'
   ) {
     throw new Error(
@@ -134,6 +130,10 @@ export function derivePrereleaseAuthority({
   };
 }
 
+/**
+ * Extracts prerelease communication only from the generated body bound to the
+ * authorized proposal, source, boundary, and version.
+ */
 export function derivePrereleaseCommunication({
   authority,
   body,
@@ -158,6 +158,7 @@ export function derivePrereleaseCommunication({
   );
 }
 
+/** Narrows serialized prerelease changes and rejects duplicate or forged identities. */
 export function validatePrereleaseCommunication(
   input: unknown,
 ): PrereleasePrChange[] {
@@ -198,33 +199,10 @@ export function validatePrereleaseCommunication(
   });
 }
 
-export function composePrereleaseGitHubReleaseBody({
-  changes,
-  version,
-}: {
-  changes: readonly PrereleasePrChange[];
-  version: string;
-}): string {
-  parseDevelopmentVersion(version);
-  const publicChanges = validatePrereleaseCommunication(changes).filter(
-    ({ releaseNoteSkip }) => !releaseNoteSkip,
-  );
-  const rendered =
-    publicChanges.length === 0
-      ? 'This prerelease contains no user-facing changes worth mentioning.'
-      : publicChanges
-          .map(({ title, url }) => `- [${title}](${url})`)
-          .join('\n');
-  return [
-    `# Lab-02 ${version}`,
-    '',
-    `## What's changed`,
-    '',
-    rendered,
-    '',
-  ].join('\n');
-}
-
+/**
+ * Observes npm's `next` tag from an untrusted registry document. Absence is a
+ * normal null result; contradictory package metadata fails closed.
+ */
 export function registryNextVersion({
   document,
   name,

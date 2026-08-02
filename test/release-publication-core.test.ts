@@ -1,21 +1,18 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import test from 'node:test';
 
-import { repositoryRoot } from '../scripts/shared/workspace/packages.ts';
 import {
   assertOidcPublishEnvironment,
   registryIntegrity,
   SETUP_NODE_AUTH_PLACEHOLDER,
 } from '../scripts/shared/package-publication/core.ts';
 import {
-  composeGitHubReleaseBody,
   deriveReleaseAuthority,
   deriveReleaseCommunication,
   lineChannel,
   validateReleaseCommunication,
 } from '../scripts/shared/release-publication/core.ts';
+import { renderStableGitHubReleaseBody } from '../scripts/github/release-publication/templates.ts';
 import {
   composeMigrationRecords,
   renderReleaseRecord,
@@ -23,8 +20,8 @@ import {
 import { proposalCommitMessage } from '../scripts/shared/release-proposal/core.ts';
 import {
   EMPTY_RELEASE_HIGHLIGHTS,
-  renderReleasePrBody,
 } from '../scripts/shared/release-proposal/body.ts';
+import { renderReleasePrBody } from '../scripts/github/release-proposal/templates.ts';
 
 const sourceOid = '1'.repeat(40);
 const proposalOid = '2'.repeat(40);
@@ -33,11 +30,6 @@ const treeOid = '4'.repeat(40);
 const integrity = `sha512-${Buffer.alloc(64, 7).toString('base64')}`;
 const highlights =
   '### Faster setup\n\nThe release workflow is ready for user evaluation.';
-const templateDirectory = join(repositoryRoot, '.github', 'release-templates');
-const releasePrInitialTemplate = await readFile(
-  join(templateDirectory, 'release-pr-initial.md'),
-  'utf8'
-);
 const changes = [
   {
     key: 'pr:41',
@@ -216,7 +208,6 @@ test('release communication remains bound to the authorized reviewed proposal', 
     packageNames: ['@fablebook/lab-02-core'],
     proposalOid,
     releaseOid: sourceOid,
-    template: releasePrInitialTemplate,
     version: '1.0.0',
   })
     .replace(EMPTY_RELEASE_HIGHLIGHTS, highlights)
@@ -256,7 +247,7 @@ test('the initial GitHub Release renders curated highlights, public changes, and
       source: migration({ priority: '2 - setup', title: 'Adopt the new API' }),
     },
   ]);
-  const body = composeGitHubReleaseBody({
+  const body = renderStableGitHubReleaseBody({
     communication: initialCommunication,
     migrationRecords,
     releaseRecord: renderReleaseRecord({ changes, version: '1.0.0' }),
@@ -292,7 +283,7 @@ test('ordinary and maintenance patches render distinct succinct outputs', () => 
     kind: 'patch',
     releaseHighlights: null,
   };
-  const patchBody = composeGitHubReleaseBody({
+  const patchBody = renderStableGitHubReleaseBody({
     communication: patchCommunication,
     releaseRecord: renderReleaseRecord({
       changes: patchChanges,
@@ -316,7 +307,7 @@ test('ordinary and maintenance patches render distinct succinct outputs', () => 
     ...change,
     releaseNoteSkip: true,
   }));
-  const maintenanceBody = composeGitHubReleaseBody({
+  const maintenanceBody = renderStableGitHubReleaseBody({
     communication: {
       changes: maintenanceChanges.map(
         ({ key, qaSkip, releaseNoteSkip, title, url }) => ({
@@ -380,7 +371,7 @@ test('release records contain only public changes while contradictions fail clos
     releaseRecord,
     version: '2.0.3',
   };
-  const body = composeGitHubReleaseBody(input);
+  const body = renderStableGitHubReleaseBody(input);
   assert.match(body, /Add count-based summary formatting/);
   assert.doesNotMatch(
     body,
@@ -388,7 +379,7 @@ test('release records contain only public changes while contradictions fail clos
   );
   assert.throws(
     () =>
-      composeGitHubReleaseBody({
+      renderStableGitHubReleaseBody({
         ...input,
         releaseRecord: releaseRecord.replace(
           '- [Add count-based summary formatting](https://github.com/fablebookjs/lab-02/pull/44)\n',
@@ -402,7 +393,7 @@ test('release records contain only public changes while contradictions fail clos
     /release record contradicts/
   );
   assert.throws(() =>
-    composeGitHubReleaseBody({
+    renderStableGitHubReleaseBody({
       ...input,
       communication: {
         ...input.communication,
@@ -425,7 +416,7 @@ test('migration links and communication schemas fail closed', () => {
     version: '1.0.0',
   };
   assert.throws(() =>
-    composeGitHubReleaseBody({
+    renderStableGitHubReleaseBody({
       ...input,
       migrationRecords: [{ filename: 'unsafe.md', title: '[Unsafe link]' }],
     })
