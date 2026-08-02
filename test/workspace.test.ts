@@ -21,6 +21,7 @@ import {
   maximum,
   median,
   minimum,
+  product,
   range,
   total,
 } from '@fablebook/lab-02-addon';
@@ -153,6 +154,11 @@ test('average summaries handle populated and empty values', () => {
   assert.equal(average([]), undefined);
   assert.equal(formatAverageSummary(' Demo ', [2, 4]), 'demo:3');
   assert.equal(formatAverageSummary(' Demo ', []), 'demo:n/a');
+});
+
+test('product summaries multiply every value', () => {
+  assert.equal(product([2, 3, 4]), 24);
+  assert.equal(product([]), 1);
 });
 
 test('count summaries report the number of values', () => {
