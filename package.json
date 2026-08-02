@@ -1,6 +1,6 @@
 {
   "name": "@fablebook/lab-02",
-  "version": "6.0.0-alpha.3",
+  "version": "7.0.0-alpha.0",
   "private": true,
   "type": "module",
   "workspaces": [
