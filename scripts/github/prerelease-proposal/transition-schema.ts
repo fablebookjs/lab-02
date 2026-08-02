@@ -1,3 +1,4 @@
+import { isRecord, stringValue } from '../../shared/validation.ts';
 import type { ReleaseChange } from '../../shared/release-communication/records.ts';
 import { PILOT_REPOSITORY } from '../../shared/repository.ts';
 
@@ -46,16 +47,6 @@ export type PrereleaseProposalTransition = {
   kind: 'prerelease-proposal';
   repository: typeof PILOT_REPOSITORY;
   schema: 1;
-};
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
-
-const stringValue = (value: unknown, label: string): string => {
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`${label} must be a nonempty string.`);
-  }
-  return value;
 };
 
 const optionalPositiveInteger = (

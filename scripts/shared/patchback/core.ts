@@ -1,3 +1,4 @@
+import { isRecord } from '../validation.ts';
 import { parseReleaseLine, parseStableVersion } from '../release-proposal/core.ts';
 import {
   composeMigrationRecords,
@@ -10,6 +11,25 @@ import type { ReleaseHistoryPull } from '../release-communication/records.ts';
 export const PATCHBACK_FULL_OID_PATTERN_SOURCE = '[0-9a-f]{40}';
 
 const fullOidPattern = new RegExp(`^${PATCHBACK_FULL_OID_PATTERN_SOURCE}$`);
+const patchbackTrailerNames = [
+  'Patchback-Version',
+  'Patchback-Line',
+  'Patchback-Snapshot',
+  'Patchback-Boundary',
+  'Patchback-Main-Base',
+  'Patchback-Release-Record',
+  'Patchback-Migration-Records',
+];
+
+export type PatchbackCommitMetadata = {
+  baseMainOid: string;
+  boundaryOid: string;
+  line: string;
+  migrationRecordPaths: string[];
+  recordPath: string;
+  snapshotOid: string;
+  version: string;
+};
 
 /** One immutable product-history item for maintainer disposition in a patchback. */
 export type PatchbackItem = {
@@ -21,9 +41,6 @@ export type PatchbackItem = {
 };
 
 type CanonicalPull = ReleaseHistoryPull;
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const fullOid = (value: unknown, label: string): string => {
   if (typeof value !== 'string' || !fullOidPattern.test(value)) {
@@ -196,14 +213,20 @@ export function patchbackCommitMessage({
   ].join('\n');
 }
 
-/** Parses and revalidates the complete patchback coordination trailer protocol. */
-export function parsePatchbackCommitMessage(message: unknown) {
-  const trailers = Object.fromEntries(
+const patchbackTrailersFrom = (message: unknown): Record<string, string> =>
+  Object.fromEntries(
     String(message ?? '')
       .split('\n')
       .map((line) => /^([A-Za-z-]+): (.+)$/.exec(line))
       .filter((match): match is RegExpExecArray => match !== null)
-      .map((match) => [match[1], match[2]])
+      .map((match) => [match[1], match[2]]),
+  );
+
+const patchbackCommitFrom = (
+  availableTrailers: Record<string, string>,
+): PatchbackCommitMetadata => {
+  const trailers = Object.fromEntries(
+    patchbackTrailerNames.map((name) => [name, availableTrailers[name]]),
   );
   const migrationPaths = trailers['Patchback-Migration-Records'];
   const metadata = {
@@ -223,7 +246,18 @@ export function parsePatchbackCommitMessage(message: unknown) {
   if (Object.values(metadata).some((value) => value === undefined)) {
     throw new Error('Commit is not a structured patchback coordination commit.');
   }
-  const validated = {
+  if (
+    typeof metadata.baseMainOid !== 'string' ||
+    typeof metadata.boundaryOid !== 'string' ||
+    typeof metadata.line !== 'string' ||
+    !Array.isArray(metadata.migrationRecordPaths) ||
+    typeof metadata.recordPath !== 'string' ||
+    typeof metadata.snapshotOid !== 'string' ||
+    typeof metadata.version !== 'string'
+  ) {
+    throw new Error('Commit has malformed patchback coordination trailers.');
+  }
+  const validated: PatchbackCommitMetadata = {
     baseMainOid: metadata.baseMainOid,
     boundaryOid: metadata.boundaryOid,
     line: metadata.line,
@@ -232,19 +266,22 @@ export function parsePatchbackCommitMessage(message: unknown) {
     snapshotOid: metadata.snapshotOid,
     version: metadata.version,
   };
-  if (
-    typeof validated.baseMainOid !== 'string' ||
-    typeof validated.boundaryOid !== 'string' ||
-    typeof validated.line !== 'string' ||
-    !Array.isArray(validated.migrationRecordPaths) ||
-    typeof validated.recordPath !== 'string' ||
-    typeof validated.snapshotOid !== 'string' ||
-    typeof validated.version !== 'string'
-  ) {
-    throw new Error('Commit has malformed patchback coordination trailers.');
-  }
   patchbackCommitMessage(validated);
   return validated;
+};
+
+/**
+ * Returns `null` only for an ordinary commit with no Patchback trailers;
+ * partial or malformed coordination metadata remains a caller-visible error.
+ */
+export function parsePatchbackCommitMessage(
+  message: unknown,
+): PatchbackCommitMetadata | null {
+  const trailers = patchbackTrailersFrom(message);
+  if (patchbackTrailerNames.every((name) => !Object.hasOwn(trailers, name))) {
+    return null;
+  }
+  return patchbackCommitFrom(trailers);
 }
 
 const canonicalPull = (

@@ -83,6 +83,14 @@ test('patchback identity and coordination commit are version-bound', () => {
     snapshotOid,
     version: '10.4.3',
   });
+  assert.equal(parsePatchbackCommitMessage('ordinary commit'), null);
+  assert.throws(
+    () =>
+      parsePatchbackCommitMessage(
+        'patchback: incomplete\n\nPatchback-Version: 10.4.3',
+      ),
+    /not a structured patchback coordination commit/,
+  );
 });
 
 test('patchback release records are exact generated version files', () => {

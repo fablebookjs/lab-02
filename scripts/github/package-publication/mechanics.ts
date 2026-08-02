@@ -7,6 +7,7 @@ import { resolveHeadOid } from '../../shared/git/repository.ts';
 import { loadReleasePackageSet } from '../../shared/package-publication/package-set.ts';
 import type { PublicationPackage } from '../../shared/package-publication/publication.ts';
 import { run } from '../../shared/process/run.ts';
+import { isRecord, stringValue } from '../../shared/validation.ts';
 import {
   assertTagTarget,
   getReleaseByTag,
@@ -34,16 +35,6 @@ type GitHubReleaseObservation =
       kind: 'contradiction';
       reason: 'release-mismatch' | 'release-without-tag';
     }>;
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
-
-const stringValue = (value: unknown, label: string): string => {
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`${label} must be a nonempty string.`);
-  }
-  return value;
-};
 
 const validateOid = (oid: unknown, label: string): string => {
   if (typeof oid !== 'string' || !/^[0-9a-f]{40}$/.test(oid)) {

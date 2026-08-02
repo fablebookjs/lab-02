@@ -28,6 +28,7 @@ import type {
 } from '../../shared/package-publication/publication.ts';
 import { requireOption } from '../../shared/cli/options.ts';
 import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
+import { isRecord } from '../../shared/validation.ts';
 import {
   isPrereleaseAuthorityKind,
 } from '../publication-routing/core.ts';
@@ -61,9 +62,6 @@ import type { PrereleaseAuthorityDocument } from './authority-schema.ts';
 import { renderPrereleaseGitHubReleaseBody } from './templates.ts';
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const positiveInteger = (value: unknown, label: string): number => {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {

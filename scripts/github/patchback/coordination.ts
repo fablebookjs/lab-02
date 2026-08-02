@@ -1,4 +1,5 @@
 import { parsePatchbackCommitMessage } from '../../shared/patchback/core.ts';
+import type { PatchbackCommitMetadata } from '../../shared/patchback/core.ts';
 import {
   createGitCommit,
   createGitTree,
@@ -17,7 +18,7 @@ const fullOid = (value: unknown, label: string): string => {
 };
 
 const coordinationMatches = (
-  metadata: ReturnType<typeof parsePatchbackCommitMessage>,
+  metadata: PatchbackCommitMetadata,
   manifest: PatchbackManifest,
 ): boolean =>
   metadata.boundaryOid === manifest.boundaryOid &&
@@ -98,30 +99,21 @@ export async function findPatchbackCoordinationCommit(
   let oid = fullOid(headOid, 'Patchback branch head');
   for (let depth = 0; depth < 500; depth += 1) {
     const commit = await getGitCommit(token, oid);
-    try {
-      const metadata = parsePatchbackCommitMessage(commit.message);
-      if (coordinationMatches(metadata, manifest)) {
-        if (commit.parents.length !== 1) {
-          throw new Error('Patchback coordination commit must have exactly one parent.');
-        }
-        const firstParent = commit.parents[0];
-        if (firstParent === undefined) {
-          throw new Error('Patchback coordination commit has no parent.');
-        }
-        const parent = await getGitCommit(token, firstParent.sha);
-        if (firstParent.sha !== metadata.baseMainOid) {
-          throw new Error('Patchback coordination commit is not based on its recorded main.');
-        }
-        await verifyCoordinationTree(token, commit, parent, manifest);
-        return { baseMainOid: metadata.baseMainOid, oid: commit.sha };
+    const metadata = parsePatchbackCommitMessage(commit.message);
+    if (metadata !== null && coordinationMatches(metadata, manifest)) {
+      if (commit.parents.length !== 1) {
+        throw new Error('Patchback coordination commit must have exactly one parent.');
       }
-    } catch (error) {
-      if (
-        !(error instanceof Error) ||
-        !error.message.includes('not a structured patchback coordination commit')
-      ) {
-        throw error;
+      const firstParent = commit.parents[0];
+      if (firstParent === undefined) {
+        throw new Error('Patchback coordination commit has no parent.');
       }
+      const parent = await getGitCommit(token, firstParent.sha);
+      if (firstParent.sha !== metadata.baseMainOid) {
+        throw new Error('Patchback coordination commit is not based on its recorded main.');
+      }
+      await verifyCoordinationTree(token, commit, parent, manifest);
+      return { baseMainOid: metadata.baseMainOid, oid: commit.sha };
     }
     const firstParent = commit.parents[0];
     if (firstParent === undefined) break;

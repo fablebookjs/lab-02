@@ -4,6 +4,8 @@ import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { pathToFileURL } from 'node:url';
 
+import { isRecord } from '../validation.ts';
+
 const execute = promisify(execFile);
 const npmExecutable = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
@@ -22,9 +24,6 @@ type WorkspaceCatalogEntry = ReleasePackage &
   Readonly<{
     private: boolean;
   }>;
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const asRecord = (value: unknown, label: string): Record<string, unknown> => {
   if (!isRecord(value)) {

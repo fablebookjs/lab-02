@@ -1,3 +1,4 @@
+import { isRecord } from '../validation.ts';
 import { parseStableVersion } from '../release-proposal/core.ts';
 import { PILOT_REPOSITORY } from '../repository.ts';
 import type { PublicationBinding } from '../package-publication/publication.ts';
@@ -25,9 +26,6 @@ const promotionManifestKeys: readonly string[] = [
   'version',
 ];
 const retryDelays: readonly number[] = [1_000, 2_000];
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const fullOid = (value: unknown, label: string): string => {
   if (typeof value !== 'string' || !/^[0-9a-f]{40}$/.test(value)) {

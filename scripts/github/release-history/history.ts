@@ -31,6 +31,7 @@ import {
   rootVersionAt,
   validateVersionTree,
 } from '../../shared/prepared-commit/inspection.ts';
+import { isRecord } from '../../shared/validation.ts';
 import { listAssociatedPullRequests } from '../release-repository/pull-requests.ts';
 import type { GitPullRequest } from '../release-repository/pull-requests.ts';
 
@@ -51,9 +52,6 @@ export type DevelopmentCommitFact = ReleaseCommitFact &
   Readonly<{
     mechanical: boolean;
   }>;
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const releaseHistoryPull = (pull: GitPullRequest): ReleaseHistoryPull => ({
   baseBranch: pull.base.ref,

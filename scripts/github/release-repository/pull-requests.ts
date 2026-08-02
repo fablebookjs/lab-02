@@ -1,12 +1,8 @@
 import { PRERELEASE_PR_TEMPLATE_MARKER } from '../../shared/prerelease-proposal/body.ts';
 import { RELEASE_PR_TEMPLATE_MARKER } from '../../shared/release-proposal/body.ts';
 import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../../shared/repository.ts';
-import {
-  isRecord,
-  numberValue,
-  objectValue,
-  stringValue,
-} from './response-schema.ts';
+import { isRecord, stringValue } from '../../shared/validation.ts';
+import { numberValue, objectValue } from './response-schema.ts';
 import { githubGraphqlRequest, githubRequest } from './transport.ts';
 
 /** Validated GitHub PR observation used by release-domain code. */
