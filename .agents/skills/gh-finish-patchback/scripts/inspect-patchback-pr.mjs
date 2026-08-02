@@ -3,12 +3,14 @@
 import { spawnSync } from 'node:child_process';
 
 import {
+  PATCHBACK_FULL_OID_PATTERN_SOURCE,
+  patchbackIdentity,
+} from '../../../../scripts/shared/patchback/core.ts';
+import {
   PATCHBACK_BODY_MARKER,
   PATCHBACK_BODY_SCHEMA_VERSION,
-  PATCHBACK_FULL_OID_PATTERN_SOURCE,
-  PATCHBACK_REPOSITORY,
-  patchbackIdentity,
-} from '../../../../scripts/patchback-core.mjs';
+} from '../../../../scripts/github/patchback/templates.ts';
+import { PILOT_REPOSITORY as PATCHBACK_REPOSITORY } from '../../../../scripts/shared/repository.ts';
 
 function fail(message) {
   console.error(`inspect-patchback-pr: ${message}`);
