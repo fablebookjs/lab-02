@@ -17,6 +17,11 @@ export function average(values: number[]): number | undefined {
   return values.length === 0 ? undefined : total(values) / values.length;
 }
 
+export function roundedAverage(values: number[]): number | undefined {
+  const value = average(values);
+  return value === undefined ? undefined : Math.round(value);
+}
+
 export function count(values: number[]): number {
   return values.length;
 }
@@ -72,6 +77,14 @@ export function formatAverageSummary(
   options: LabelNormalizationOptions = {}
 ): string {
   return `${normalizeLabel(label, options)}:${average(values) ?? 'n/a'}`;
+}
+
+export function formatRoundedAverageSummary(
+  label: string,
+  values: number[],
+  options: LabelNormalizationOptions = {}
+): string {
+  return `${normalizeLabel(label, options)}:${roundedAverage(values) ?? 'n/a'}`;
 }
 
 export function formatCountSummary(

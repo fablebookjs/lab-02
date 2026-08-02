@@ -17,6 +17,7 @@ import {
   formatMedianSummary,
   formatMinimumSummary,
   formatRangeSummary,
+  formatRoundedAverageSummary,
   formatSummary,
   last,
   maximum,
@@ -24,6 +25,7 @@ import {
   minimum,
   product,
   range,
+  roundedAverage,
   total,
 } from '@fablebook/lab-02-addon';
 import {
@@ -159,6 +161,14 @@ test('average summaries handle populated and empty values', () => {
   assert.equal(average([]), undefined);
   assert.equal(formatAverageSummary(' Demo ', [2, 4]), 'demo:3');
   assert.equal(formatAverageSummary(' Demo ', []), 'demo:n/a');
+});
+
+test('rounded-average summaries round the computed average', () => {
+  assert.equal(roundedAverage([2, 3]), 3);
+  assert.equal(roundedAverage([2, 4]), 3);
+  assert.equal(roundedAverage([]), undefined);
+  assert.equal(formatRoundedAverageSummary(' Scores ', [2, 3]), 'scores:3');
+  assert.equal(formatRoundedAverageSummary(' Scores ', []), 'scores:n/a');
 });
 
 test('product summaries multiply every value', () => {
