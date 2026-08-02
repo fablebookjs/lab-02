@@ -286,10 +286,15 @@ empty, the draft still contains the generated release record and can be reviewed
 and merged with its exact-version or corrected Migration records as the complete
 patchback.
 
-**PR: Enforce readiness** applies to every repository PR and
-fails while its description contains an unchecked Markdown task. Live branch
-rules must require the `PR description has no unchecked tasks` check for `main`
-and the release branches. It adds no semantic patchback verification.
+**PR: Enforce readiness** applies to every repository PR. Its description job
+fails while the PR body contains an unchecked Markdown task. Its separate
+`PR route is allowed` job runs only when the base is `main` or a release line;
+ordinary topic bases skip it. The route job accepts ordinary topic changes into
+either integration target, canonical proposals into their matching release
+line, and canonical prerelease or patchback PRs into `main`. It rejects release
+lines targeting `main` and every other reserved-branch mismatch. Live branch
+rules must require both readiness checks for `main` and the release branches.
+It adds no semantic patchback verification.
 
 Live setup configures both packages to trust `publish-stable-release.yml`,
 which remains the sole workflow-run and OIDC entrypoint while routing to the

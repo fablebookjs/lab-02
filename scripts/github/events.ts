@@ -38,6 +38,18 @@ export type ValidatedPullRequestDescription = {
   };
 };
 
+export type ValidatedPullRequestRoute = {
+  base: {
+    ref: AuthoritativePullRequest['base']['ref'];
+  };
+  head: {
+    ref: AuthoritativePullRequest['head']['ref'];
+    repo: {
+      full_name: string;
+    };
+  };
+};
+
 export type ValidatedWorkflowRunCompletion = {
   branch: AuthoritativeWorkflowRun['head_branch'];
   conclusion: NonNullable<AuthoritativeWorkflowRun['conclusion']>;
@@ -114,6 +126,25 @@ export function validatedPullRequestDescription(
   return {
     base: { ref: requiredString(base['ref'], 'base ref') },
     body: bodyValue(pull),
+    head: {
+      ref: requiredString(head['ref'], 'head ref'),
+      repo: {
+        full_name: requiredString(head['repo']['full_name'], 'head repository'),
+      },
+    },
+  };
+}
+
+/** Narrows only the pull-request fields needed by the branch-route check. */
+export function validatedPullRequestRoute(payload: unknown): ValidatedPullRequestRoute {
+  const pull = pullRequestPayload(payload);
+  const base = pull['base'];
+  const head = pull['head'];
+  if (!isRecord(base) || !isRecord(head) || !isRecord(head['repo'])) {
+    throw new Error('Pull request branch data is missing.');
+  }
+  return {
+    base: { ref: requiredString(base['ref'], 'base ref') },
     head: {
       ref: requiredString(head['ref'], 'head ref'),
       repo: {
