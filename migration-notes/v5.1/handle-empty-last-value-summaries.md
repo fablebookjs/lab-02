@@ -20,4 +20,7 @@ const summary = formatLastSummary('Scores', []);
 expect(summary).toBe('scores:none');
 ```
 
+If an application needs a custom empty label, handle the empty collection
+before calling the formatter rather than treating `none` as missing data.
+
 Populated last-value summaries are unchanged.
