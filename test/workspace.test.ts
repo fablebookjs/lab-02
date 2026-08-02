@@ -10,6 +10,7 @@ import {
   first,
   formatAverageSummary,
   formatCountSummary,
+  formatClassicSummary,
   formatFirstSummary,
   formatLastSummary,
   formatMaximumSummary,
@@ -127,6 +128,10 @@ test('the compiled addon exercises the compiled core package', () => {
   assert.equal(multiply(2, 3), 6);
   assert.equal(total([1, 2, 3]), 6);
   assert.equal(formatSummary(' Demo ', [2, 3]), 'demo:5');
+});
+
+test('the 5.x compatibility name preserves classic summary output', () => {
+  assert.equal(formatClassicSummary(' Demo ', [2, 3]), 'demo:5');
 });
 
 test('the core package exposes subtraction', () => {
