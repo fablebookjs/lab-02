@@ -1,4 +1,5 @@
 ---
+introduced-in: 2.1.0
 priority: optional locale adoption
 ---
 # Adopt locale-aware label normalization

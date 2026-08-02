@@ -34,9 +34,12 @@ export type ReleaseChange = {
 export type MigrationRecord = {
   body: string;
   filename: string;
+  introducedIn: string;
   priority: string;
   title: string;
 };
+
+export type ComposedMigrationRecord = Omit<MigrationRecord, 'priority'>;
 
 const fullOid = (value: unknown, label: string): string => {
   if (typeof value !== 'string' || !fullOidPattern.test(value)) {
@@ -375,8 +378,10 @@ const parseFrontmatter = (
     }
     metadata[key] = value;
   }
-  if (!Object.hasOwn(metadata, 'priority')) {
-    throw new Error(`${filename} is missing required priority frontmatter.`);
+  for (const field of ['introduced-in', 'priority']) {
+    if (!Object.hasOwn(metadata, field)) {
+      throw new Error(`${filename} is missing required ${field} frontmatter.`);
+    }
   }
   return {
     body: lines.slice(closing + 1).join('\n').trim(),
@@ -416,6 +421,8 @@ export function parseMigrationRecord({
   }
 
   const { body, metadata } = parseFrontmatter(source, filename);
+  const introducedIn = metadata['introduced-in'] ?? '';
+  parseStableVersion(introducedIn);
   const lines = body.split('\n');
   const titles = lines
     .map((line, index) => ({ index, match: /^#\s+(.+?)\s*$/.exec(line) }))
@@ -452,6 +459,7 @@ export function parseMigrationRecord({
   return {
     body: `${body}\n`,
     filename,
+    introducedIn,
     priority: metadata['priority'] ?? '',
     title: cleanReleaseTitle(
       titles[0]?.match?.[1],
@@ -460,7 +468,8 @@ export function parseMigrationRecord({
   };
 }
 
-function orderMigrationRecords(records: unknown): MigrationRecord[] {
+function orderMigrationRecords(records: unknown, line: string): MigrationRecord[] {
+  const parsedLine = parseReleaseLine(line);
   if (!Array.isArray(records)) {
     throw new Error('Migration records must be an array.');
   }
@@ -478,6 +487,7 @@ function orderMigrationRecords(records: unknown): MigrationRecord[] {
         : {
             body: record['body'],
             filename: record['filename'],
+            introducedIn: record['introducedIn'],
             priority: record['priority'],
             title: record['title'],
           };
@@ -485,12 +495,22 @@ function orderMigrationRecords(records: unknown): MigrationRecord[] {
       typeof parsed.filename !== 'string' ||
       !migrationFilenamePattern.test(parsed.filename) ||
       typeof parsed.body !== 'string' ||
+      typeof parsed.introducedIn !== 'string' ||
       typeof parsed.priority !== 'string' ||
       parsed.priority.length === 0 ||
       typeof parsed.title !== 'string' ||
       parsed.title.length === 0
     ) {
       throw new Error(`Invalid parsed migration record: ${parsed.filename}`);
+    }
+    const introduced = parseStableVersion(parsed.introducedIn);
+    if (
+      introduced.major !== parsedLine.major ||
+      introduced.minor !== parsedLine.minor
+    ) {
+      throw new Error(
+        `Migration record ${parsed.filename} belongs to ${parsed.introducedIn}, not ${line}.`,
+      );
     }
     if (filenames.has(parsed.filename)) {
       throw new Error(`Migration records repeat filename ${parsed.filename}.`);
@@ -499,6 +519,7 @@ function orderMigrationRecords(records: unknown): MigrationRecord[] {
     return {
       body: parsed.body,
       filename: parsed.filename,
+      introducedIn: parsed.introducedIn,
       priority: parsed.priority,
       title: parsed.title,
     };
@@ -516,12 +537,39 @@ function orderMigrationRecords(records: unknown): MigrationRecord[] {
  */
 export function composeMigrationRecords(
   records: unknown,
-): Array<{ body: string; filename: string; title: string }> {
-  return orderMigrationRecords(records).map(({ body, filename, title }) => ({
+  line: string,
+): ComposedMigrationRecord[] {
+  return orderMigrationRecords(records, line).map(({ body, filename, introducedIn, title }) => ({
     body,
     filename,
+    introducedIn,
     title,
   }));
+}
+
+/** Selects only Migration records first required by one exact stable release. */
+export function migrationRecordsForVersion(
+  records: readonly ComposedMigrationRecord[],
+  version: string,
+): ComposedMigrationRecord[] {
+  const parsed = parseStableVersion(version);
+  const filenames = new Set<string>();
+  for (const record of records) {
+    const introduced = parseStableVersion(record.introducedIn);
+    if (
+      !migrationFilenamePattern.test(record.filename) ||
+      typeof record.body !== 'string' ||
+      typeof record.title !== 'string' ||
+      record.title.length === 0 ||
+      introduced.major !== parsed.major ||
+      introduced.minor !== parsed.minor ||
+      filenames.has(record.filename)
+    ) {
+      throw new Error(`Invalid Migration record for v${parsed.major}.${parsed.minor}.`);
+    }
+    filenames.add(record.filename);
+  }
+  return records.filter(({ introducedIn }) => introducedIn === version);
 }
 
 /**
@@ -531,7 +579,7 @@ export function composeMigrationRecords(
 export async function loadMigrationRecords(
   root: string,
   line: string,
-): Promise<Array<{ body: string; filename: string; title: string }>> {
+): Promise<ComposedMigrationRecord[]> {
   const directory = join(root, migrationRecordDirectory(line));
   let entries;
   try {
@@ -551,5 +599,5 @@ export async function loadMigrationRecords(
       source: await readFile(join(directory, filename), 'utf8'),
     }))
   );
-  return composeMigrationRecords(records);
+  return composeMigrationRecords(records, line);
 }

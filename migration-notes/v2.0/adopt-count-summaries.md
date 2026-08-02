@@ -1,4 +1,5 @@
 ---
+introduced-in: 2.0.3
 priority: adopt count summaries
 ---
 # Adopt count-based summaries

@@ -1,4 +1,5 @@
 ---
+introduced-in: 3.4.0
 priority: required API updates
 ---
 # Rename the story layout option

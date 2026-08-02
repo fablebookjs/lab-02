@@ -1,4 +1,5 @@
 ---
+introduced-in: 2.1.0
 priority: required API updates
 ---
 # Replace positional locale arguments with options

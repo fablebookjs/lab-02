@@ -1,11 +1,11 @@
-import { mkdir, readFile, readdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 import {
   derivePatchbackItems,
+  planPatchbackMigrationSync,
   patchbackCommitMessage,
   patchbackIdentity,
-  patchbackMigrationRecords,
   patchbackReleaseRecord,
   previousReleaseVersion,
   releaseMergerAssignee,
@@ -14,14 +14,19 @@ import { deriveReleaseAuthority } from '../../shared/release-publication/core.ts
 import { resolveHeadOid } from '../../shared/git/repository.ts';
 import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../../shared/repository.ts';
 import {
+  loadMigrationRecords,
+  migrationRecordsForVersion,
   migrationRecordDirectory,
   releaseRecordPath,
 } from '../../shared/release-communication/records.ts';
 import { parseStableVersion } from '../../shared/release-proposal/core.ts';
+import { run } from '../../shared/process/run.ts';
 import { isRecord } from '../../shared/validation.ts';
 import {
   compareGitCommits,
   getGitCommit,
+  getGitTreeEntries,
+  readGitBlobText,
 } from '../release-repository/commits.ts';
 import {
   createGitRef,
@@ -49,10 +54,7 @@ import {
 import { parsePatchbackAuthority } from './authority-schema.ts';
 import type { PatchbackAuthority } from './authority-schema.ts';
 import { parsePatchbackManifest } from './manifest-schema.ts';
-import type {
-  PatchbackManifest,
-  PatchbackMigrationRecord,
-} from './manifest-schema.ts';
+import type { PatchbackManifest } from './manifest-schema.ts';
 import {
   createPatchbackCoordinationCommit,
   findPatchbackCoordinationCommit,
@@ -223,33 +225,117 @@ const previousCompletedSnapshot = async (
   };
 };
 
-const loadPatchbackMigrationRecords = async (
+const migrationChangesBetween = async (
   root: string,
   line: string,
-): Promise<PatchbackMigrationRecord[]> => {
+  boundaryOid: string,
+  snapshotOid: string,
+): Promise<string[]> => {
   const directory = migrationRecordDirectory(line);
-  let entries;
+  const { stdout } = await run(
+    'git',
+    [
+      'diff',
+      '--name-status',
+      '--find-renames',
+      boundaryOid,
+      snapshotOid,
+      '--',
+      directory,
+    ],
+    { cwd: root },
+  );
+  return stdout
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((entry) => {
+      const fields = entry.split('\t');
+      const status = fields[0] ?? '';
+      const path = fields.at(-1) ?? '';
+      if (status.startsWith('D') || status.startsWith('R')) {
+        throw new Error(
+          `Released Migration paths cannot be deleted or renamed: ${entry}`,
+        );
+      }
+      if (!status.startsWith('A') && !status.startsWith('M')) {
+        throw new Error(`Unsupported Migration history change: ${entry}`);
+      }
+      if (!path.startsWith(`${directory}/`) || !path.endsWith('.md')) {
+        throw new Error(`Invalid Migration history path: ${path}`);
+      }
+      return path;
+    });
+};
+
+const fileAt = async (
+  root: string,
+  oid: string,
+  path: string,
+): Promise<string | null> => {
   try {
-    entries = await readdir(join(root, directory), { withFileTypes: true });
-  } catch (error) {
-    if (isRecord(error) && error['code'] === 'ENOENT') {
-      return [];
-    }
-    throw error;
+    return (await run('git', ['show', `${oid}:${path}`], { cwd: root })).stdout;
+  } catch {
+    return null;
   }
-  if (entries.some((entry) => !entry.isFile() || !entry.name.endsWith('.md'))) {
-    throw new Error(
-      `${directory} contains an unsupported migration record path.`,
-    );
-  }
-  return patchbackMigrationRecords({
+};
+
+const loadPatchbackMigrationPlan = async ({
+  boundaryOid,
+  line,
+  mainTreeOid,
+  root,
+  snapshotOid,
+  token,
+  version,
+}: {
+  boundaryOid: string;
+  line: string;
+  mainTreeOid: string;
+  root: string;
+  snapshotOid: string;
+  token: string;
+  version: string;
+}) => {
+  const exactPaths = migrationRecordsForVersion(
+    await loadMigrationRecords(root, line),
+    version,
+  ).map(({ filename }) => `${migrationRecordDirectory(line)}/${filename}`);
+  const changedPaths = await migrationChangesBetween(
+    root,
     line,
-    records: await Promise.all(
-      entries.map(async ({ name: filename }) => ({
-        filename,
-        source: await readFile(join(root, directory, filename), 'utf8'),
-      })),
-    ),
+    boundaryOid,
+    snapshotOid,
+  );
+  const paths = [...new Set([...exactPaths, ...changedPaths])];
+  const mainEntries = new Map(
+    (await getGitTreeEntries(token, mainTreeOid)).map((entry) => [entry.path, entry]),
+  );
+  const candidates = await Promise.all(
+    paths.map(async (path) => {
+      const mainEntry = mainEntries.get(path);
+      if (
+        mainEntry !== undefined &&
+        (mainEntry.mode !== '100644' || mainEntry.type !== 'blob')
+      ) {
+        throw new Error(`main Migration path is not one regular file: ${path}`);
+      }
+      return {
+        mainContent:
+          mainEntry === undefined
+            ? null
+            : await readGitBlobText(token, mainEntry.sha),
+        path,
+        previousContent: await fileAt(root, boundaryOid, path),
+        releaseContent: await readFile(join(root, path), 'utf8'),
+      };
+    }),
+  );
+  return planPatchbackMigrationSync({
+    candidates,
+    exactPaths,
+    line,
+    version,
   });
 };
 
@@ -325,16 +411,21 @@ export async function preparePatchback(options: {
     source: await readFile(join(snapshot, recordPath), 'utf8'),
     version: authority.version,
   });
-  const migrationRecords = await loadPatchbackMigrationRecords(
-    snapshot,
-    authority.line,
-  );
 
   const main = await getRef(token, `heads/${PRIMARY_BRANCH}`);
   if (main === null || main.type !== 'commit') {
     throw new Error('main does not identify a commit.');
   }
   const mainCommit = await getGitCommit(token, main.oid);
+  const migrationPlan = await loadPatchbackMigrationPlan({
+    boundaryOid: boundary.oid,
+    line: authority.line,
+    mainTreeOid: mainCommit.tree.sha,
+    root: snapshot,
+    snapshotOid: authority.snapshotOid,
+    token,
+    version: authority.version,
+  });
   const identity = patchbackIdentity(authority.version);
   const manifest = parsePatchbackManifest({
     authority,
@@ -345,7 +436,8 @@ export async function preparePatchback(options: {
       boundaryOid: boundary.oid,
       items,
       line: authority.line,
-      migrationRecords,
+      migrationConflicts: migrationPlan.conflicts,
+      migrationRecords: migrationPlan.records,
       recordPath: releaseRecord.path,
       snapshotOid: authority.snapshotOid,
       version: authority.version,
@@ -358,16 +450,17 @@ export async function preparePatchback(options: {
       baseMainOid: main.oid,
       boundaryOid: boundary.oid,
       line: authority.line,
-      migrationRecordPaths: migrationRecords.map(({ path }) => path),
+      migrationRecordPaths: migrationPlan.records.map(({ path }) => path),
       recordPath: releaseRecord.path,
       snapshotOid: authority.snapshotOid,
       version: authority.version,
     }),
     items,
-    migrationRecords,
+    migrationConflicts: migrationPlan.conflicts,
+    migrationRecords: migrationPlan.records,
     releaseRecord,
     repository: PILOT_REPOSITORY,
-    schema: 3,
+    schema: 4,
     title: identity.title,
   });
   await mkdir(output, { recursive: true });
@@ -449,6 +542,7 @@ const validateExistingPull = (
     !body.includes(manifest.authority.snapshotOid) ||
     !body.includes(manifest.releaseRecord.path) ||
     !manifest.migrationRecords.every(({ path }) => body.includes(path)) ||
+    !manifest.migrationConflicts.every(({ path }) => body.includes(path)) ||
     !body.includes(`# Patchback for v${manifest.authority.version}`)
   ) {
     throw new Error(

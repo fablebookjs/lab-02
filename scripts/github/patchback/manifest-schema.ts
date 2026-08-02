@@ -26,7 +26,7 @@ export type PatchbackMigrationRecord = PatchbackRecord & {
 };
 
 /**
- * Schema-3 complete patchback plan: authority, coordination commit inputs,
+ * Schema-4 complete patchback plan: authority, coordination commit inputs,
  * synchronized communication, and immutable maintainer work queue.
  */
 export type PatchbackManifest = {
@@ -40,10 +40,11 @@ export type PatchbackManifest = {
   comment: string;
   coordinationMessage: string;
   items: PatchbackItem[];
+  migrationConflicts: PatchbackMigrationRecord[];
   migrationRecords: PatchbackMigrationRecord[];
   releaseRecord: PatchbackRecord;
   repository: typeof PILOT_REPOSITORY;
-  schema: 3;
+  schema: 4;
   title: string;
 };
 
@@ -99,7 +100,7 @@ const patchbackItemValue = (value: unknown): PatchbackItem => {
 export function parsePatchbackManifest(input: unknown): PatchbackManifest {
   if (
     !isRecord(input) ||
-    input['schema'] !== 3 ||
+    input['schema'] !== 4 ||
     input['repository'] !== PILOT_REPOSITORY
   ) {
     throw new Error('Patchback manifest is outside the pilot schema.');
@@ -149,6 +150,33 @@ export function parsePatchbackManifest(input: unknown): PatchbackManifest {
   ) {
     throw new Error('Patchback manifest migration records are invalid.');
   }
+  const rawMigrationConflicts = input['migrationConflicts'];
+  const migrationConflicts = patchbackMigrationRecords({
+    line: authority.line,
+    records: Array.isArray(rawMigrationConflicts)
+      ? rawMigrationConflicts.map((record) => {
+          if (!isRecord(record)) {
+            throw new Error('Patchback Migration conflict must be an object.');
+          }
+          const path = record['path'];
+          return {
+            filename:
+              typeof path === 'string' && path.startsWith(migrationDirectory)
+                ? path.slice(migrationDirectory.length)
+                : path,
+            source: record['content'],
+          };
+        })
+      : rawMigrationConflicts,
+  });
+  if (
+    JSON.stringify(rawMigrationConflicts) !== JSON.stringify(migrationConflicts) ||
+    migrationConflicts.some(({ path }) =>
+      migrationRecords.some((record) => record.path === path)
+    )
+  ) {
+    throw new Error('Patchback manifest Migration conflicts are invalid.');
+  }
   const rawItems = input['items'];
   if (!Array.isArray(rawItems)) {
     throw new Error('Patchback manifest has no ordered item list.');
@@ -171,10 +199,11 @@ export function parsePatchbackManifest(input: unknown): PatchbackManifest {
       'Patchback coordination message',
     ),
     items,
+    migrationConflicts,
     migrationRecords,
     releaseRecord,
     repository: PILOT_REPOSITORY,
-    schema: 3,
+    schema: 4,
     title: stringValue(input['title'], 'Patchback title'),
   };
 
@@ -215,6 +244,7 @@ export function parsePatchbackManifest(input: unknown): PatchbackManifest {
     boundaryOid: manifest.boundaryOid,
     items: manifest.items,
     line: authority.line,
+    migrationConflicts,
     migrationRecords,
     recordPath: releaseRecord.path,
     snapshotOid: authority.snapshotOid,

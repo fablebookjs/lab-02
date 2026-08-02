@@ -24,6 +24,7 @@ import {
 } from '../../shared/release-publication/manifest-schema.ts';
 import {
   loadMigrationRecords,
+  migrationRecordsForVersion,
   releaseRecordPath,
 } from '../../shared/release-communication/records.ts';
 import { requireOption } from '../../shared/cli/options.ts';
@@ -186,7 +187,10 @@ export async function preparePublication(
     join(snapshot, releaseRecordPath(authority.version)),
     'utf8'
   );
-  const migrationRecords = await loadMigrationRecords(snapshot, authority.line);
+  const migrationRecords = migrationRecordsForVersion(
+    await loadMigrationRecords(snapshot, authority.line),
+    authority.version,
+  );
   const { releaseCommunication, ...releaseAuthority } = authority;
   const releaseBody = renderStableGitHubReleaseBody({
     communication: releaseCommunication,

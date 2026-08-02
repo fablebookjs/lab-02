@@ -122,7 +122,7 @@ export function patchbackMigrationRecords({
     }
     sources.set(record['filename'], record['source']);
   }
-  return composeMigrationRecords(records).map(({ filename, title }) => ({
+  return composeMigrationRecords(records, line).map(({ filename, title }) => ({
     content: sources.get(filename) ?? '',
     path: `${directory}/${filename}`,
     title,
@@ -166,6 +166,112 @@ export const validatePatchbackMigrationRecordPaths = (
   }
   return paths.filter((path): path is string => typeof path === 'string');
 };
+
+export type PatchbackMigrationSyncCandidate = {
+  mainContent: string | null;
+  path: string;
+  previousContent: string | null;
+  releaseContent: string;
+};
+
+export type PatchbackMigrationConflict = {
+  content: string;
+  path: string;
+  title: string;
+};
+
+/**
+ * Plans three-way Migration convergence. Missing, already-current, and
+ * unchanged-since-boundary main files are safe; divergent main guidance is
+ * preserved for explicit maintainer resolution.
+ */
+export function planPatchbackMigrationSync({
+  candidates,
+  exactPaths,
+  line,
+  version,
+}: {
+  candidates: readonly PatchbackMigrationSyncCandidate[];
+  exactPaths: readonly string[];
+  line: string;
+  version: string;
+}): {
+  conflicts: PatchbackMigrationConflict[];
+  records: Array<{ content: string; path: string; title: string }>;
+} {
+  const identity = patchbackIdentity(version);
+  if (identity.line !== line) {
+    throw new Error(`${version} does not belong to patchback line ${line}.`);
+  }
+  const paths = candidates.map(({ path }) => path);
+  validatePatchbackMigrationRecordPaths(paths, line);
+  const exact = new Set(validatePatchbackMigrationRecordPaths(exactPaths, line));
+  if ([...exact].some((path) => !paths.includes(path))) {
+    throw new Error('Patchback Migration candidates omit an exact release member.');
+  }
+
+  const directory = `${migrationRecordDirectory(line)}/`;
+  const records: Array<{ content: string; path: string; title: string }> = [];
+  const conflicts: PatchbackMigrationConflict[] = [];
+  for (const candidate of candidates) {
+    const filename = candidate.path.slice(directory.length);
+    const [release] = composeMigrationRecords(
+      [{ filename, source: candidate.releaseContent }],
+      line,
+    );
+    if (release === undefined) {
+      throw new Error(`Patchback Migration has no release content: ${candidate.path}`);
+    }
+    if (exact.has(candidate.path) !== (release.introducedIn === version)) {
+      throw new Error(
+        `Patchback Migration membership contradicts ${candidate.path}.`,
+      );
+    }
+    if (candidate.previousContent !== null) {
+      const [previous] = composeMigrationRecords(
+        [{ filename, source: candidate.previousContent }],
+        line,
+      );
+      if (
+        previous === undefined ||
+        previous.introducedIn !== release.introducedIn
+      ) {
+        throw new Error(
+          `Released Migration identity changed at ${candidate.path}.`,
+        );
+      }
+    }
+    const safe =
+      candidate.mainContent === null ||
+      candidate.mainContent === candidate.releaseContent ||
+      (candidate.previousContent !== null &&
+        candidate.mainContent === candidate.previousContent);
+    if (safe) {
+      records.push({
+        content: candidate.releaseContent,
+        path: candidate.path,
+        title: release.title,
+      });
+    } else {
+      conflicts.push({
+        content: candidate.releaseContent,
+        path: candidate.path,
+        title: release.title,
+      });
+    }
+  }
+  const sorted = (
+    values: Array<{ content: string; path: string; title: string }>,
+  ) =>
+    patchbackMigrationRecords({
+      line,
+      records: values.map(({ content, path }) => ({
+        filename: path.slice(directory.length),
+        source: content,
+      })),
+    });
+  return { conflicts: sorted(conflicts), records: sorted(records) };
+}
 
 /**
  * Encodes the immutable patchback coordination boundary and synchronized file

@@ -77,6 +77,7 @@ const migration = ({
   priority: string;
   title: string;
 }): string => `---
+introduced-in: 1.0.0
 priority: ${priority}
 ---
 # ${title}
@@ -234,23 +235,29 @@ test('release communication remains bound to the authorized reviewed proposal', 
 });
 
 test('the initial GitHub Release renders curated highlights, public changes, and optional migrations', () => {
-  const migrationRecords = composeMigrationRecords([
-    {
-      filename: 'cleanup-old-usage.md',
-      source: migration({
-        priority: '10 - cleanup',
-        title: 'Clean up old usage',
-      }),
-    },
-    {
-      filename: 'adopt-new-api.md',
-      source: migration({ priority: '2 - setup', title: 'Adopt the new API' }),
-    },
-  ]);
+  const migrationRecords = composeMigrationRecords(
+    [
+      {
+        filename: 'cleanup-old-usage.md',
+        source: migration({
+          priority: '10 - cleanup',
+          title: 'Clean up old usage',
+        }),
+      },
+      {
+        filename: 'adopt-new-api.md',
+        source: migration({ priority: '2 - setup', title: 'Adopt the new API' }),
+      },
+    ],
+    'v1.0',
+  );
   const body = renderStableGitHubReleaseBody({
     communication: initialCommunication,
     migrationRecords,
-    releaseRecord: renderReleaseRecord({ changes, version: '1.0.0' }),
+    releaseRecord: renderReleaseRecord({
+      changes,
+      version: '1.0.0',
+    }),
     version: '1.0.0',
   });
   assert.equal(
