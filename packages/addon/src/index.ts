@@ -31,6 +31,18 @@ export function maximum(values: number[]): number | undefined {
   return values.length === 0 ? undefined : Math.max(...values);
 }
 
+export function median(values: number[]): number | undefined {
+  if (values.length === 0) return undefined;
+
+  const ordered = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(ordered.length / 2);
+  const upper = ordered.at(middle);
+  if (upper === undefined || ordered.length % 2 === 1) return upper;
+
+  const lower = ordered.at(middle - 1);
+  return lower === undefined ? upper : average([lower, upper]);
+}
+
 export function formatSummary(
   label: string,
   values: number[],
@@ -77,4 +89,12 @@ export function formatMaximumSummary(
   options: LabelNormalizationOptions = {}
 ): string {
   return `${normalizeLabel(label, options)}:${maximum(values) ?? 'n/a'}`;
+}
+
+export function formatMedianSummary(
+  label: string,
+  values: number[],
+  options: LabelNormalizationOptions = {}
+): string {
+  return `${normalizeLabel(label, options)}:${median(values) ?? 'n/a'}`;
 }
