@@ -18,7 +18,10 @@ import { materializeVersion } from '../scripts/shared/version/materialize.ts';
 
 const execute = promisify(execFile);
 const git = (args: string[], cwd: string) =>
-  execute('git', args, { cwd, env: process.env });
+  execute('git', ['-c', 'rerere.enabled=false', ...args], {
+    cwd,
+    env: process.env,
+  });
 
 const migration = (introducedIn: string): string => `---
 introduced-in: ${introducedIn}
