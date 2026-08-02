@@ -8,7 +8,7 @@ import { releaseRecordPath } from '../../shared/release-communication/records.ts
 import { PILOT_REPOSITORY } from '../../shared/repository.ts';
 import { dedent } from '../../shared/text/dedent.ts';
 
-export const PATCHBACK_BODY_SCHEMA_VERSION = 3;
+export const PATCHBACK_BODY_SCHEMA_VERSION = 4;
 export const PATCHBACK_COMMENT_MARKER =
   '<!-- fablebook-patchback-outcome-examples -->';
 export const PATCHBACK_BODY_MARKER =
@@ -39,6 +39,7 @@ type RenderPatchbackPrBodyOptions = {
   boundaryOid: string;
   items: PatchbackItem[];
   line: string;
+  migrationConflicts: PatchbackMigrationRecord[];
   migrationRecords: PatchbackMigrationRecord[];
   recordPath: string;
   snapshotOid: string;
@@ -71,6 +72,7 @@ export function renderPatchbackPrBody({
   boundaryOid,
   items,
   line,
+  migrationConflicts,
   migrationRecords,
   recordPath,
   snapshotOid,
@@ -91,11 +93,14 @@ export function renderPatchbackPrBody({
   if (!Array.isArray(migrationRecords)) {
     throw new Error('Patchback migration records must be an array.');
   }
+  if (!Array.isArray(migrationConflicts)) {
+    throw new Error('Patchback Migration conflicts must be an array.');
+  }
   validatePatchbackMigrationRecordPaths(
-    migrationRecords.map(({ path }) => path),
+    [...migrationRecords, ...migrationConflicts].map(({ path }) => path),
     line,
   );
-  for (const record of migrationRecords) {
+  for (const record of [...migrationRecords, ...migrationConflicts]) {
     if (typeof record.title !== 'string' || record.title.length === 0) {
       throw new Error(`Patchback migration record has no title: ${record.path}`);
     }
@@ -103,12 +108,21 @@ export function renderPatchbackPrBody({
 
   const migrationItems =
     migrationRecords.length === 0
-      ? '- Migration records: _None target this release line._'
+      ? '- Automatically synchronized Migration records: _None._'
       : [
-          '- Migration records:',
+          '- Automatically synchronized Migration records:',
           ...migrationRecords.map(
             ({ path, title }) =>
               `  - [${title}](https://github.com/${PILOT_REPOSITORY}/blob/${snapshotOid}/${path}) (\`${path}\`)`,
+          ),
+        ].join('\n');
+  const migrationConflictSummary =
+    migrationConflicts.length === 0
+      ? '- Divergent Migration records preserved on `main`: _None._'
+      : [
+          '- Divergent Migration records preserved on `main`:',
+          ...migrationConflicts.map(
+            ({ path, title }) => `  - ${title} (\`${path}\`)`,
           ),
         ].join('\n');
   const header = dedent`
@@ -122,15 +136,27 @@ export function renderPatchbackPrBody({
 
     - Generated release record: [\`${recordPath}\`](https://github.com/${PILOT_REPOSITORY}/blob/${snapshotOid}/${recordPath})
     ${migrationItems}
+    ${migrationConflictSummary}
 
     This ordered product-change queue is fixed to the authorized snapshot. Automation never cherry-picks or removes its items. Mechanically synchronized communication may make an item already present; for every item, apply it, record that it is already present, or explain why it is not applicable, then check its box.
   `;
 
-  if (items.length === 0) {
+  const migrationQueue = migrationConflicts
+    .map(
+      ({ path, title }) => dedent`
+        - [ ] **Resolve divergent Migration guidance — ${title}**
+          - File: \`${path}\`
+          - Stable source: [authorized snapshot](https://github.com/${PILOT_REPOSITORY}/blob/${snapshotOid}/${path})
+          - Outcome: _preserve or manually reconcile the newer \`main\` guidance, then record the resolution_
+      `,
+    )
+    .join('\n\n');
+
+  if (items.length === 0 && migrationConflicts.length === 0) {
     return `${header}\n\n_No release-line product changes are in this snapshot scope. The synchronized release communication above is the complete patchback._`;
   }
 
-  const queue = items
+  const productQueue = items
     .map(
       (item) => dedent`
         - [ ] **${itemHeading(item)}**
@@ -140,5 +166,6 @@ export function renderPatchbackPrBody({
       `,
     )
     .join('\n\n');
+  const queue = [migrationQueue, productQueue].filter(Boolean).join('\n\n');
   return `${header}\n\n## Ordered work queue\n\n${queue}`;
 }

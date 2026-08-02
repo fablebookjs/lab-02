@@ -77,7 +77,35 @@ test('the authorized native snapshot seals the complete stable publication plan'
       '# v1.0.0 changes\n\nNo changes were recorded for this release.\n',
       'utf8',
     );
-    await git(['add', 'package.json', 'package-lock.json', 'packages', 'releases'], repository);
+    await mkdir(join(repository, 'migration-notes/v1.0'), { recursive: true });
+    const migrationSource = (introducedIn: string, title: string): string => `---
+introduced-in: ${introducedIn}
+priority: required API updates
+---
+# ${title}
+
+## Who is affected
+
+Users of the old API.
+
+## How to migrate
+
+Use the new API.
+`;
+    await writeFile(
+      join(repository, 'migration-notes/v1.0/adopt-initial-api.md'),
+      migrationSource('1.0.0', 'Adopt the initial API'),
+      'utf8',
+    );
+    await writeFile(
+      join(repository, 'migration-notes/v1.0/adopt-patch-api.md'),
+      migrationSource('1.0.1', 'Adopt the patch API'),
+      'utf8',
+    );
+    await git(
+      ['add', 'package.json', 'package-lock.json', 'packages', 'releases', 'migration-notes'],
+      repository,
+    );
     await git(['commit', '--allow-empty', '-m', 'release: materialize 1.0.0'], repository);
     const snapshotOid = (await git(['rev-parse', 'HEAD'], repository)).stdout.trim();
 
@@ -140,8 +168,11 @@ test('the authorized native snapshot seals the complete stable publication plan'
     assert.equal(
       manifest.releaseBody,
       '# Lab-02 1.0.0\n\n## Release highlights\n\n' +
-        '**Worth upgrading:** Exercise the complete release flow.\n',
+        '**Worth upgrading:** Exercise the complete release flow.\n\n' +
+        '## Migrations\n\n' +
+        '- [Adopt the initial API](https://github.com/fablebookjs/lab-02/blob/v1.0.0/migration-notes/v1.0/adopt-initial-api.md)\n',
     );
+    assert.doesNotMatch(manifest.releaseBody, /Adopt the patch API/);
     assert.ok(!('releaseCommunication' in manifest));
     assert.ok(
       manifest.packages.every(

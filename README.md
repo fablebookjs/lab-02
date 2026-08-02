@@ -190,6 +190,9 @@ Migration guidance is authored only when a change needs it. Copy
 release-line directory, for example
 `migration-notes/v2.1/adopt-portable-stories.md`. Each small record has:
 
+- a required `introduced-in: X.Y.Z` frontmatter value naming the one stable
+  release that first requires it, including when it is authored during a
+  prerelease;
 - a required free-text `priority` frontmatter value, used only for sorting;
 - one title;
 - nonempty `Who is affected` and `How to migrate` sections;
@@ -198,11 +201,13 @@ release-line directory, for example
 `npm run validate:release-communication` validates every target directory.
 Composition uses natural, case-insensitive priority order and then the unique
 filename as its tie-breaker. It removes priority metadata from the visible
-records. The release PR lists every migration record for its release line at the
-exact release source so maintainers can review the relevant files before
-publication. The published GitHub Release repeats only the ordered linked
-titles, targeting the canonical Markdown files in that release's exact tag; it
-does not copy the migration instructions into the release body.
+records. A Release PR and its published GitHub Release list only records whose
+`introduced-in` exactly equals that stable version, so later patches never
+repeat earlier guidance. Links target the canonical Markdown files in the
+release's exact tag; the instructions are not copied into the release body.
+After release, the path and `introduced-in` identity are permanent while
+maintainers may continue correcting the Markdown guidance. Generated
+`releases/vX.Y.Z.md` files remain an independent, changes-only changelog.
 
 ## Stable publication and promotion
 
@@ -255,24 +260,31 @@ with the complete first-parent delta and a `git cherry-pick -m 1` example.
 
 The write job query-first creates `patchbacks/vX.Y.Z` from the then-current
 `main`, adds one commit containing the exact generated `releases/vX.Y.Z.md`
-record and every validated migration record for that release line from the
-authorized snapshot, then opens a draft PR to `main`. The controller verifies
-that this commit differs from its recorded `main` parent only through those
-release-communication paths and that every synchronized file still exactly
-matches the snapshot. Migration records already identical on `main` remain
-unchanged.
+record, Migration records introduced in that exact version, and any older
+Migration guidance corrected within the stable slice, then opens a draft PR to
+`main`. A three-way comparison safely applies a missing file or a correction
+when `main` still has the boundary text. Guidance already identical on `main`
+is a no-op. Divergent newer `main` guidance is preserved and becomes an
+explicit maintainer task rather than being overwritten. The controller
+verifies that its coordination commit differs from the recorded `main` parent
+only through the safe release-communication paths sealed in its manifest.
 
 The PR body lists the mechanically synchronized communication separately from
-the immutable unchecked product-change queue; automation never cherry-picks
-product changes, edits outcomes, or rewrites the queue on retry. When the PR is
-first created, automation best-effort assigns it to the maintainer who merged
-the release PR. Assignment failure never blocks creation, and maintainers may
-freely reassign it. One marked comment is created or updated with copy-paste
-examples for `applied`, `already-present`, and `not-applicable` outcomes.
+the immutable unchecked product-change queue and any divergent-Migration tasks;
+automation never cherry-picks product changes, edits outcomes, or rewrites the
+queue on retry. Every open generated Patchback PR is idempotently reconciled
+with `release-note:skip` and `qa:skip`, keeping the coordination wrapper in
+internal accounting while excluding it from public release communication. When
+the PR is first created, automation best-effort assigns it to the maintainer who
+merged the release PR. Assignment failure never blocks creation, and
+maintainers may freely reassign it. One marked comment is created or updated
+with copy-paste examples for `applied`, `already-present`, and `not-applicable`
+outcomes.
 
 A merged or closed patchback PR is terminal. When the product-change scope is
 empty, the draft still contains the generated release record and can be reviewed
-and merged with any migration records as the complete patchback.
+and merged with its exact-version or corrected Migration records as the complete
+patchback.
 
 **PR: Enforce readiness** applies to every repository PR and
 fails while its description contains an unchecked Markdown task. Live branch

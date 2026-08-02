@@ -1,4 +1,5 @@
 ---
+introduced-in: 1.2.3
 priority: replace this with any sorting label
 ---
 # Describe the user-visible migration

@@ -10,6 +10,7 @@ import {
   deriveReleaseChanges,
   extractReleaseRecordChanges,
   loadMigrationRecords,
+  migrationRecordsForVersion,
   migrationRecordDirectory,
   parseReleaseRecordChanges,
   parseMigrationRecord,
@@ -43,12 +44,15 @@ const historyPull = ({
 });
 
 const migration = ({
+  introducedIn = '2.1.0',
   priority,
   title = 'Move to the new API',
 }: {
+  introducedIn?: string;
   priority: string;
   title?: string;
 }): string => `---
+introduced-in: ${introducedIn}
 priority: ${priority}
 ---
 # ${title}
@@ -283,20 +287,23 @@ test('source PR opt-out labels classify release notes and QA independently', () 
 });
 
 test('migration records accept free-text priorities and compose without rendering them', () => {
-  const records = composeMigrationRecords([
-    {
-      filename: 'z-last-filename.md',
-      source: migration({ priority: 'wave 2', title: 'A shared title' }),
-    },
-    {
-      filename: 'a-first-filename.md',
-      source: migration({ priority: 'wave 2', title: 'A shared title' }),
-    },
-    {
-      filename: 'later-natural-number.md',
-      source: migration({ priority: 'wave 10' }),
-    },
-  ]);
+  const records = composeMigrationRecords(
+    [
+      {
+        filename: 'z-last-filename.md',
+        source: migration({ priority: 'wave 2', title: 'A shared title' }),
+      },
+      {
+        filename: 'a-first-filename.md',
+        source: migration({ priority: 'wave 2', title: 'A shared title' }),
+      },
+      {
+        filename: 'later-natural-number.md',
+        source: migration({ priority: 'wave 10' }),
+      },
+    ],
+    'v2.1',
+  );
 
   assert.deepEqual(
     records.map(({ filename }) => filename),
@@ -304,8 +311,39 @@ test('migration records accept free-text priorities and compose without renderin
   );
   const firstRecord = records[0];
   assert.ok(firstRecord);
+  assert.equal(firstRecord.introducedIn, '2.1.0');
   assert.equal(Object.hasOwn(firstRecord, 'priority'), false);
   assert.doesNotMatch(records.map(({ body }) => body).join('\n'), /priority:/);
+});
+
+test('introduced-in selects exact Migration membership without later repetition', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'fablebook-exact-migrations-'));
+  try {
+    const directory = join(root, migrationRecordDirectory('v5.0'));
+    await mkdir(directory, { recursive: true });
+    await writeFile(
+      join(directory, 'adopt-alpha-api.md'),
+      migration({ introducedIn: '5.0.0', priority: 'first' }),
+      'utf8',
+    );
+    await writeFile(
+      join(directory, 'adopt-patch-api.md'),
+      migration({ introducedIn: '5.0.1', priority: 'second' }),
+      'utf8',
+    );
+    const records = await loadMigrationRecords(root, 'v5.0');
+    const initial = migrationRecordsForVersion(records, '5.0.0');
+    const patch = migrationRecordsForVersion(records, '5.0.1');
+    assert.deepEqual(initial.map(({ filename }) => filename), ['adopt-alpha-api.md']);
+    assert.deepEqual(patch.map(({ filename }) => filename), ['adopt-patch-api.md']);
+
+    assert.doesNotMatch(
+      patch.map(({ filename }) => filename).join('\n'),
+      /adopt-alpha-api/,
+    );
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
 });
 
 test('migration records require the agreed template fields but not fixed priority labels', () => {
@@ -318,6 +356,7 @@ Run the migration command.
 `,
   });
   assert.equal(parsed.priority, 'do this whenever it makes sense');
+  assert.equal(parsed.introducedIn, '2.1.0');
 
   assert.throws(
     () =>
@@ -358,12 +397,12 @@ test('a target release line loads its tiny migration files in composed order', a
     await mkdir(directory, { recursive: true });
     await writeFile(
       join(directory, 'remove-obsolete-option.md'),
-      migration({ priority: '10 - cleanup' }),
+      migration({ introducedIn: '11.0.1', priority: '10 - cleanup' }),
       'utf8'
     );
     await writeFile(
       join(directory, 'update-framework-config.md'),
-      migration({ priority: '2 - setup' }),
+      migration({ introducedIn: '11.0.0', priority: '2 - setup' }),
       'utf8'
     );
 

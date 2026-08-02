@@ -47,12 +47,14 @@ import {
   composeMigrationRecords,
   derivePrereleaseChanges,
   deriveReleaseChanges,
+  migrationRecordsForVersion,
   migrationRecordDirectory,
   normalizeReleaseChanges,
   releaseRecordPath,
   renderReleaseRecord,
 } from '../../shared/release-communication/records.ts';
 import type { ReleaseChange } from '../../shared/release-communication/records.ts';
+import type { ComposedMigrationRecord } from '../../shared/release-communication/records.ts';
 import { requireOption } from '../../shared/cli/options.ts';
 import { readJsonFile, writeJsonFile } from '../../shared/io/json.ts';
 import {
@@ -210,7 +212,7 @@ export const initialReleaseChanges = async (
 const migrationRecordsAt = async (
   oid: string,
   line: string,
-): Promise<Array<{ body: string; filename: string; title: string }>> => {
+): Promise<ComposedMigrationRecord[]> => {
   const directory = migrationRecordDirectory(line);
   let filenames: string[];
   try {
@@ -237,8 +239,14 @@ const migrationRecordsAt = async (
       source: (await git(['show', `${oid}:${directory}/${filename}`])).stdout,
     }))
   );
-  return composeMigrationRecords(records);
+  return composeMigrationRecords(records, line);
 };
+
+const migrationRecordsForReleaseAt = async (
+  oid: string,
+  line: string,
+  version: string,
+) => migrationRecordsForVersion(await migrationRecordsAt(oid, line), version);
 
 const renderProposalBody = async ({
   action,
@@ -255,7 +263,11 @@ const renderProposalBody = async ({
   return renderReleasePrBody({
     changes: action.changes,
     line: action.line,
-    migrationRecords: await migrationRecordsAt(contentOid, action.line),
+    migrationRecords: await migrationRecordsForReleaseAt(
+      contentOid,
+      action.line,
+      action.version,
+    ),
     packageNames: packages.map(({ name }) => name),
     previousBody,
     previousHighlightsBody: action.previousHighlightsBody ?? previousBody,
@@ -392,7 +404,6 @@ export async function prepareCut(options: {
     );
   }
   const attempt = randomUUID();
-
   const proposalOid = await materializeCommit({
     files: [
       {
