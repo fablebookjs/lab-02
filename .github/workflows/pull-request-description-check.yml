@@ -14,6 +14,26 @@ permissions:
   contents: read
 
 jobs:
+  route:
+    if: >-
+      github.event.pull_request.base.ref == 'main' ||
+      startsWith(github.event.pull_request.base.ref, 'releases/v')
+    name: PR route is allowed
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out only the trusted main controller
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          path: controller
+          persist-credentials: false
+          ref: main
+      - name: Reject an invalid head and base branch route
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v8
+        with:
+          script: |
+            const handler = require('./controller/scripts/github/pull-request/check-route.ts').default
+            return handler({ github, context, core, env: process.env })
+
   description:
     name: PR description has no unchecked tasks
     runs-on: ubuntu-latest
