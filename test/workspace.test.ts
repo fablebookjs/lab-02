@@ -10,10 +10,12 @@ import {
   formatAverageSummary,
   formatCountSummary,
   formatMaximumSummary,
+  formatMedianSummary,
   formatMinimumSummary,
   formatRangeSummary,
   formatSummary,
   maximum,
+  median,
   minimum,
   range,
   total,
@@ -170,6 +172,18 @@ test('maximum summaries report the highest populated value', () => {
   assert.equal(formatMaximumSummary(' Scores ', [8, 2, 4]), 'scores:8');
   assert.equal(formatMaximumSummary(' Scores ', []), 'scores:n/a');
   assert.equal(formatMaximumSummary(' I ', [8, 2, 4], { locale: 'tr' }), 'ı:8');
+});
+
+test('median summaries report the middle populated value', () => {
+  const values = [8, 2, 4];
+
+  assert.equal(median(values), 4);
+  assert.deepEqual(values, [8, 2, 4]);
+  assert.equal(median([8, 2, 4, 6]), 5);
+  assert.equal(median([]), undefined);
+  assert.equal(formatMedianSummary(' Scores ', values), 'scores:4');
+  assert.equal(formatMedianSummary(' Scores ', []), 'scores:n/a');
+  assert.equal(formatMedianSummary(' I ', values, { locale: 'tr' }), 'ı:4');
 });
 
 test('label collections share one locale-aware normalization pass', () => {
