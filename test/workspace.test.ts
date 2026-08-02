@@ -9,9 +9,11 @@ import {
   count,
   formatAverageSummary,
   formatCountSummary,
+  formatMaximumSummary,
   formatMinimumSummary,
   formatRangeSummary,
   formatSummary,
+  maximum,
   minimum,
   range,
   total,
@@ -160,6 +162,14 @@ test('minimum summaries report the lowest populated value', () => {
   assert.equal(formatMinimumSummary(' Scores ', [8, 2, 4]), 'scores:2');
   assert.equal(formatMinimumSummary(' Scores ', []), 'scores:n/a');
   assert.equal(formatMinimumSummary(' I ', [8, 2, 4], { locale: 'tr' }), 'ı:2');
+});
+
+test('maximum summaries report the highest populated value', () => {
+  assert.equal(maximum([8, 2, 4]), 8);
+  assert.equal(maximum([]), undefined);
+  assert.equal(formatMaximumSummary(' Scores ', [8, 2, 4]), 'scores:8');
+  assert.equal(formatMaximumSummary(' Scores ', []), 'scores:n/a');
+  assert.equal(formatMaximumSummary(' I ', [8, 2, 4], { locale: 'tr' }), 'ı:8');
 });
 
 test('label collections share one locale-aware normalization pass', () => {

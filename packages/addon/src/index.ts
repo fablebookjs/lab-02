@@ -27,6 +27,10 @@ export function minimum(values: number[]): number | undefined {
   return values.length === 0 ? undefined : Math.min(...values);
 }
 
+export function maximum(values: number[]): number | undefined {
+  return values.length === 0 ? undefined : Math.max(...values);
+}
+
 export function formatSummary(
   label: string,
   values: number[],
@@ -65,4 +69,12 @@ export function formatMinimumSummary(
   options: LabelNormalizationOptions = {}
 ): string {
   return `${normalizeLabel(label, options)}:${minimum(values) ?? 'n/a'}`;
+}
+
+export function formatMaximumSummary(
+  label: string,
+  values: number[],
+  options: LabelNormalizationOptions = {}
+): string {
+  return `${normalizeLabel(label, options)}:${maximum(values) ?? 'n/a'}`;
 }
