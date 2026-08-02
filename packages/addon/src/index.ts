@@ -112,7 +112,7 @@ export function formatLastSummary(
   values: number[],
   options: LabelNormalizationOptions = {}
 ): string {
-  return `${normalizeLabel(label, options)}:${last(values) ?? 'n/a'}`;
+  return `${normalizeLabel(label, options)}:${last(values) ?? 'unavailable'}`;
 }
 
 export function formatFirstSummary(
