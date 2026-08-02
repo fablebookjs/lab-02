@@ -12,13 +12,14 @@ import {
 } from '../shared/release-communication/records.ts';
 import {
   expectedMigrationVersion,
-  migrationRecordAtPath,
   validateMigrationEvolution,
 } from '../shared/release-communication/migration-policy.ts';
 import { parseReleaseLine } from '../shared/release-proposal/core.ts';
+import { PILOT_REPOSITORY, PRIMARY_BRANCH } from '../shared/repository.ts';
 import { isRecord } from '../shared/validation.ts';
 
 const root = join(repositoryRoot, 'migration-notes');
+const RELEASE_APP_BOT_LOGIN = 'fablebook-lab-02-release[bot]';
 let entries: Dirent[];
 try {
   entries = await readdir(root, { withFileTypes: true });
@@ -85,9 +86,15 @@ if (baseBranch === 'main' || baseBranch.startsWith('releases/')) {
     baseBranch,
     basePackage['version'],
   );
-  const generatedHead = /^(?:patchbacks|staged)\/v/.test(
-    process.env['GITHUB_HEAD_REF'] ?? '',
-  );
+  const generatedPatchback =
+    baseBranch === PRIMARY_BRANCH &&
+    process.env['GITHUB_REPOSITORY'] === PILOT_REPOSITORY &&
+    process.env['GITHUB_HEAD_REPOSITORY'] === PILOT_REPOSITORY &&
+    /^patchbacks\/v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(
+      process.env['GITHUB_HEAD_REF'] ?? '',
+    ) &&
+    process.env['GITHUB_PR_AUTHOR_TYPE'] === 'Bot' &&
+    process.env['GITHUB_PR_AUTHOR_LOGIN'] === RELEASE_APP_BOT_LOGIN;
   const { stdout: changed } = await git([
     'diff',
     '--name-status',
@@ -110,26 +117,11 @@ if (baseBranch === 'main' || baseBranch.startsWith('releases/')) {
   for (const path of changedPaths) {
     const beforeSource = await readFileAtCommit(repositoryRoot, baseOid, path);
     const afterSource = await readFileAtCommit(repositoryRoot, 'HEAD', path);
-    if (beforeSource !== null) {
-      try {
-        migrationRecordAtPath(path, beforeSource);
-      } catch (error) {
-        if (afterSource === null) throw error;
-        const after = migrationRecordAtPath(path, afterSource);
-        if (
-          afterSource.replace(`introduced-in: ${after.introducedIn}\n`, '') !==
-          beforeSource
-        ) {
-          throw error;
-        }
-        continue;
-      }
-    }
     validateMigrationEvolution({
       afterSource,
       beforeSource,
       expectedVersion:
-        generatedHead && beforeSource === null ? null : expectedVersion,
+        generatedPatchback && beforeSource === null ? null : expectedVersion,
       path,
     });
   }

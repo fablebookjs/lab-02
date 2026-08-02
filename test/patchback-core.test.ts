@@ -116,6 +116,13 @@ test('patchback identity and coordination commit are version-bound', () => {
     ),
     null,
   );
+  assert.throws(
+    () =>
+      parsePatchbackCommitMessage(
+        message.replace('Patchback-Version: 10.4.3', 'Patchback-Version: beta'),
+      ),
+    /stable SemVer/,
+  );
 });
 
 test('patchback release records are exact generated version files', () => {

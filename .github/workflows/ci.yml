@@ -27,6 +27,10 @@ jobs:
           node-version: 24
           package-manager-cache: false
       - name: Install, compile, test, and exercise packed packages
+        env:
+          GITHUB_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          GITHUB_PR_AUTHOR_LOGIN: ${{ github.event.pull_request.user.login }}
+          GITHUB_PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
           npm run check
