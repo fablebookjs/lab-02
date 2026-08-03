@@ -90,12 +90,15 @@ test('native v1 projects, validates, filters, and orders the release package set
   );
 });
 
-test('the current repository snapshot exercises its native v1 interface through the loader', async () => {
+test('the current repository exposes only its native v1 package-set interface', async () => {
   const rootManifest: unknown = JSON.parse(
     await readFile(join(repositoryRoot, 'package.json'), 'utf8'),
   );
   assert.ok(rootManifest !== null && typeof rootManifest === 'object');
   assert.ok('version' in rootManifest && typeof rootManifest.version === 'string');
+  const scripts = 'scripts' in rootManifest ? rootManifest.scripts : undefined;
+  assert.ok(scripts !== null && typeof scripts === 'object' && !Array.isArray(scripts));
+  assert.ok(!('list-packages' in scripts));
 
   assert.deepEqual(await loadReleasePackageSet(repositoryRoot, rootManifest.version), [
     {

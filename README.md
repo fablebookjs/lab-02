@@ -107,9 +107,7 @@ controller creates a clean replacement.
 An in-place refresh preserves a checked manual-QA item by its hidden PR or
 commit identity. Title and release-note changes do not reset it. Adding
 `qa:skip` satisfies it automatically, while removing `qa:skip` resets it for
-manual review. The source-metadata confirmation itself always resets. The
-current legacy proposal format is intentionally replaced cleanly once rather
-than migrated.
+manual review. The source-metadata confirmation itself always resets.
 
 The release PR is the only required QA workspace. Maintainers discuss findings
 there and open a normal issue only when a finding needs independent long-term
@@ -125,15 +123,14 @@ approvals, and allow release PRs to merge only with a merge commit.
 
 ## Prerelease proposals and publication
 
-The prerelease lifecycle remains inactive until a managed release cut creates
-the next development line's `alpha.0` boundary. That cut transfers a sealed
-publication authority after its guarded GitHub mutation succeeds, so the new
-line's direct `alpha.0` publication proceeds independently from maintenance of
-the stable Release PR. The pre-system `3.1.0-alpha.0` has no such authority and
-is never imported or backfilled.
+Prerelease maintenance requires and derives its authority from the latest
+managed snapshot on protected `main`. A managed release cut establishes each
+development line's `alpha.0` boundary and transfers sealed publication
+authority after its guarded GitHub mutation succeeds, so direct `alpha.0`
+publication proceeds independently from stable Release PR maintenance.
 
-After the managed boundary exists, every push to `main` runs **Prerelease: Keep
-prerelease PR current** in the shared release-proposal writer queue. It creates
+Every push to `main` runs **Prerelease: Keep prerelease PR current** in the
+shared release-proposal writer queue. It creates
 or wholly refreshes one canonical draft `prerelease` PR when product work
 exists, and removes stale proposal state when no work remains. The PR lists all
 scoped changes without QA tasks. `release-note:skip` entries remain part of the

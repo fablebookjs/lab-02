@@ -14,6 +14,7 @@ import {
   previousReleaseVersion,
   releaseMergerAssignee,
 } from '../scripts/shared/patchback/core.ts';
+import { inspectPatchbackPrBody } from '../scripts/shared/patchback/body.ts';
 import {
   PATCHBACK_BODY_MARKER,
   PATCHBACK_BODY_SCHEMA_VERSION,
@@ -546,6 +547,19 @@ test('the generated queue is unchecked while the examples and empty path are mer
   assert.match(body, /migration-notes\/v10\.4\/adopt-new-api\.md/);
   assert.match(body, /Divergent Migration records preserved on `main`/);
   assert.match(body, /correct-existing-guidance\.md/);
+  const inspection = inspectPatchbackPrBody(body);
+  assert.deepEqual(inspection.diagnostics, []);
+  assert.deepEqual(
+    inspection.items.map(({ kind }) => kind),
+    ['migration-conflict', 'product-change']
+  );
+  assert.equal(inspection.items[1]?.kind, 'product-change');
+  assert.equal(
+    inspection.items[1]?.kind === 'product-change'
+      ? inspection.items[1].command
+      : null,
+    `git cherry-pick ${directOid}`
+  );
   assert.equal(containsUncheckedMarkdownTask(body.replaceAll('- [ ]', '- [x]')), false);
   assert.equal(containsUncheckedMarkdownTask(PATCHBACK_EXAMPLES_COMMENT), false);
 
@@ -558,6 +572,14 @@ test('the generated queue is unchecked while the examples and empty path are mer
     migrationRecords: [],
     recordPath: 'releases/v10.4.0.md',
     snapshotOid,
+    version: '10.4.0',
+  });
+  assert.deepEqual(inspectPatchbackPrBody(empty), {
+    diagnostics: [],
+    items: [],
+    markerVersion: PATCHBACK_BODY_SCHEMA_VERSION,
+    scopeBoundary: boundaryOid,
+    snapshot: snapshotOid,
     version: '10.4.0',
   });
   assert.equal(containsUncheckedMarkdownTask(empty), false);

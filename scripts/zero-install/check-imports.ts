@@ -12,13 +12,14 @@ export type ImportBoundaryDiagnostic = {
   specifier?: string;
 };
 
-type Zone = 'api' | 'github' | 'shared';
+type Zone = 'agent' | 'api' | 'github' | 'shared';
 type AnalyzedSource = { canonical: string; logical: string; zone: Zone };
 
 const executableExtensions = new Set(['.cjs', '.cts', '.js', '.jsx', '.mjs', '.mts', '.tsx']);
 const alternateLoaders = new Set(['createRequire', 'register', 'registerHooks']);
-const zones: readonly Zone[] = ['api', 'github', 'shared'];
+const zones: readonly Zone[] = ['agent', 'api', 'github', 'shared'];
 const allowedTargets: Readonly<Record<Zone, readonly Zone[]>> = {
+  agent: ['agent', 'shared'],
   api: ['api', 'shared'],
   github: ['github', 'shared'],
   shared: ['shared'],
@@ -242,11 +243,13 @@ export function checkZeroInstallImports(
 ): ImportBoundaryDiagnostic[] {
   const scriptsRoot = resolve(scriptsRootInput);
   const roots: Record<Zone, string> = {
+    agent: resolve(scriptsRoot, '../.agents'),
     api: resolve(scriptsRoot, 'api'),
     github: resolve(scriptsRoot, 'github'),
     shared: resolve(scriptsRoot, 'shared'),
   };
   const canonicalRoots: Record<Zone, string> = {
+    agent: realpathSync(roots.agent),
     api: realpathSync(roots.api),
     github: realpathSync(roots.github),
     shared: realpathSync(roots.shared),

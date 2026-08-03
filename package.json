@@ -13,7 +13,6 @@
     "check:zero-install-imports": "node scripts/zero-install/check-imports.ts",
     "clean": "tsc -b --clean",
     "compile": "tsc -b",
-    "list-packages": "node scripts/workspace/list-packages.ts",
     "set-version": "node scripts/version/set-version.ts",
     "smoke:packed": "node scripts/consumer-smoke/run.ts",
     "test": "node --test test/*.test.ts",

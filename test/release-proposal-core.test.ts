@@ -246,7 +246,7 @@ test('a matching open patch proposal remains current from its line root version'
     lineState({
       line: 'v3.0',
       lineVersion: '3.0.0',
-      openPr: { bodyCurrent: true, number: 88, replaceRequired: false },
+      openPr: { bodyCurrent: true, number: 88 },
       releaseOid: '3'.repeat(40),
       staged: {
         oid: '4'.repeat(40),
@@ -259,36 +259,6 @@ test('a matching open patch proposal remains current from its line root version'
     kind: 'none',
     line: 'v3.0',
     reason: 'open proposal is current',
-  });
-});
-
-test('the disposable legacy proposal is replaced cleanly', () => {
-  const [action] = planProposalMaintenance([
-    lineState({
-      openPr: {
-        bodyCurrent: false,
-        number: 68,
-        replaceRequired: true,
-      },
-      staged: {
-        oid: '3'.repeat(40),
-        sourceOid: '1'.repeat(40),
-        version: '1.0.1',
-      },
-      lineVersion: '1.0.0',
-    }),
-  ]);
-  assert.deepEqual(action, {
-    kind: 'replace',
-    line: 'v1.0',
-    openPr: {
-      bodyCurrent: false,
-      number: 68,
-      replaceRequired: true,
-    },
-    reason: 'legacy release PR is disposable',
-    supersededPr: 68,
-    version: '1.0.1',
   });
 });
 

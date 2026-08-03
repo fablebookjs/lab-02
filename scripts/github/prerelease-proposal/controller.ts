@@ -159,7 +159,12 @@ export async function preparePrereleaseProposal(
   const mainOid = await currentOid();
   const lineVersion = await rootVersionAt(repositoryRoot, mainOid);
   const boundary = await findManagedPrereleaseBoundary(repositoryRoot, mainOid);
-  if (boundary !== null && boundary.version !== lineVersion) {
+  if (boundary === null) {
+    throw new Error(
+      'Prerelease maintenance requires a managed prerelease snapshot.',
+    );
+  }
+  if (boundary.version !== lineVersion) {
     throw new Error(
       `main carries ${lineVersion}, but its latest managed prerelease snapshot carries ${boundary.version}.`,
     );
@@ -176,7 +181,7 @@ export async function preparePrereleaseProposal(
     identity.sourceOid === staged.sourceOid &&
     identity.version === staged.version;
   const plan = planPrereleaseProposal({
-    boundaryOid: boundary?.oid ?? null,
+    boundaryOid: boundary.oid,
     lineVersion,
     mainOid,
     openPr:
@@ -186,7 +191,7 @@ export async function preparePrereleaseProposal(
     staged,
   });
   const changes =
-    boundary === null || mainOid === boundary.oid
+    mainOid === boundary.oid
       ? []
       : await prereleaseChanges(token, {
           boundaryOid: boundary.oid,
@@ -202,9 +207,6 @@ export async function preparePrereleaseProposal(
     plan.kind === 'recreate' ||
     plan.kind === 'refresh'
   ) {
-    if (boundary === null) {
-      throw new Error('A prepared prerelease proposal requires a managed boundary.');
-    }
     const attempt = randomUUID();
     const proposalOid = await materializeCommit({
       message: prereleaseProposalCommitMessage({
@@ -238,7 +240,7 @@ export async function preparePrereleaseProposal(
       version: plan.version,
     };
   } else if (plan.kind === 'sync') {
-    if (boundary === null || staged === null) {
+    if (staged === null) {
       throw new Error('Prerelease body synchronization has no current proposal.');
     }
     action = {
@@ -253,9 +255,6 @@ export async function preparePrereleaseProposal(
       version: plan.version,
     };
   } else if (plan.kind === 'clear') {
-    if (boundary === null) {
-      throw new Error('Prerelease cleanup has no managed boundary.');
-    }
     action = {
       boundaryOid: boundary.oid,
       changes,
@@ -335,7 +334,7 @@ export async function applyPrereleaseProposal(
     action.expectedStagedOid,
   );
 
-  if (action.kind === 'inactive' || action.kind === 'none') {
+  if (action.kind === 'none') {
     console.log(`Skipped prerelease proposal application: ${action.reason}.`);
     return;
   }

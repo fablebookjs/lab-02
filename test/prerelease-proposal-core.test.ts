@@ -69,33 +69,6 @@ test('proposal commit metadata round-trips distinct ordinary authority', () => {
   );
 });
 
-test('the legacy development line stays inactive without managed state', () => {
-  assert.deepEqual(
-    planPrereleaseProposal({
-      boundaryOid: null,
-      lineVersion: '3.1.0-alpha.0',
-      mainOid: oid('1'),
-      openPr: null,
-      staged: null,
-    }),
-    {
-      kind: 'inactive',
-      reason: 'development line has no managed prerelease snapshot',
-    },
-  );
-  assert.throws(
-    () =>
-      planPrereleaseProposal({
-        boundaryOid: null,
-        lineVersion: '3.1.0-alpha.0',
-        mainOid: oid('1'),
-        openPr: { bodyCurrent: true, number: 91 },
-        staged: staged(),
-      }),
-    /unmanaged development line/,
-  );
-});
-
 test('one rolling proposal creates, refreshes, syncs, and then clears', () => {
   const boundaryOid = oid('1');
   const mainOid = oid('2');

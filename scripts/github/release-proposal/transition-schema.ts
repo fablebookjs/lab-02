@@ -63,7 +63,7 @@ export type MaintenanceAction =
   | (MaintenanceActionBase & {
       bundleRef: string;
       changes: unknown[];
-      kind: 'refresh' | 'replace';
+      kind: 'refresh';
       openPr: number;
       proposalOid: string;
       version: string;
@@ -151,7 +151,6 @@ const maintenanceActionValue = (value: unknown): MaintenanceAction => {
     kind !== 'open' &&
     kind !== 'recreate' &&
     kind !== 'refresh' &&
-    kind !== 'replace' &&
     kind !== 'sync'
   ) {
     throw new Error(`Unknown maintenance action: ${String(kind)}`);
@@ -192,7 +191,7 @@ const maintenanceActionValue = (value: unknown): MaintenanceAction => {
   }
 
   const bundleRef = stringValue(value['bundleRef'], 'Maintenance bundle ref');
-  if (kind === 'refresh' || kind === 'replace') {
+  if (kind === 'refresh') {
     if (openPr === undefined) {
       throw new Error(`${kind} maintenance action requires an open PR.`);
     }

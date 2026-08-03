@@ -98,7 +98,7 @@ const inspect = (file: string): void => {
   }
 };
 
-for (const root of ['scripts', 'test']) {
+for (const root of ['.agents', 'scripts', 'test']) {
   for (const file of typescriptFiles(join(repositoryRoot, root))) inspect(file);
 }
 

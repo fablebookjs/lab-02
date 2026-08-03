@@ -12,7 +12,7 @@ export type PrereleaseProposal = {
 
 /** Immutable Git/PR observation consumed by the prerelease proposal planner. */
 export type PrereleaseProposalState = {
-  boundaryOid: string | null;
+  boundaryOid: string;
   lineVersion: string;
   mainOid: string;
   openPr: {
@@ -24,7 +24,6 @@ export type PrereleaseProposalState = {
 
 /** Exhaustive no-op or mutation intent produced by prerelease maintenance. */
 export type PrereleaseProposalPlan =
-  | { kind: 'inactive'; reason: string }
   | { kind: 'none'; reason: string }
   | {
       kind: 'clear';
@@ -140,9 +139,7 @@ const positiveInteger = (value: number, label: string): void => {
 const validateState = (state: PrereleaseProposalState): void => {
   fullOid(state.mainOid, 'Prerelease main source');
   parseDevelopmentVersion(state.lineVersion);
-  if (state.boundaryOid !== null) {
-    fullOid(state.boundaryOid, 'Prerelease snapshot boundary');
-  }
+  fullOid(state.boundaryOid, 'Prerelease snapshot boundary');
   if (state.openPr !== null) {
     positiveInteger(state.openPr.number, 'Prerelease pull request');
   }
@@ -156,24 +153,12 @@ const validateState = (state: PrereleaseProposalState): void => {
 
 /**
  * Reduces one observed prerelease line to a deterministic maintenance intent.
- * An unmanaged line stays inactive, while contradictory staged/PR state fails.
+ * The caller must establish the managed boundary before invoking the planner.
  */
 export function planPrereleaseProposal(
   state: PrereleaseProposalState,
 ): PrereleaseProposalPlan {
   validateState(state);
-  if (state.boundaryOid === null) {
-    if (state.openPr !== null || state.staged !== null) {
-      throw new Error(
-        'An unmanaged development line cannot contain canonical prerelease proposal state.',
-      );
-    }
-    return {
-      kind: 'inactive',
-      reason: 'development line has no managed prerelease snapshot',
-    };
-  }
-
   if (state.mainOid === state.boundaryOid) {
     if (state.openPr !== null || state.staged !== null) {
       return {
