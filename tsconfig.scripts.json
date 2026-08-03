@@ -23,5 +23,9 @@
     "types": ["node"],
     "verbatimModuleSyntax": true
   },
-  "include": ["scripts/**/*.ts", "test/**/*.ts"]
+  "include": [
+    ".agents/skills/**/scripts/**/*.ts",
+    "scripts/**/*.ts",
+    "test/**/*.ts"
+  ]
 }

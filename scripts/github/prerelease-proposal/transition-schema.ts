@@ -14,12 +14,6 @@ export type ProposalActionBase = {
 export type ProposalTransitionAction =
   | {
       expectedStagedOid: string | null;
-      kind: 'inactive';
-      mainOid: string;
-      reason: string;
-    }
-  | {
-      expectedStagedOid: string | null;
       kind: 'none';
       mainOid: string;
       reason: string;
@@ -97,7 +91,6 @@ const transitionActionValue = (value: unknown): ProposalTransitionAction => {
   }
   const kind = value['kind'];
   if (
-    kind !== 'inactive' &&
     kind !== 'none' &&
     kind !== 'clear' &&
     kind !== 'sync' &&
@@ -113,7 +106,7 @@ const transitionActionValue = (value: unknown): ProposalTransitionAction => {
   );
   const mainOid = oidValue(value['mainOid'], 'Prerelease action main');
   const reason = stringValue(value['reason'], 'Prerelease action reason');
-  if (kind === 'inactive' || kind === 'none') {
+  if (kind === 'none') {
     return { expectedStagedOid, kind, mainOid, reason };
   }
   const base = {

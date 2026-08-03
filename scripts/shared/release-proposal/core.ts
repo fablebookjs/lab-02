@@ -69,7 +69,6 @@ export type ProposalState = {
   openPr: {
     bodyCurrent: boolean;
     number: number;
-    replaceRequired: boolean;
   } | null;
   releaseOid: string;
   staged: {
@@ -395,16 +394,6 @@ export function planProposalMaintenance(lines: readonly ProposalState[]) {
         throw new Error(
           `${state.line} reserves ${state.staged.version}, expected ${expectedVersion}`
         );
-      }
-      if (state.openPr.replaceRequired === true) {
-        return {
-          kind: 'replace',
-          line: state.line,
-          openPr: state.openPr,
-          reason: 'legacy release PR is disposable',
-          supersededPr: state.openPr.number,
-          version: state.staged.version,
-        };
       }
       if (state.staged.sourceOid === state.releaseOid) {
         if (state.openPr.bodyCurrent === false) {

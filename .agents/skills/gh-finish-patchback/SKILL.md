@@ -15,7 +15,7 @@ and make every recorded outcome independently true before checking it off.
 2. Check `gh auth status`, fetch `origin`, and run:
 
    ```sh
-   node <skill-directory>/scripts/inspect-patchback-pr.mjs <pr-url-or-number>
+   node <skill-directory>/scripts/inspect-patchback-pr.ts <pr-url-or-number>
    ```
 
 3. Stop on any reported validation error. Require:

@@ -4,15 +4,20 @@ import {
   validatePatchbackMigrationRecordPaths,
 } from '../../shared/patchback/core.ts';
 import type { PatchbackItem } from '../../shared/patchback/core.ts';
+import {
+  PATCHBACK_BODY_MARKER,
+  PATCHBACK_BODY_SCHEMA_VERSION,
+} from '../../shared/patchback/body.ts';
 import { releaseRecordPath } from '../../shared/release-communication/records.ts';
 import { PILOT_REPOSITORY } from '../../shared/repository.ts';
 import { dedent } from '../../shared/text/dedent.ts';
 
-export const PATCHBACK_BODY_SCHEMA_VERSION = 4;
+export {
+  PATCHBACK_BODY_MARKER,
+  PATCHBACK_BODY_SCHEMA_VERSION,
+} from '../../shared/patchback/body.ts';
 export const PATCHBACK_COMMENT_MARKER =
   '<!-- fablebook-patchback-outcome-examples -->';
-export const PATCHBACK_BODY_MARKER =
-  `<!-- fablebook-patchback-coordination:v${PATCHBACK_BODY_SCHEMA_VERSION} -->`;
 
 /** Reusable marked comment that teaches maintainers the accepted outcome vocabulary. */
 export const PATCHBACK_EXAMPLES_COMMENT = dedent`

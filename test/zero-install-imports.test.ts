@@ -14,7 +14,10 @@ async function withFixture(
   try {
     const scripts = join(root, 'scripts');
     await Promise.all(
-      ['api', 'github', 'shared'].map((zone) => mkdir(join(scripts, zone), { recursive: true })),
+      [
+        join(root, '.agents'),
+        ...['api', 'github', 'shared'].map((zone) => join(scripts, zone)),
+      ].map((directory) => mkdir(directory, { recursive: true })),
     );
     for (const [path, source] of Object.entries(sources)) {
       const target = join(scripts, path);
@@ -33,6 +36,8 @@ test('accepts every allowed zero-install zone direction and declaration-only pac
       'api/v1/entry.ts':
         "import { local } from './local.ts';\nimport { shared } from '../../shared/value.ts';\nimport type { Context } from '@actions/github';\nexport const apiValue = (_context: Context) => `${local}:${shared}`;\n",
       'api/v1/local.ts': "export const local = 'api';\n",
+      '../.agents/skills/example/scripts/inspect.ts':
+        "import { spawnSync } from 'node:child_process';\nimport { shared } from '../../../../scripts/shared/value.ts';\nexport const inspect = () => spawnSync('gh', ['version']).status === 0 ? shared : '';\n",
       'github/handler.ts':
         "import { local } from './local.ts';\nimport { shared } from '../shared/value.ts';\nimport type { Context } from '@actions/github';\nexport default (_context: Context) => `${local}:${shared}`;\n",
       'github/local.ts': "export const local = 'github';\n",
@@ -45,6 +50,14 @@ test('accepts every allowed zero-install zone direction and declaration-only pac
 });
 
 for (const fixture of [
+  {
+    name: 'agent tools that reach into the GitHub zone',
+    sources: {
+      '../.agents/skills/example/scripts/source.ts':
+        "export { value } from '../../../../scripts/github/target.ts';\n",
+      'github/target.ts': "export const value = 'github';\n",
+    },
+  },
   {
     name: 'shared modules that reach into the GitHub zone',
     sources: {
@@ -163,6 +176,8 @@ for (const path of ['api/v1/source.ts', 'github/source.ts', 'shared/source.ts'])
 test('rejects top-level await in every zero-install zone', async () => {
   await withFixture(
     {
+      '../.agents/skills/example/scripts/inspect.ts':
+        'await Promise.resolve();\nexport const agent = true;\n',
       'api/v1/entry.ts': 'await Promise.resolve();\nexport const api = true;\n',
       'github/handler.ts': 'await Promise.resolve();\nexport default () => undefined;\n',
       'shared/value.ts': 'await Promise.resolve();\nexport const shared = true;\n',
@@ -170,7 +185,12 @@ test('rejects top-level await in every zero-install zone', async () => {
     (diagnostics) => {
       assert.deepEqual(
         diagnostics.map(({ code }) => code),
-        ['TOP_LEVEL_AWAIT', 'TOP_LEVEL_AWAIT', 'TOP_LEVEL_AWAIT'],
+        [
+          'TOP_LEVEL_AWAIT',
+          'TOP_LEVEL_AWAIT',
+          'TOP_LEVEL_AWAIT',
+          'TOP_LEVEL_AWAIT',
+        ],
       );
     },
   );

@@ -118,7 +118,6 @@ type MaintenanceState = {
   openPr: {
     bodyCurrent: boolean;
     number: number;
-    replaceRequired: boolean;
   } | null;
   releaseOid: string;
   staged: (ReturnType<typeof parseProposalMessage> & { oid: string }) | null;
@@ -797,9 +796,6 @@ const loadMaintenanceStates = async (token: string): Promise<MaintenanceState[]>
         ? {
             bodyCurrent,
             number: openPull.number,
-            replaceRequired: String(openPull.body ?? '').includes(
-              '<!-- fablebook:release-pr=v6 -->'
-            ),
           }
         : null,
       releaseOid,
@@ -976,7 +972,6 @@ export async function applyMaintenance(
         'open',
         'recreate',
         'refresh',
-        'replace',
         'sync',
       ].includes(action.kind)
     ) {
@@ -1063,7 +1058,7 @@ export async function applyMaintenance(
       continue;
     }
 
-    if (action.kind === 'refresh' || action.kind === 'replace') {
+    if (action.kind === 'refresh') {
       if (openPulls.length !== 1 || openPulls[0]?.number !== action.openPr) {
         throw new Error(`${action.line} no longer has the expected open release PR.`);
       }
@@ -1106,11 +1101,6 @@ export async function applyMaintenance(
         proposalOid: uploadedProposalOid,
       });
       await updatePullRequestBody(token, action.openPr, body);
-    }
-
-    if (action.kind === 'replace') {
-      await closePullRequest(token, action.openPr);
-      await createReleasePr(token, action, uploadedProposalOid, action.proposalOid);
     }
 
     if (action.kind === 'create' || action.kind === 'recreate') {

@@ -43,6 +43,44 @@ const invoke = (
     { ...process.env, ...env },
   );
 
+test('prerelease maintenance fails when managed history is missing', async () => {
+  const temporaryRoot = await mkdtemp(
+    join(tmpdir(), 'fablebook-unmanaged-prerelease-'),
+  );
+  const repository = join(temporaryRoot, 'repository');
+  try {
+    await copySeed(repository);
+    await git(['init', '-b', 'main'], repository);
+    await git(['config', 'user.name', 'Lab 02 test'], repository);
+    await git(['config', 'user.email', 'lab-02-test@example.com'], repository);
+    await git(['config', 'maintenance.auto', 'false'], repository);
+    await git(['add', '.'], repository);
+    await git(['commit', '-m', 'Initialize unmanaged repository'], repository);
+
+    await assert.rejects(
+      invoke(
+        [
+          "const controller = await import('./scripts/github/prerelease-proposal/controller.ts');",
+          'await controller.preparePrereleaseProposal({',
+          "  'github-token': 'unused',",
+          "  output: 'prepared',",
+          '});',
+        ].join('\n'),
+        repository,
+        {},
+      ),
+      /requires a managed prerelease snapshot/,
+    );
+  } finally {
+    await rm(temporaryRoot, {
+      force: true,
+      maxRetries: 5,
+      recursive: true,
+      retryDelay: 100,
+    });
+  }
+});
+
 test('an ordinary proposal materializes one child and checks exact current main', async () => {
   const temporaryRoot = await mkdtemp(
     join(tmpdir(), 'fablebook-prerelease-proposal-'),
